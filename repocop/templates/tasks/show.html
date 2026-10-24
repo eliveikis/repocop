@@ -1,34 +1,56 @@
 {% extends "base.html" %}
+{% set crumbs = [("Repositories", url_for('list_repositories'))]
+  + ([(repository.name, url_for('repository_page', repository_id=repository.id))] if repository else [])
+  + ([(requirement.name, url_for('requirement_page', repository_id=requirement.repository_id, file_name=requirement.file_name))] if requirement else [])
+  + [("Task #" ~ task.id, url_for('task_page', task_id=task.id))] %}
+{% set instruction_offered = instructable and task.status in ("running", "waiting_for_user") %}
 
 {% block title %}#{{ task.id }} · RepoCop{% endblock %}
 
-{% block scripts %}<script src="{{ url_for('static', path='vendor/htmx.min.js') }}" defer></script>{% endblock %}
+{% block toasts %}
+{% if notices.started %}<p class="toast">Task started in its worktree.</p>{% endif %}
+{% if notices.sent %}<p class="toast">Instruction sent to this task's session.</p>{% endif %}
+{% if notices.cancelled %}<p class="toast">Task cancelled.</p>{% endif %}
+{% if notices.done %}<p class="toast">Task marked done.</p>{% endif %}
+{% if pull_request_done == "push" %}<p class="toast">Pushed <code>{{ task.branch }}</code>.</p>
+{% elif pull_request_done == "review" %}<p class="toast">Asked Copilot to review the pull request.</p>{% endif %}
+{% endblock %}
 
 {% block content %}
-{% if requirement %}<p><a href="{{ url_for('requirement_page', repository_id=requirement.repository_id, file_name=requirement.file_name) }}">← {{ requirement.name }}</a></p>{% endif %}
 <h1>#{{ task.id }} · {{ task.workflow }}</h1>
 
-{% if notices.started %}<p class="notice" role="status">Task started in its worktree.</p>{% endif %}
-{% if notices.sent %}<p class="notice" role="status">Instruction sent to this task's session.</p>{% endif %}
-{% if notices.cancelled %}<p class="notice" role="status">Task cancelled.</p>{% endif %}
-{% if notices.done %}<p class="notice" role="status">Task marked done.</p>{% endif %}
+<nav class="section-links" aria-label="On this page">
+  <a href="#overview">Overview</a>
+  <a href="#transcript">Transcript</a>
+  {% if instruction_offered %}<a href="#instruction">Instruction</a>{% endif %}
+  {% if pull_request_offered %}<a href="#pull-request">Pull request</a>{% endif %}
+  <a href="#worktree">Worktree</a>
+</nav>
+
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+{% if waiting %}{% include "partials/sync_waiting.html" %}{% endif %}
 
+<section id="overview" aria-label="Overview">
 {% include "partials/task_header.html" %}
+</section>
 
-<h2>Transcript</h2>
-<ol class="transcript">
-{% include "partials/task_events.html" %}
-</ol>
+<section id="transcript" aria-labelledby="transcript-heading">
+  <h2 id="transcript-heading">Transcript</h2>
+  <ol class="transcript">
+  {% include "partials/task_events.html" %}
+  </ol>
+</section>
 
-{% if instructable and task.status in ("running", "waiting_for_user") %}
-<form class="instruction" method="post" action="{{ url_for('send_instruction', task_id=task.id) }}">
-  <label>Instruction for this session
-    <textarea name="text" rows="4">{{ instruction }}</textarea>
-  </label>
-  <button type="submit">Send to #{{ task.id }}</button>
-</form>
-<p class="hint">Goes to this task's session only. While it's working, it's answered after the current turn.</p>
+{% if instruction_offered %}
+<section id="instruction" aria-label="Instruction">
+  <form class="instruction" method="post" action="{{ url_for('send_instruction', task_id=task.id) }}">
+    <label>Instruction for this session
+      <textarea name="text" rows="4">{{ instruction }}</textarea>
+    </label>
+    <span class="hint">Goes to this task's session only. While it's working, it's answered after the current turn.</span>
+    <button type="submit" class="primary">Send to #{{ task.id }}</button>
+  </form>
+</section>
 {% endif %}
 
 {% if pull_request_offered %}
@@ -36,6 +58,8 @@
 {% include "partials/pull_request.html" %}
 {% endif %}
 
-<h2>Worktree</h2>
-{% include "partials/task_worktree.html" %}
+<section id="worktree" aria-labelledby="worktree-heading">
+  <h2 id="worktree-heading">Worktree</h2>
+  {% include "partials/task_worktree.html" %}
+</section>
 {% endblock %}

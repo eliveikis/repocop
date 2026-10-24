@@ -1,5 +1,6 @@
 """Template sync pages: the plan with per-file picks, applying it, and the resulting task."""
 
+import re
 from pathlib import Path
 
 import pytest
@@ -16,6 +17,13 @@ def checkout(settings: Settings) -> Path:
 @pytest.fixture
 def registered(client: TestClient, remote_repo: Path) -> None:
     client.post("/repositories", data={"remote_url": str(remote_repo)})
+
+
+def waiting_notice(html: str) -> str:
+    """What a page says is left to do before a waiting sync lands."""
+    match = re.search(r'<div class="notice sync-waiting">(.*?)</div>', html, re.DOTALL)
+    assert match, "no waiting sync notice"
+    return match[1]
 
 
 def commit_the_template(settings: Settings) -> None:
@@ -180,8 +188,18 @@ def test_a_waiting_sync_shows_in_the_status_and_links_to_its_task(client: TestCl
     client.post("/repositories/1/sync", data={"create": ["CLAUDE.md", "logo.bin"]})
     for page in ("/", "/repositories/1"):
         html = client.get(page).text
-        assert 'href="http://testserver/tasks/1">sync waiting</a>' in html
+        assert 'href="http://testserver/tasks/1">sync #1 not on main</a>' in html
         assert "behind the template" not in html
+
+
+@pytest.mark.usefixtures("registered")
+def test_a_waiting_sync_says_what_is_left_to_do_beside_a_fetch(client: TestClient) -> None:
+    client.post("/repositories/1/sync", data={"create": ["CLAUDE.md"]})
+    for page in ("/repositories/1", "/tasks/1", "/repositories/1/sync"):
+        left = waiting_notice(client.get(page).text)
+        assert "<code>agent/template-sync-1</code>, isn't on <code>origin/main</code>" in left
+        assert "Open its pull request, merge it on GitHub, then fetch." in left
+        assert 'action="http://testserver/repositories/1/fetch"' in left, page
 
 
 @pytest.mark.usefixtures("registered")
@@ -192,7 +210,7 @@ def test_sync_page_points_at_a_waiting_sync_instead_of_offering_another(
     html = client.get("/repositories/1/sync").text
     assert '<a href="http://testserver/tasks/1">' in html
     assert "agent/template-sync-1" in html
-    assert "<form" not in html
+    assert 'action="http://testserver/repositories/1/sync"' not in html
 
 
 @pytest.mark.usefixtures("registered")

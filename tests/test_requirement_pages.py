@@ -57,8 +57,11 @@ def test_repository_page_shows_the_repository_and_a_new_requirement_link(
     html = client.get("/repositories/1").text
     assert "<h1>sample</h1>" in html
     assert f'<code>{checkout(settings)}</code> <span class="owner owner-human">' in html
-    assert 'href="http://testserver/repositories/1/requirements/new">New requirement</a>' in html
-    assert "No requirements yet." in html
+    new = 'href="http://testserver/repositories/1/requirements/new">New requirement</a>'
+    empty = re.search(r'<div class="empty-state">(.*?)</div>', html, re.DOTALL)
+    assert empty, "no empty state"
+    assert "No requirements yet." in empty[1]
+    assert new in empty[1]
 
 
 @pytest.mark.usefixtures("registered")
@@ -305,6 +308,8 @@ def test_repository_page_lists_a_hand_made_file_as_a_requirement(
     html = client.get("/repositories/1").text
     assert "No requirements yet." not in html
     assert "Every Markdown file in <code>specs/changes/todo</code> is a requirement" in html
+    assert "Blocked by" not in table  # nothing waits on anything, so nothing is said of it
+    assert "unblocked</" not in html
 
 
 @pytest.mark.usefixtures("registered")
@@ -367,18 +372,13 @@ def needs(*names: str, text: str = "Something.") -> str:
     return f"---\ndepends-on:\n{listed}---\n{text}\n"
 
 
-def group_rows(table: str) -> dict[str, list[str]]:
-    """Each group's heading in the requirements list, and the names of the rows under it."""
-    groups: dict[str, list[str]] = {}
-    for body in re.findall(r"<tbody>(.*?)</tbody>", table, re.DOTALL):
-        heading = re.search(r'scope="rowgroup">([^<]*)</th>', body)
-        assert heading, body
-        groups[heading[1]] = re.findall(r'<td><a href="[^"]*/requirements/[^"]*">([^<]*)</a>', body)
-    return groups
+def row_names(table: str) -> list[str]:
+    """The names in the requirements list, in its order."""
+    return re.findall(r'<td><a href="[^"]*/requirements/[^"]*">([^<]*)</a>', table)
 
 
 @pytest.mark.usefixtures("registered")
-def test_repository_page_groups_requirements_by_what_they_wait_on(
+def test_repository_page_lists_requirements_in_the_order_they_can_start(
     client: TestClient, settings: Settings
 ) -> None:
     create(client, name="Bulk user import", body=needs("search-notes"))
@@ -388,12 +388,8 @@ def test_repository_page_groups_requirements_by_what_they_wait_on(
     (checkout(settings) / "specs/changes/archive").mkdir()
     run_git("mv", "specs/changes/todo/export.md", "specs/changes/archive/", cwd=checkout(settings))
     table = requirements_table(client)
-    assert group_rows(table) == {
-        "Can start now": ["search-notes"],
-        "After 1 more": ["bulk-user-import"],
-        "After 2 more": ["audit"],
-        "Delivered": ["export"],
-    }
+    assert row_names(table) == ["search-notes", "bulk-user-import", "audit", "export"]
+    assert "rowgroup" not in table
     audit = table[table.index("audit.md") :]
     blocked_by = re.search(r"<td class=\"blocked-by\">(.*?)</td>", audit, re.DOTALL)
     assert blocked_by
@@ -402,7 +398,7 @@ def test_repository_page_groups_requirements_by_what_they_wait_on(
 
 
 @pytest.mark.usefixtures("registered")
-def test_repository_page_can_show_only_what_can_start_now(
+def test_repository_page_can_show_only_the_unblocked(
     client: TestClient, settings: Settings
 ) -> None:
     hand_made(settings, "search-notes.md")
@@ -410,9 +406,9 @@ def test_repository_page_can_show_only_what_can_start_now(
     html = client.get("/repositories/1?ready=true").text
     table = re.search(r'<table class="requirements">.*?</table>', html, re.DOTALL)
     assert table
-    assert group_rows(table[0]) == {"Can start now": ["search-notes"]}
+    assert row_names(table[0]) == ["search-notes"]
     assert 'href="http://testserver/repositories/1">all</a>' in html
-    assert "ready=true" in client.get("/repositories/1").text
+    assert 'ready=true">unblocked</a>' in client.get("/repositories/1").text
 
 
 @pytest.mark.usefixtures("registered")
@@ -424,10 +420,10 @@ def test_repository_page_shows_dependency_problems_and_lists_their_changes_apart
     hand_made(settings, "search-notes.md")
     html = client.get("/repositories/1").text
     assert "<li>audit: needs &#34;nope&#34;, which matches no change</li>" in html
-    assert group_rows(requirements_table(client)) == {
-        "Can start now": ["search-notes"],
-        "Can&#39;t be ordered": ["audit", "report"],
-    }
+    table = requirements_table(client)
+    assert row_names(table) == ["search-notes", "audit", "report"]
+    held_up = """<td class="blocked-by"><span class="badge">can't be ordered</span>"""
+    assert table.count(held_up) == 2
 
 
 @pytest.mark.usefixtures("registered")

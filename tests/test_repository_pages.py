@@ -41,6 +41,8 @@ def test_repository_list_shows_empty_state_and_add_form(client: TestClient) -> N
     html = client.get("/").text
     assert "<h1>Repositories</h1>" in html
     assert "No repositories registered yet." in html
+    assert '<a class="button primary" href="#add">Add a repository</a>' in html
+    assert '<section id="add"' in html
     assert 'action="http://testserver/repositories"' in html
     assert 'name="remote_url"' in html
 

@@ -5,14 +5,70 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}RepoCop{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/app.css') }}">
-  {% block scripts %}{% endblock %}
+  <script src="{{ url_for('static', path='vendor/htmx.min.js') }}" defer></script>
+  <script src="{{ url_for('static', path='js/shell.js') }}" defer></script>
 </head>
 <body>
-  <header class="site-header">
+<a class="skip-link" href="#content">Skip to content</a>
+{% set nav = sidebar.contents %}
+{% set here = repository.id if repository is defined and repository else none %}
+<div class="shell">
+  <nav id="sidebar" class="sidebar" aria-label="Repositories and active tasks" popover>
     <a class="brand" href="{{ url_for('list_repositories') }}">RepoCop</a>
-  </header>
-  <main>
-    {% block content %}{% endblock %}
-  </main>
+    <h2 class="nav-heading" id="nav-repositories">Repositories</h2>
+    {% if nav.repositories %}
+    <ul class="nav-list" aria-labelledby="nav-repositories">
+      {% for repo in nav.repositories %}
+      <li><a href="{{ url_for('repository_page', repository_id=repo.id) }}"{% if here == repo.id %} aria-current="true"{% endif %}>{{ repo.name }}</a></li>
+      {% endfor %}
+    </ul>
+    {% else %}
+    <p class="nav-empty">None yet. <a href="{{ url_for('list_repositories') }}#add">Add one</a></p>
+    {% endif %}
+    <h2 class="nav-heading" id="nav-active">Active tasks</h2>
+    {% set active_tasks = nav.active_tasks %}{% include "partials/active_tasks.html" %}
+    <p class="nav-foot"><button type="button" class="quiet" data-opens="shortcuts" hidden>Keyboard shortcuts</button></p>
+  </nav>
+  <div class="page">
+    <header class="topbar">
+      <button type="button" class="menu-button" popovertarget="sidebar">Menu</button>
+      {% if crumbs %}
+      <nav class="breadcrumbs" aria-label="Breadcrumb">
+        <ol>{% for label, href in crumbs %}<li><a href="{{ href }}"{% if loop.last %} aria-current="page"{% endif %}>{{ label }}</a></li>{% endfor %}</ol>
+      </nav>
+      {% endif %}
+      <button type="button" class="jump-button" data-opens="jump" hidden>Jump to… <kbd class="mod-key">Ctrl</kbd> <kbd>K</kbd></button>
+    </header>
+    <main id="content"{% if wide %} class="wide"{% endif %}>
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+</div>
+<div class="toasts" role="status">{% block toasts %}{% endblock %}</div>
+<dialog id="jump" class="jump" aria-label="Jump to a repository, requirement or task">
+  <input id="jump-input" class="jump-input" name="q" type="text" autocomplete="off" spellcheck="false"
+    role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-listbox"
+    aria-label="Jump to a repository, requirement or task" placeholder="Jump to a repository, requirement or task"
+    hx-get="{{ url_for('switcher_matches') }}" hx-trigger="input changed delay:120ms, jumpopen"
+    hx-target="#jump-results" hx-sync="this:replace">
+  <div id="jump-results" class="jump-results"><div id="jump-listbox" role="listbox" aria-label="Matches"></div></div>
+  <p id="jump-count" class="visually-hidden" role="status"></p>
+  <p class="jump-keys"><kbd>↑</kbd> <kbd>↓</kbd> to move · <kbd>Enter</kbd> to open · <kbd>Esc</kbd> to close</p>
+</dialog>
+<dialog id="shortcuts" class="shortcuts" aria-labelledby="shortcuts-heading">
+  <div class="dialog-head">
+    <h2 id="shortcuts-heading">Keyboard shortcuts</h2>
+    <button type="button" class="quiet" data-closes>Close</button>
+  </div>
+  <dl class="shortcut-list">
+    <dt><kbd class="mod-key">Ctrl</kbd> <kbd>K</kbd></dt><dd>Jump to a repository, requirement or task</dd>
+    <dt><kbd>g</kbd> then <kbd>r</kbd></dt><dd>Go to the repository list</dd>
+    <dt><kbd>g</kbd> then <kbd>u</kbd></dt><dd>Go up one level</dd>
+    <dt><kbd>?</kbd></dt><dd>Show these shortcuts</dd>
+    <dt><kbd>Esc</kbd></dt><dd>Close a dialog</dd>
+  </dl>
+  <label class="switch"><input type="checkbox" role="switch" id="single-keys" checked> Single-key shortcuts: <kbd>g</kbd> and <kbd>?</kbd></label>
+  <p class="hint">They never fire while you type in a field. Turning them off is remembered in this browser; <strong>Keyboard shortcuts</strong> in the sidebar still opens this list.</p>
+</dialog>
 </body>
 </html>

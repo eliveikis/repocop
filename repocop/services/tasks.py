@@ -384,6 +384,29 @@ def list_for_repository(
     return [Task.from_row(row) for row in rows]
 
 
+def list_active(conn: sqlite3.Connection) -> list[Task]:
+    """Every active task, in any repository, newest first."""
+    rows = conn.execute(
+        "SELECT * FROM tasks WHERE status IN (SELECT value FROM json_each(?)) ORDER BY id DESC",
+        (json.dumps(sorted(ACTIVE)),),
+    )
+    return [Task.from_row(row) for row in rows]
+
+
+def search(conn: sqlite3.Connection, text: str, limit: int) -> list[Task]:
+    """Up to `limit` tasks, newest first, whose id is `text` (with or without its `#`), or whose
+    branch or workflow holds it, whatever its case."""
+    term = text.strip()
+    pattern = "%" + re.sub(r"([\\%_])", r"\\\1", term) + "%"
+    rows = conn.execute(
+        "SELECT * FROM tasks WHERE CAST(id AS TEXT) = ?"
+        " OR branch LIKE ? ESCAPE '\\' OR workflow LIKE ? ESCAPE '\\'"
+        " ORDER BY id DESC LIMIT ?",
+        (term.removeprefix("#"), pattern, pattern, limit),
+    )
+    return [Task.from_row(row) for row in rows]
+
+
 def active_task(conn: sqlite3.Connection, requirement: Requirement) -> Task | None:
     """The requirement's active task. Only its latest task can be one: starts wait for it."""
     if requirement.id is None:

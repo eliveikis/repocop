@@ -48,7 +48,8 @@ def requirement(
 
 def wait_for_status(client: TestClient, task_id: int, status: str) -> None:
     deadline = time.monotonic() + 5.0
-    while f'class="status status-{status}">{status}<' not in client.get(f"/tasks/{task_id}").text:
+    shown = f'class="status status-{status}">{status}<'
+    while shown not in client.get(f"/tasks/{task_id}").text.partition("<main")[2]:
         if time.monotonic() > deadline:
             raise AssertionError(f"task #{task_id} never reached {status}")
         time.sleep(0.02)
@@ -232,6 +233,8 @@ def test_open_pr_from_a_syncs_page_opens_the_pull_request_on_github(
     assert created[created.index("--body") + 1] == "Files changed:\n\n- `CLAUDE.md`\n"
     assert 'action="http://testserver/tasks/1/pull-request/push"' in html
     assert 'action="http://testserver/tasks/1/pull-request/review"' in html
+    merge = f'Merge <a href="{PULL}" target="_blank" rel="noopener noreferrer">its pull request</a>'
+    assert f"{merge} on GitHub, then fetch." in client.get("/repositories/1").text
 
 
 @pytest.mark.usefixtures("requirement")

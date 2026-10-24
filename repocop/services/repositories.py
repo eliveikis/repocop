@@ -11,6 +11,7 @@ import re
 import sqlite3
 import threading
 from dataclasses import dataclass
+from datetime import datetime
 from enum import StrEnum
 from pathlib import Path
 
@@ -212,6 +213,11 @@ def template_plan(repository: Repository, settings: Settings) -> bootstrap.SyncP
 def checkout_state(repository: Repository, settings: Settings) -> git.CheckoutState:
     """The primary checkout's branch, upstream and uncommitted files, read from git now."""
     return git.checkout_state(require_checkout(repository, settings))
+
+
+def last_fetch(repository: Repository, settings: Settings) -> datetime | None:
+    """When the primary checkout last fetched, or None if it never has."""
+    return git.last_fetch(require_checkout(repository, settings))
 
 
 def fetch(repository: Repository, settings: Settings) -> None:

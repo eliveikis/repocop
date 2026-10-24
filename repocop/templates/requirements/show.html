@@ -1,9 +1,20 @@
 {% extends "base.html" %}
+{% set crumbs = [
+  ("Repositories", url_for('list_repositories')),
+  (repository.name, url_for('repository_page', repository_id=repository.id)),
+  (requirement.name, url_for('requirement_page', repository_id=repository.id, file_name=requirement.file_name)),
+] %}
 
 {% block title %}{{ requirement.name }} · RepoCop{% endblock %}
 
+{% block toasts %}
+{% if saved == "committed" %}<p class="toast">Saved and committed.</p>
+{% elif committed %}<p class="toast">Committed.</p>{% endif %}
+{% if pull_request_done == "push" %}<p class="toast">Pushed <code>{{ branch }}</code>.</p>
+{% elif pull_request_done == "review" %}<p class="toast">Asked Copilot to review the pull request.</p>{% endif %}
+{% endblock %}
+
 {% block content %}
-<p><a href="{{ url_for('repository_page', repository_id=repository.id) }}">← {{ repository.name }}</a></p>
 <h1>{{ requirement.name }}</h1>
 <p class="facts"><code>{{ requirement.path }}</code> · {{ requirement.kind }}{% if detail %} · {{ detail.location }}{% endif %}</p>
 {% if change %}
@@ -16,14 +27,12 @@
 {% for problem in change_problems %}<p class="error" role="alert">{{ problem }}</p>{% endfor %}
 {% endif %}
 
-{% if saved == "committed" %}<p class="notice" role="status">Saved and committed.</p>
-{% elif saved == "uncommitted" %}<p class="notice" role="status">Saved, but not committed. Commit it below to retry and see why.</p>
-{% elif committed %}<p class="notice" role="status">Committed.</p>{% endif %}
+{% if saved == "uncommitted" %}<p class="notice">Saved, but not committed. Commit it below to retry and see why.</p>{% endif %}
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 {% if detail and detail.uncommitted %}
 <form class="commit" method="post" action="{{ url_for('commit_requirement', repository_id=repository.id, file_name=requirement.file_name) }}">
-  This file has uncommitted changes. <button type="submit">Commit {{ requirement.name }}</button>
+  This file has uncommitted changes. <button type="submit" class="primary">Commit {{ requirement.name }}</button>
 </form>
 {% endif %}
 
@@ -31,7 +40,7 @@
 <form class="requirement" method="post" action="{{ url_for('save_requirement', repository_id=repository.id, file_name=requirement.file_name) }}">
   <input type="hidden" name="version" value="{{ form.version }}">
   {% include "partials/requirement_fields.html" %}
-  <button type="submit">Save</button>
+  <button type="submit" class="primary">Save</button>
 </form>
 {% elif detail and detail.location == "archived" %}
 <p>Archived, so it's read-only here.</p>
@@ -40,8 +49,10 @@
 <p class="error" role="alert">The file is missing from <code>{{ requirement.path }}</code> and from the archive folder beside it.</p>
 {% endif %}
 
-<h2>Tasks</h2>
+<section id="tasks" aria-labelledby="tasks-heading">
+<h2 id="tasks-heading">Tasks</h2>
 {% if tasks %}
+<div class="table-scroll">
 <table class="tasks">
   <thead>
     <tr><th>Task</th><th>Workflow</th><th>Status</th><th>Created</th></tr>
@@ -52,11 +63,16 @@
       <td><a href="{{ url_for('task_page', task_id=task.id) }}">#{{ task.id }}</a></td>
       <td>{{ task.workflow }}</td>
       <td><span class="status status-{{ task.status }}">{{ task.status }}</span></td>
-      <td>{{ task.created_at }}</td>
+      <td>{{ task.created_at | ago }}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
+</div>
+{% elif detail and detail.location == "active" and workflows %}
+<p class="empty">No tasks yet. Pick a workflow and start one.</p>
+{% elif not (detail and detail.location == "active") %}
+<p class="empty">No tasks yet.</p>
 {% endif %}
 {% if detail and detail.location == "active" %}
 {% if workflows %}
@@ -66,16 +82,22 @@
       {% for workflow in workflows %}<option>{{ workflow }}</option>{% endfor %}
     </select>
   </label>
-  <button type="submit">Start</button>
+  <button type="submit" class="primary">Start</button>
 </form>
-<p class="hint">
-  Tasks run in a RepoCop-owned worktree for {{ requirement.name }}, on its own branch, created
-  from the primary checkout's HEAD on the first start and reused by later tasks.
-</p>
+<details class="help"><summary>How this works</summary>
+  <p>
+    Tasks run in a RepoCop-owned worktree for {{ requirement.name }}, on its own branch, created
+    from the primary checkout's HEAD on the first start and reused by later tasks.
+  </p>
+</details>
 {% else %}
-<p class="hint">No skills are committed in <code>.claude/skills/</code> of {{ repository.name }}, so there are no workflows to start. Set it up and commit its skills first.</p>
+<div class="empty-state">
+  <p>No skills are committed in <code>.claude/skills/</code> of {{ repository.name }}, so there are no workflows to start. The repo template has them: sync with it, merge its pull request, and pull the merge into the checkout.</p>
+  <a class="button primary" href="{{ url_for('template_sync_page', repository_id=repository.id) }}">Sync with the template</a>
+</div>
 {% endif %}
 {% endif %}
+</section>
 
 {% if branch %}
 {% include "partials/review.html" %}

@@ -1,32 +1,30 @@
 {% extends "base.html" %}
+{% set crumbs = [
+  ("Repositories", url_for('list_repositories')),
+  (repository.name, url_for('repository_page', repository_id=repository.id)),
+  ("Template sync", url_for('template_sync_page', repository_id=repository.id)),
+] %}
 
 {% block title %}Sync {{ repository.name }} · RepoCop{% endblock %}
 
+{% block toasts %}
+{% if notice %}<p class="toast">{{ notice }}</p>{% endif %}
+{% endblock %}
+
 {% block content %}
-<p><a href="{{ url_for('repository_page', repository_id=repository.id) }}">← {{ repository.name }}</a></p>
 <h1>Sync {{ repository.name }} with the template</h1>
 
-{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 {% if waiting %}
-<p class="notice" role="status">
-  A sync is waiting: <a href="{{ url_for('task_page', task_id=waiting.id) }}">#{{ waiting.id }}</a>
-  on <code>{{ waiting.branch }}</code>. Push it and merge its pull request there. Once the merge
-  is on <code>origin</code> and fetched, this page offers whatever the template still has to add.
-</p>
+{% include "partials/sync_waiting.html" %}
+<p>Once its merge is fetched, this page offers whatever the template still has to add.</p>
 {% elif plan %}
-<p>
-  Compares the repo template at <code>{{ settings.template_dir }}</code> with what
-  <code>{{ plan.ref }}</code> has committed, as of the last fetch: where a merged pull request
-  lands. Picked files are committed on a new branch from there, in a RepoCop-owned worktree;
-  the checkout at <code>{{ repository.primary_path }}</code>
-  <span class="owner owner-human">human-owned</span> isn't touched.
-</p>
 {% if plan.up_to_date %}
-<p class="notice" role="status">Up to date: every template file matches <code>{{ plan.ref }}</code> or is the repository's own.</p>
+<p class="notice">Up to date: every template file matches <code>{{ plan.ref }}</code> or is the repository's own.</p>
 {% else %}
 <form method="post" action="{{ url_for('apply_template_sync', repository_id=repository.id) }}">
+<div class="table-scroll">
 <table class="sync-plan">
   <thead>
     <tr><th>File</th><th>State</th><th>Pick</th></tr>
@@ -50,9 +48,21 @@
     {% endfor %}
   </tbody>
 </table>
-<p><button type="submit">Commit picked files on a new branch</button></p>
+</div>
+<p><button type="submit" class="primary">Commit picked files on a new branch</button></p>
 </form>
-<p class="hint">The template is the authority, so every file it offers is picked: missing files to be created, differing ones to be overwritten, merged files to be brought up to date, and files it no longer ships to be deleted. A merge adds what the template has and takes the template's values, and keeps what only the repository has. Untick a file to keep the repository's version. A starter file, once the repository has it, is its own and isn't offered. Only a file carrying the template's <code>managed by template</code> marker is offered for deletion: one without it is the repository's own, whatever its path.</p>
 {% endif %}
+<details class="help"><summary>How this works</summary>
+  <p>
+    Compares the repo template at <code>{{ settings.template_dir }}</code> with what
+    <code>{{ plan.ref }}</code> has committed, as of the last fetch: where a merged pull request
+    lands. Picked files are committed on a new branch from there, in a RepoCop-owned worktree;
+    the checkout at <code>{{ repository.primary_path }}</code>
+    <span class="owner owner-human">human-owned</span> isn't touched.
+  </p>
+  {% if not plan.up_to_date %}
+  <p>The template is the authority, so every file it offers is picked: missing files to be created, differing ones to be overwritten, merged files to be brought up to date, and files it no longer ships to be deleted. A merge adds what the template has and takes the template's values, and keeps what only the repository has. Untick a file to keep the repository's version. A starter file, once the repository has it, is its own and isn't offered. Only a file carrying the template's <code>managed by template</code> marker is offered for deletion: one without it is the repository's own, whatever its path.</p>
+  {% endif %}
+</details>
 {% endif %}
 {% endblock %}
