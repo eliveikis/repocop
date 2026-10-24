@@ -104,7 +104,9 @@ def remove_sync(
     try:
         template_sync.remove(conn, settings, task)
     except RepoCopError as exc:
-        return _render_repository(request, conn, settings, repository, str(exc), 400)
+        return _render_repository(
+            request, conn, settings, repository, sync_error=str(exc), status_code=400
+        )
     target = request.url_for("repository_page", repository_id=repository.id)
     return RedirectResponse(target.include_query_params(removed=task.branch), status_code=303)
 
@@ -120,6 +122,7 @@ def _render_repository(
     fetched: bool = False,
     fetch_error: str | None = None,
     removed: str | None = None,
+    sync_error: str | None = None,
     ready: bool = False,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
@@ -143,6 +146,7 @@ def _render_repository(
         "syncs": tasks.list_for_repository(conn, repository, workflow=template_sync.WORKFLOW),
         "sync_states": template_sync.states(conn, settings, repository),
         "removed": removed,
+        "sync_error": sync_error,
         "error": error,
     }
     return templates.TemplateResponse(

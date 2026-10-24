@@ -1,0 +1,38 @@
+<div id="jump-listbox" role="listbox" aria-label="Matches">
+{% if matches is none %}
+  {% if active_tasks %}
+  <div role="group" aria-labelledby="match-group-active">
+    <div id="match-group-active" class="match-group" role="presentation">Active tasks</div>
+    {% for entry in active_tasks %}{% include "partials/task_match.html" %}{% endfor %}
+  </div>
+  {% endif %}
+{% else %}
+  {% if matches.repositories %}
+  <div role="group" aria-labelledby="match-group-repositories">
+    <div id="match-group-repositories" class="match-group" role="presentation">Repositories</div>
+    {% for repo in matches.repositories %}
+    <a role="option" id="match-repository-{{ repo.id }}" tabindex="-1" aria-selected="false" href="{{ url_for('repository_page', repository_id=repo.id) }}"><span class="match-name">{{ repo.name }}</span></a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if matches.requirements %}
+  <div role="group" aria-labelledby="match-group-requirements">
+    <div id="match-group-requirements" class="match-group" role="presentation">Requirements</div>
+    {% for entry in matches.requirements %}
+    <a role="option" id="match-requirement-{{ loop.index }}" tabindex="-1" aria-selected="false" href="{{ url_for('requirement_page', repository_id=entry.requirement.repository_id, file_name=entry.requirement.file_name) }}"><span class="match-name">{{ entry.requirement.name }}</span> <span class="match-meta">{{ entry.repository }}</span></a>
+    {% endfor %}
+  </div>
+  {% endif %}
+  {% if matches.tasks %}
+  <div role="group" aria-labelledby="match-group-tasks">
+    <div id="match-group-tasks" class="match-group" role="presentation">Tasks</div>
+    {% for entry in matches.tasks %}{% include "partials/task_match.html" %}{% endfor %}
+  </div>
+  {% endif %}
+{% endif %}
+</div>
+{% if matches is none and not active_tasks %}
+<p class="match-empty">Nothing is running. Type to find a repository, requirement or task by name, id or branch.</p>
+{% elif matches is not none and not matches %}
+<p class="match-empty">Nothing matches “{{ query }}”.</p>
+{% endif %}

@@ -53,7 +53,7 @@ def wait_for_status(client: TestClient, task_id: int, status: str) -> str:
     deadline = time.monotonic() + 10.0
     while True:
         html = client.get(f"/tasks/{task_id}").text
-        if f'class="status status-{status}">{status}<' in html:
+        if f'class="status status-{status}">{status}<' in html.partition("<main")[2]:
             return html
         if time.monotonic() > deadline:
             raise AssertionError(f"task #{task_id} never reached {status}")

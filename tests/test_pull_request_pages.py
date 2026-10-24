@@ -48,7 +48,8 @@ def requirement(
 
 def wait_for_status(client: TestClient, task_id: int, status: str) -> None:
     deadline = time.monotonic() + 5.0
-    while f'class="status status-{status}">{status}<' not in client.get(f"/tasks/{task_id}").text:
+    shown = f'class="status status-{status}">{status}<'
+    while shown not in client.get(f"/tasks/{task_id}").text.partition("<main")[2]:
         if time.monotonic() > deadline:
             raise AssertionError(f"task #{task_id} never reached {status}")
         time.sleep(0.02)

@@ -1,22 +1,42 @@
 {% extends "base.html" %}
+{% set wide = true %}
+{% set crumbs = [
+  ("Repositories", url_for('list_repositories')),
+  (repository.name, url_for('repository_page', repository_id=repository.id)),
+] %}
 
 {% block title %}{{ repository.name }} · RepoCop{% endblock %}
 
+{% block toasts %}
+{% if fetched %}<p class="toast">Fetched from origin.</p>{% endif %}
+{% if removed %}<p class="toast">Removed <code>{{ removed }}</code> and its worktree.</p>{% endif %}
+{% endblock %}
+
 {% block content %}
 {% set repo = repository %}
-<p><a href="{{ url_for('list_repositories') }}">← Repositories</a></p>
-<h1>{{ repository.name }}</h1>
+<div class="page-head">
+  <h1>{{ repository.name }}</h1>
+  <a class="button" href="{{ url_for('template_sync_page', repository_id=repository.id) }}">Sync with template</a>
+</div>
 
-<dl class="facts">
-  <dt>Status</dt><dd>{% include "partials/repository_status.html" %}</dd>
-  <dt>Remote</dt><dd>{% include "partials/repository_remote.html" %}</dd>
-  <dt>Paths</dt><dd class="paths">{% include "partials/repository_paths.html" %}</dd>
-</dl>
+<nav class="section-links" aria-label="On this page">
+  <a href="#overview">Overview</a>
+  {% if status != "missing" %}<a href="#checkout">Checkout</a>{% endif %}
+  <a href="#requirements">Requirements</a>
+  {% if syncs %}<a href="#syncs">Template syncs</a>{% endif %}
+</nav>
+
+<section id="overview" aria-label="Overview">
+  <dl class="facts">
+    <dt>Status</dt><dd>{% include "partials/repository_status.html" %}</dd>
+    <dt>Remote</dt><dd>{% include "partials/repository_remote.html" %}</dd>
+    <dt>Paths</dt><dd class="paths">{% include "partials/repository_paths.html" %}</dd>
+  </dl>
+</section>
 
 {% if status != "missing" %}
-<section aria-labelledby="checkout-heading">
+<section id="checkout" aria-labelledby="checkout-heading">
   <h2 id="checkout-heading">Primary checkout</h2>
-  {% if fetched %}<p class="notice" role="status">Fetched from origin.</p>{% endif %}
   {% if fetch_error %}<p class="error" role="alert">{{ fetch_error }}</p>{% endif %}
   {% if checkout.error %}
   <p class="error" role="alert">{{ checkout.error }}</p>
@@ -30,66 +50,86 @@
   </ul>
   {% endif %}
   {% endif %}
-  <form method="post" action="{{ url_for('fetch_repository', repository_id=repository.id) }}"><button type="submit">Fetch</button></form>
-  <p class="hint">Ahead and behind compare the branch with its upstream{% if checkout.state and checkout.state.upstream %}, <code>{{ checkout.state.upstream }}</code>,{% endif %} as of the last fetch{% if checkout.state and checkout.state.fetched_at %}, at {{ checkout.state.fetched_at.isoformat(timespec="seconds") }}{% endif %}. Fetch updates only <code>origin</code>'s remote-tracking branches, so it doesn't refresh an upstream that is on another remote or is a local branch. The checkout's files, index and local branches stay as they are.</p>
+  <div class="actions">
+    <form method="post" action="{{ url_for('fetch_repository', repository_id=repository.id) }}"><button type="submit">Fetch</button></form>
+    {% if checkout.state and checkout.state.fetched_at %}<span class="hint">Last fetched {{ checkout.state.fetched_at | ago }}</span>{% endif %}
+  </div>
+  <details class="help"><summary>How this works</summary>
+    <p>Ahead and behind compare the branch with its upstream{% if checkout.state and checkout.state.upstream %}, <code>{{ checkout.state.upstream }}</code>,{% endif %} as of the last fetch. Fetch updates only <code>origin</code>'s remote-tracking branches, so it doesn't refresh an upstream that is on another remote or is a local branch. The checkout's files, index and local branches stay as they are.</p>
+  </details>
 </section>
 {% endif %}
 
-<p><a href="{{ url_for('template_sync_page', repository_id=repository.id) }}">Sync with template</a></p>
-
-<h2>Requirements</h2>
-<p><a href="{{ url_for('new_requirement_page', repository_id=repository.id) }}">New requirement</a></p>
-{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-{% if listing and listing.problems %}
-<div class="error" role="alert">
-  <p>These dependencies need fixing before the changes they hold up can be ordered:</p>
-  <ul>{% for problem in listing.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
-</div>
-{% endif %}
-{% if listing and listing.entries %}
-{% set page = url_for('repository_page', repository_id=repository.id) %}
-<p class="filter">Show: {% if ready %}<a href="{{ page }}">all</a> · <strong>ready</strong>{% else %}<strong>all</strong> · <a href="{{ page.include_query_params(ready='true') }}">ready</a>{% endif %}</p>
-{% set pages = listing.pages %}
-<table class="requirements">
-  <thead>
-    <tr><th>Name</th><th>Kind</th><th>State</th><th>Blocked by</th></tr>
-  </thead>
-  {% for level in listing.levels %}{% if loop.first or not ready %}
-  {% set heading = "Can start now" if loop.first else "After " ~ loop.index0 ~ " more" %}
-  {% set entries = level %}{% include "partials/requirement_group.html" %}
-  {% endif %}{% endfor %}
-  {% if not ready %}
-  {% for heading, entries in [("Can't be ordered", listing.apart), ("Delivered", listing.delivered), ("Missing", listing.missing)] if entries %}
-  {% include "partials/requirement_group.html" %}
-  {% endfor %}
+<section id="requirements" aria-labelledby="requirements-heading">
+  <div class="section-head">
+    <h2 id="requirements-heading">Requirements</h2>
+    <a class="button" href="{{ url_for('new_requirement_page', repository_id=repository.id) }}">New requirement</a>
+  </div>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  {% if listing and listing.problems %}
+  <div class="error" role="alert">
+    <p>These dependencies need fixing before the changes they hold up can be ordered:</p>
+    <ul>{% for problem in listing.problems %}<li>{{ problem }}</li>{% endfor %}</ul>
+  </div>
   {% endif %}
-</table>
-{% if ready and not listing.levels %}<p class="empty">Nothing can start now.</p>{% endif %}
-<p class="hint">Changes are grouped by what they wait on: each lists what it needs in its front matter, under <code>depends-on:</code>, and one in the archive is delivered. Every Markdown file in <code>{{ todo_dir }}</code> is a requirement, named by its file.</p>
-{% elif not error %}
-<p class="empty">No requirements yet.</p>
-{% endif %}
+  {% if listing and listing.entries %}
+  {% set page = url_for('repository_page', repository_id=repository.id) %}
+  <p class="filter">Show: {% if ready %}<a href="{{ page }}">all</a> · <strong>ready</strong>{% else %}<strong>all</strong> · <a href="{{ page.include_query_params(ready='true') }}">ready</a>{% endif %}</p>
+  {% set pages = listing.pages %}
+  <div class="table-scroll">
+  <table class="requirements">
+    <thead>
+      <tr><th>Name</th><th>Kind</th><th>State</th><th>Blocked by</th></tr>
+    </thead>
+    {% for level in listing.levels %}{% if loop.first or not ready %}
+    {% set heading = "Can start now" if loop.first else "After " ~ loop.index0 ~ " more" %}
+    {% set entries = level %}{% include "partials/requirement_group.html" %}
+    {% endif %}{% endfor %}
+    {% if not ready %}
+    {% for heading, entries in [("Can't be ordered", listing.apart), ("Delivered", listing.delivered), ("Missing", listing.missing)] if entries %}
+    {% include "partials/requirement_group.html" %}
+    {% endfor %}
+    {% endif %}
+  </table>
+  </div>
+  {% if ready and not listing.levels %}<p class="empty">Nothing can start now. <a href="{{ page }}">Show all</a> to see what each waits on.</p>{% endif %}
+  <details class="help"><summary>How this works</summary>
+    <p>Changes are grouped by what they wait on: each lists what it needs in its front matter, under <code>depends-on:</code>, and one in the archive is delivered. Every Markdown file in <code>{{ todo_dir }}</code> is a requirement, named by its file.</p>
+  </details>
+  {% elif not error %}
+  <div class="empty-state">
+    <p>No requirements yet. Write the first one: it's saved as a Markdown file in <code>{{ todo_dir }}</code>, and committed on its own.</p>
+    <a class="button primary" href="{{ url_for('new_requirement_page', repository_id=repository.id) }}">New requirement</a>
+  </div>
+  {% endif %}
+</section>
 
 {% if syncs %}
-<h2>Template syncs</h2>
-{% if removed %}<p class="notice" role="status">Removed <code>{{ removed }}</code> and its worktree.</p>{% endif %}
-<table class="tasks">
-  <thead>
-    <tr><th>Task</th><th>Branch</th><th>State</th><th>Created</th><th></th></tr>
-  </thead>
-  <tbody>
-    {% for task in syncs %}
-    {% set state = sync_states.get(task.id) %}
-    <tr>
-      <td><a href="{{ url_for('task_page', task_id=task.id) }}">#{{ task.id }}</a></td>
-      <td>{% if task.branch %}<code>{{ task.branch }}</code>{% endif %}</td>
-      {% if state %}<td>{{ state }}</td>{% else %}<td><span class="status status-{{ task.status }}">{{ task.status }}</span></td>{% endif %}
-      <td>{{ task.created_at }}</td>
-      <td>{% if state and state != "removed" %}<form method="post" action="{{ url_for('remove_sync', repository_id=repository.id, task_id=task.id) }}"><button type="submit">Remove</button></form>{% endif %}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-<p class="hint">Waiting: done, and its pull request still has to be merged and fetched; no other sync starts meanwhile. On origin: its files are on the default branch there. Not on origin: a newer sync or template change replaced it. Remove deletes a sync's branch and worktree on this machine, and only when its worktree has nothing uncommitted; a pushed branch and its pull request stay on GitHub. Removing a waiting sync drops it, so Sync offers its files again.</p>
+<section id="syncs" aria-labelledby="syncs-heading">
+  <h2 id="syncs-heading">Template syncs</h2>
+  {% if sync_error %}<p class="error" role="alert">{{ sync_error }}</p>{% endif %}
+  <div class="table-scroll">
+  <table class="tasks">
+    <thead>
+      <tr><th>Task</th><th>Branch</th><th>State</th><th>Created</th><th></th></tr>
+    </thead>
+    <tbody>
+      {% for task in syncs %}
+      {% set state = sync_states.get(task.id) %}
+      <tr>
+        <td><a href="{{ url_for('task_page', task_id=task.id) }}">#{{ task.id }}</a></td>
+        <td>{% if task.branch %}<code>{{ task.branch }}</code>{% endif %}</td>
+        {% if state %}<td>{{ state }}</td>{% else %}<td><span class="status status-{{ task.status }}">{{ task.status }}</span></td>{% endif %}
+        <td>{{ task.created_at | ago }}</td>
+        <td>{% if state and state != "removed" %}<form method="post" action="{{ url_for('remove_sync', repository_id=repository.id, task_id=task.id) }}"><button type="submit" class="danger">Remove</button></form>{% endif %}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  </div>
+  <details class="help"><summary>How this works</summary>
+    <p>Waiting: done, and its pull request still has to be merged and fetched; no other sync starts meanwhile. On origin: its files are on the default branch there. Not on origin: a newer sync or template change replaced it. Remove deletes a sync's branch and worktree on this machine, and only when its worktree has nothing uncommitted; a pushed branch and its pull request stay on GitHub. Removing a waiting sync drops it, so Sync offers its files again.</p>
+  </details>
+</section>
 {% endif %}
 {% endblock %}

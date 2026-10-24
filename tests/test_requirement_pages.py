@@ -57,8 +57,11 @@ def test_repository_page_shows_the_repository_and_a_new_requirement_link(
     html = client.get("/repositories/1").text
     assert "<h1>sample</h1>" in html
     assert f'<code>{checkout(settings)}</code> <span class="owner owner-human">' in html
-    assert 'href="http://testserver/repositories/1/requirements/new">New requirement</a>' in html
-    assert "No requirements yet." in html
+    new = 'href="http://testserver/repositories/1/requirements/new">New requirement</a>'
+    empty = re.search(r'<div class="empty-state">(.*?)</div>', html, re.DOTALL)
+    assert empty, "no empty state"
+    assert "No requirements yet." in empty[1]
+    assert new in empty[1]
 
 
 @pytest.mark.usefixtures("registered")

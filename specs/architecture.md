@@ -213,9 +213,20 @@ Sessions run through the Python Claude Agent SDK (`claude-agent-sdk`, `ClaudeSDK
 
 ## UI approach
 
-Server-rendered Jinja, with HTMX for live panels and optional page-specific plain JavaScript or vendored libraries where a page needs more. No SPA framework, npm, bundler, or CDN dependency at runtime. Route handlers stay thin, with logic in `services/`.
+Server-rendered Jinja, with HTMX for live panels and the quick switcher, one shared script for the shell, and optional page-specific plain JavaScript or vendored libraries where a page needs more. No SPA framework, npm, bundler, or CDN dependency at runtime. Route handlers stay thin, with logic in `services/`. HTMX is vendored in `repocop/static/vendor/`, and it and the shell's script load on every page.
 
-**Live task page.** HTMX is vendored in `repocop/static/vendor/` and loaded only on the task page. While a task is active, its header, transcript (only events after the last `seq` shown) and worktree panel (git status and diff) refresh every 2 s. An inactive task's fragments carry no trigger, so polling stops. The instruction box sits outside them, so typed text is never replaced, and without JavaScript the page still works with a manual refresh. The diff is read-only and covers everything since the base commit, including untracked files. It's capped in size, and the page says when part was left out.
+**The shell.** Every page shares one frame, so an operator sees what is running anywhere and gets to any repository, requirement or task quickly:
+
+- **Sidebar:** the repositories, and the active tasks across all of them, each with its status and repository. It reads only the database, so it adds no git call to a page, and while any task is active its task list refreshes from a fragment every 2 s. In a narrow window it is a native popover behind a Menu button, which needs no script.
+- **Breadcrumbs** on every page but the repository list, such as Repositories › crm-api › bulk-import › Task #12, each part a link.
+- **Quick switcher:** Ctrl+K (⌘K on macOS), or Jump to…, opens a native `<dialog>` holding a WAI-ARIA combobox. Its options are a server-rendered fragment that HTMX fetches as you type: the active tasks before anything is typed, else the repositories, requirements and tasks matching by name, id or branch. Requirements are those in each checkout's requirements folder, read as a requirement's page reads them, and those recorded. The script only moves the selection and opens the pick.
+- **Shortcuts:** `?` lists them, `g r` goes to the repository list and `g u` one level up, by the breadcrumbs. Single-key shortcuts never fire in a field, and a switch in the list turns them off, remembered in that browser's `localStorage`.
+- **Section links** on the repository and task pages stay in view and mark the section on screen.
+- **Toasts** carry confirmations, such as saved, fetched or removed, in a live region that screen readers announce; errors stay inline. Times read as relative, with the exact time on hover. Help that explains a section folds under **How this works**.
+
+Every page reads and works without JavaScript, but for the switcher and shortcuts. The stylesheet stays hand-written on the system fonts, built from tokens for colour, space, type, radius and focus, with both colour schemes at WCAG AA contrast and motion following the reduced-motion setting (`.claude/rules/web-ui.md`).
+
+**Live task page.** While a task is active, its header, transcript (only events after the last `seq` shown) and worktree panel (git status and diff) refresh every 2 s. An inactive task's fragments carry no trigger, so polling stops. The instruction box sits outside them, so typed text is never replaced, and without JavaScript the page still works with a manual refresh. The diff is read-only and covers everything since the base commit, including untracked files. It's capped in size, and the page says when part was left out.
 
 **Editor links.** When `editor_url` is configured, a URL template containing `{path}`, each primary checkout and worktree that is on disk gets an "Open in editor" link built from it. The link is opened by the browser's machine. RepoCop launches nothing, so it also works when the browser isn't on RepoCop's host.
 
