@@ -1,0 +1,12 @@
+<tbody>
+  <tr class="group"><th colspan="4" scope="rowgroup">{{ heading }}</th></tr>
+  {% for entry in entries %}
+  {% set r = entry.requirement %}{% set d = entry.detail %}
+  <tr>
+    <td><a href="{{ url_for('requirement_page', repository_id=repository.id, file_name=r.file_name) }}">{{ r.name }}</a></td>
+    <td>{{ r.kind }}</td>
+    <td>{% if d %}{{ d.location }}{% if d.uncommitted %} <span class="badge">uncommitted</span>{% endif %}{% else %}can't be read{% endif %}</td>
+    <td class="blocked-by">{% for need in entry.waits_on %}{% if not loop.first %}, {% endif %}{% set name = need.name %}{% include "partials/change_name.html" %}{% endfor %}</td>
+  </tr>
+  {% endfor %}
+</tbody>

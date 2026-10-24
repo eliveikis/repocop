@@ -1,0 +1,48 @@
+#!/usr/bin/env python3
+"""Stands in for the GitHub CLI in tests. Never used by the app itself.
+
+Without FAKE_GH_DIR it fails, so a test that didn't ask for the fake can't reach GitHub. With it,
+state lives in that folder: `calls.jsonl` gets each call's arguments and the environment that
+matters, a `logged-out` file makes `auth status` fail, `fail` holds the stderr every `pr` command
+fails with, and `pulls.json` maps a branch to its open pull request's URL.
+"""
+
+import json
+import os
+import sys
+from pathlib import Path
+
+args = sys.argv[1:]
+if "FAKE_GH_DIR" not in os.environ:
+    sys.exit("the default test suite never calls GitHub; use the fake_gh fixture")
+state = Path(os.environ["FAKE_GH_DIR"])
+pulls_file = state / "pulls.json"
+pulls = json.loads(pulls_file.read_text()) if pulls_file.exists() else {}
+call = {"args": args, "cwd": str(Path.cwd()), "prompt_disabled": os.environ.get("GH_PROMPT_DISABLED")}
+with (state / "calls.jsonl").open("a") as log:
+    log.write(json.dumps(call) + "\n")
+
+
+def option(name: str) -> str:
+    return args[args.index(name) + 1]
+
+
+if args[:2] == ["auth", "status"]:
+    if (state / "logged-out").exists():
+        sys.exit("You are not logged into any GitHub hosts. To log in, run: gh auth login")
+elif args[:1] == ["pr"] and (state / "fail").exists():
+    sys.exit((state / "fail").read_text())
+elif args[:2] == ["pr", "list"]:
+    url = pulls.get(option("--head"))
+    print(json.dumps([{"url": url}] if url else []))
+elif args[:2] == ["pr", "create"]:
+    created = [c for c in map(json.loads, (state / "calls.jsonl").read_text().splitlines())]
+    number = sum(1 for c in created if c["args"][:2] == ["pr", "create"])
+    url = f"https://github.com/{option('--repo')}/pull/{number}"
+    pulls[option("--head")] = url
+    pulls_file.write_text(json.dumps(pulls))
+    print(url)
+elif args[:2] == ["pr", "edit"]:
+    pass
+else:
+    sys.exit(f"fake gh: unsupported command: {' '.join(args)}")

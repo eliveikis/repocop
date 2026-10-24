@@ -1,0 +1,6 @@
+# managed by template
+# Reviews of this repository's branches, kept on this machine only: git ignores
+# everything in this folder but this file and the script that makes them.
+*
+!.gitignore
+!review.sh

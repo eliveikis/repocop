@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+
+{% block title %}#{{ task.id }} · RepoCop{% endblock %}
+
+{% block scripts %}<script src="{{ url_for('static', path='vendor/htmx.min.js') }}" defer></script>{% endblock %}
+
+{% block content %}
+{% if requirement %}<p><a href="{{ url_for('requirement_page', repository_id=requirement.repository_id, file_name=requirement.file_name) }}">← {{ requirement.name }}</a></p>{% endif %}
+<h1>#{{ task.id }} · {{ task.workflow }}</h1>
+
+{% if notices.started %}<p class="notice" role="status">Task started in its worktree.</p>{% endif %}
+{% if notices.sent %}<p class="notice" role="status">Instruction sent to this task's session.</p>{% endif %}
+{% if notices.cancelled %}<p class="notice" role="status">Task cancelled.</p>{% endif %}
+{% if notices.done %}<p class="notice" role="status">Task marked done.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+{% include "partials/task_header.html" %}
+
+<h2>Transcript</h2>
+<ol class="transcript">
+{% include "partials/task_events.html" %}
+</ol>
+
+{% if instructable and task.status in ("running", "waiting_for_user") %}
+<form class="instruction" method="post" action="{{ url_for('send_instruction', task_id=task.id) }}">
+  <label>Instruction for this session
+    <textarea name="text" rows="4">{{ instruction }}</textarea>
+  </label>
+  <button type="submit">Send to #{{ task.id }}</button>
+</form>
+<p class="hint">Goes to this task's session only. While it's working, it's answered after the current turn.</p>
+{% endif %}
+
+{% if pull_request_offered %}
+{% set pull_request_route = "task_pull_request" %}{% set pull_request_params = {"task_id": task.id} %}{% set branch = task.branch %}
+{% include "partials/pull_request.html" %}
+{% endif %}
+
+<h2>Worktree</h2>
+{% include "partials/task_worktree.html" %}
+{% endblock %}

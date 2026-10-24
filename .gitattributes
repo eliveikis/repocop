@@ -1,0 +1,10 @@
+# Normalize line endings; files may be touched from both Windows and WSL.
+* text=auto eol=lf
+
+*.sh text eol=lf
+*.py text eol=lf
+
+*.png binary
+*.ico binary
+*.sqlite binary
+*.db binary

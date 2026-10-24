@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+
+{% block title %}New requirement · {{ repository.name }} · RepoCop{% endblock %}
+
+{% block content %}
+<p><a href="{{ url_for('repository_page', repository_id=repository.id) }}">← {{ repository.name }}</a></p>
+<h1>New requirement in {{ repository.name }}</h1>
+
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form class="requirement" method="post" action="{{ url_for('create_requirement', repository_id=repository.id) }}">
+  <label>Name
+    <input name="name" required maxlength="200" value="{{ form.name }}">
+  </label>
+  {% include "partials/requirement_fields.html" %}
+  <button type="submit">Create</button>
+</form>
+<p class="hint">
+  Saved in the checkout at <code>{{ repository.primary_path }}</code> <span class="owner owner-human">human-owned</span>
+  as <code>{{ todo_dir }}/&lt;name&gt;.md</code>, then committed on its own on the current branch. The name makes the file name, which is what the requirement is called from then on; the file holds only the requirement's text.
+</p>
+{% endblock %}

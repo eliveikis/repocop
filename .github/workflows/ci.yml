@@ -1,0 +1,35 @@
+name: ci
+
+# Pull requests only: they're squash-merged, so a run after merging would test what the
+# pull request's run already did. A draft is skipped until it's marked ready for review.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: ${{ !github.event.pull_request.draft }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10  # GitHub's default is 6 hours, billed if a test hangs
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - name: Install
+        run: uv sync --locked
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+      - name: Typecheck
+        run: uv run mypy
+      - name: Test
+        run: uv run pytest -n auto  # one worker per core; coverage is `make test-cov`

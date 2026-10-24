@@ -1,0 +1,16 @@
+# How template sync treats these files (see templates/README.md). Files not listed are
+# managed: they follow the template, and sync offers to overwrite them when they differ.
+
+# Created when missing, then the repository's own: sync never offers to replace them.
+starter = [
+    "AGENTS.md",
+    "CLAUDE.md",
+    "REVIEW.md",
+    "specs/index.md",
+    "specs/product.md",
+    "specs/architecture.md",
+]
+
+# JSON that sync brings up to date with the template: the template's entries and values win, and
+# what only the repository has stays.
+merged = [".claude/settings.json"]

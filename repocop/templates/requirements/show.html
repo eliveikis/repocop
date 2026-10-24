@@ -1,0 +1,85 @@
+{% extends "base.html" %}
+
+{% block title %}{{ requirement.name }} · RepoCop{% endblock %}
+
+{% block content %}
+<p><a href="{{ url_for('repository_page', repository_id=repository.id) }}">← {{ repository.name }}</a></p>
+<h1>{{ requirement.name }}</h1>
+<p class="facts"><code>{{ requirement.path }}</code> · {{ requirement.kind }}{% if detail %} · {{ detail.location }}{% endif %}</p>
+{% if change %}
+<dl class="facts dependencies">
+  <dt>Blocked by</dt>
+  <dd>{% for need in change.needs %}{% if not loop.first %}, {% endif %}{% set name = need.name %}{% include "partials/change_name.html" %}{% if need.delivered %} (delivered){% endif %}{% else %}nothing{% endfor %}</dd>
+  <dt>Blocks</dt>
+  <dd>{% for other in blocks %}{% if not loop.first %}, {% endif %}{% set name = other.name %}{% include "partials/change_name.html" %}{% else %}nothing{% endfor %}</dd>
+</dl>
+{% for problem in change_problems %}<p class="error" role="alert">{{ problem }}</p>{% endfor %}
+{% endif %}
+
+{% if saved == "committed" %}<p class="notice" role="status">Saved and committed.</p>
+{% elif saved == "uncommitted" %}<p class="notice" role="status">Saved, but not committed. Commit it below to retry and see why.</p>
+{% elif committed %}<p class="notice" role="status">Committed.</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+{% if detail and detail.uncommitted %}
+<form class="commit" method="post" action="{{ url_for('commit_requirement', repository_id=repository.id, file_name=requirement.file_name) }}">
+  This file has uncommitted changes. <button type="submit">Commit {{ requirement.name }}</button>
+</form>
+{% endif %}
+
+{% if detail and detail.location == "active" and form %}
+<form class="requirement" method="post" action="{{ url_for('save_requirement', repository_id=repository.id, file_name=requirement.file_name) }}">
+  <input type="hidden" name="version" value="{{ form.version }}">
+  {% include "partials/requirement_fields.html" %}
+  <button type="submit">Save</button>
+</form>
+{% elif detail and detail.location == "archived" %}
+<p>Archived, so it's read-only here.</p>
+<pre>{{ detail.content.body }}</pre>
+{% elif detail %}
+<p class="error" role="alert">The file is missing from <code>{{ requirement.path }}</code> and from the archive folder beside it.</p>
+{% endif %}
+
+<h2>Tasks</h2>
+{% if tasks %}
+<table class="tasks">
+  <thead>
+    <tr><th>Task</th><th>Workflow</th><th>Status</th><th>Created</th></tr>
+  </thead>
+  <tbody>
+    {% for task in tasks %}
+    <tr>
+      <td><a href="{{ url_for('task_page', task_id=task.id) }}">#{{ task.id }}</a></td>
+      <td>{{ task.workflow }}</td>
+      <td><span class="status status-{{ task.status }}">{{ task.status }}</span></td>
+      <td>{{ task.created_at }}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+{% endif %}
+{% if detail and detail.location == "active" %}
+{% if workflows %}
+<form class="start-task" method="post" action="{{ url_for('start_task', repository_id=repository.id, file_name=requirement.file_name) }}">
+  <label>Workflow
+    <select name="workflow">
+      {% for workflow in workflows %}<option>{{ workflow }}</option>{% endfor %}
+    </select>
+  </label>
+  <button type="submit">Start</button>
+</form>
+<p class="hint">
+  Tasks run in a RepoCop-owned worktree for {{ requirement.name }}, on its own branch, created
+  from the primary checkout's HEAD on the first start and reused by later tasks.
+</p>
+{% else %}
+<p class="hint">No skills are committed in <code>.claude/skills/</code> of {{ repository.name }}, so there are no workflows to start. Set it up and commit its skills first.</p>
+{% endif %}
+{% endif %}
+
+{% if branch %}
+{% include "partials/review.html" %}
+{% set pull_request_route = "requirement_pull_request" %}{% set pull_request_params = {"repository_id": repository.id, "file_name": requirement.file_name} %}
+{% include "partials/pull_request.html" %}
+{% endif %}
+{% endblock %}

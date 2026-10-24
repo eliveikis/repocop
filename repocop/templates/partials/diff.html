@@ -1,0 +1,2 @@
+<pre class="diff">{% for line in diff.split("\n") %}{% set kind = "diff-file" if line.startswith(("diff --git", "+++ ", "--- ", "index ", "new file", "deleted file")) else "diff-hunk" if line.startswith("@@") else "diff-add" if line.startswith("+") else "diff-del" if line.startswith("-") else "diff-context" %}<span class="{{ kind }}">{{ line }}</span>
+{% endfor %}</pre>

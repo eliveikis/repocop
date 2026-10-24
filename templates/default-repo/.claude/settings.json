@@ -1,0 +1,50 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git grep:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git mv:*)",
+      "Bash(make check)",
+      "Bash(make test:*)",
+      "Bash(.claude/skills/address-pr-comments/fetch-threads.sh:*)",
+      "Bash(.claude/skills/complete-change/archive.sh:*)"
+    ],
+    "ask": [
+      "Bash(git push:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Bash(cmd.exe *)",
+      "Bash(powershell.exe *)",
+      "Bash(pwsh.exe *)",
+      "Bash(wsl.exe *)",
+      "Bash(/mnt/*)"
+    ],
+    "disableBypassPermissionsMode": "disable"
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/linux-only-path.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

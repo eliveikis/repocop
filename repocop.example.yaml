@@ -1,0 +1,64 @@
+# RepoCop host configuration.
+#
+# Copy to one of these locations and edit (first match wins):
+#   1. path in $REPOCOP_CONFIG
+#   2. ./repocop.yaml                       (git-ignored)
+#   3. ~/.config/repocop/config.yaml        ($XDG_CONFIG_HOME respected)
+#
+# Every key can also be overridden with an env var: REPOCOP_<KEY_UPPERCASE>.
+# `~` and $VARS are expanded. Never hard-code usernames or machine-specific paths
+# in code — they belong here.
+
+# Where human-owned primary checkouts live / get cloned to.
+repos_root: ~/code
+
+# RepoCop-owned git worktrees live under <worktrees_root>/<repo-name>/ (see specs/architecture.md).
+# MUST be outside repos_root and outside every primary checkout.
+worktrees_root: ~/agent-worktrees
+
+# SQLite database for RepoCop execution state (registry + tasks + events).
+database_path: ~/.local/share/repocop/repocop.db
+
+# Captured raw process output (stream-json logs per task).
+logs_dir: ~/.local/share/repocop/logs
+
+# HTTP server. Keep 127.0.0.1 — v0.1 has no authentication.
+host: 127.0.0.1
+port: 8765
+
+# Claude Code CLI executable (resolved from PATH if not absolute).
+claude_bin: claude
+
+# Claude sessions use your Claude Code subscription login by default (`claude auth login`), even when
+# ANTHROPIC_API_KEY is set in the environment. Set this to bill an API key instead. The main page
+# shows which one is in use. Prefer REPOCOP_ANTHROPIC_API_KEY over writing the key here.
+# anthropic_api_key: sk-ant-...
+
+# The model a branch review runs on (the Review action on a requirement's page, run by Codex).
+# Unset: Codex's own default.
+# review_model: gpt-6.1-sol
+
+# How hard the reviewer thinks, at a level its model offers (Codex: low, medium, high, xhigh, …).
+# Higher is slower and uses more of your plan. Blank: whatever your own Codex configuration sets.
+review_effort: high
+
+# Bootstrap template applied during onboarding. Defaults to this repository's templates/default-repo.
+# Relative paths in a config file are resolved against the config file's own directory.
+# template_dir: /path/to/templates/default-repo
+
+# The folder of a newly onboarded repo's changes (per-repo value in the registry): todo/ holds
+# the requirements still to deliver, one Markdown file each, named by its file, and archive/ the
+# delivered ones.
+changes_dir: specs/changes
+
+# Adds an "Open in editor" link beside each primary checkout and worktree. A URL template with
+# {path} exactly once, replaced by the folder's absolute path. Your browser's machine opens the
+# link, so pick the form that reaches this host from there. Unset: no link is shown.
+# The trailing slash makes VS Code open a folder even when its name contains a dot.
+#   VS Code on the same machine as RepoCop (the form VS Code documents):
+# editor_url: vscode://file{path}/
+#   RepoCop in WSL, browser on Windows (replace Ubuntu with your distro's name):
+# editor_url: vscode://vscode-remote/wsl+Ubuntu{path}/
+#   RepoCop on another host, reached with VS Code's Remote - SSH (replace my-host):
+# editor_url: vscode://vscode-remote/ssh-remote+my-host{path}/
+

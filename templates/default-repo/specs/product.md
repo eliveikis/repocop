@@ -1,0 +1,1 @@
+TBD - add product design here to provide context to agents that need to make feature changes, beyond what is in the agents/claude.md.

@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+
+{% block title %}Repositories · RepoCop{% endblock %}
+
+{% block content %}
+<h1>Repositories</h1>
+
+{% set auth = claude_auth %}
+<p class="claude-auth claude-auth-{{ 'problem' if auth.problem else auth.kind }}"{% if auth.problem %} role="alert"{% endif %}>
+  {% if auth.problem %}Claude: {{ auth.problem }}{% elif auth.kind == "subscription" %}Claude: your Claude subscription ({{ auth.plan | capitalize if auth.plan else "plan unknown" }}{% if auth.account %}, {{ auth.account }}{% endif %}){% else %}Claude: an API key from RepoCop's configuration{% endif %}
+</p>
+
+{% if registration %}
+{% set repo = registration.repository %}
+<p class="notice" role="status">
+  {% if registration.outcome == "cloned" %}Cloned {{ repo.name }} into {{ repo.primary_path }}.
+  {% elif registration.outcome == "found_on_disk" %}Registered the existing checkout at {{ repo.primary_path }}.
+  {% else %}{{ repo.name }} is already registered.{% endif %}
+</p>
+{% endif %}
+
+{% if repositories %}
+<table class="repositories">
+  <thead>
+    <tr><th>Name</th><th>Status</th><th>Checkout</th><th>Remote</th><th>Paths</th></tr>
+  </thead>
+  <tbody>
+    {% for repo, status, waiting, checkout in repositories %}
+    <tr>
+      <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a></td>
+      <td>{% include "partials/repository_status.html" %}</td>
+      <td class="checkout">{% if checkout.error %}<span class="error-text">{{ checkout.error }}</span>{% elif checkout.state %}{% set state = checkout.state %}{% include "partials/checkout_state.html" %}{% else %}—{% endif %}</td>
+      <td>{% include "partials/repository_remote.html" %}</td>
+      <td class="paths">{% include "partials/repository_paths.html" %}</td>
+    </tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="hint">Ahead and behind are as of each checkout's last fetch.</p>
+{% else %}
+<p class="empty">No repositories registered yet.</p>
+{% endif %}
+
+<section aria-labelledby="add-heading">
+  <h2 id="add-heading">Add repository</h2>
+  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+  <form class="add-repository" method="post" action="{{ url_for('add_repository') }}">
+    <label>Remote URL <span class="hint">leave blank to add a checkout that's already there</span>
+      <input name="remote_url" value="{{ form.remote_url }}" placeholder="git@github.com:owner/repo.git">
+    </label>
+    <label>Name <span class="hint">defaults to the repository's name; needed without a URL</span>
+      <input name="name" value="{{ form.name }}">
+    </label>
+    <button type="submit">Add</button>
+  </form>
+  <p class="hint">
+    Clones into <code>{{ settings.repos_root }}/&lt;name&gt;</code> unless a checkout of this remote is
+    already there. Cloning a large repository can take a while. With only a name, the checkout
+    already at <code>{{ settings.repos_root }}/&lt;name&gt;</code> is added, using its
+    <code>origin</code> remote.
+  </p>
+</section>
+
+<section class="host-paths" aria-labelledby="host-paths-heading">
+  <h2 id="host-paths-heading">Host paths</h2>
+  <dl>
+    <dt>Primary checkouts <span class="owner owner-human">human-owned</span></dt>
+    <dd><code>{{ settings.repos_root }}</code></dd>
+    <dt>Agent worktrees <span class="owner owner-repocop">RepoCop-owned</span></dt>
+    <dd><code>{{ settings.worktrees_root }}</code></dd>
+  </dl>
+</section>
+{% endblock %}

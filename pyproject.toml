@@ -1,0 +1,92 @@
+[project]
+name = "repocop"
+version = "0.1.0.dev0"
+description = "A fleet manager for agentic repositories."
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE", "templates/LICENSE"]
+authors = [{ name = "Edward Liveikis" }]
+dependencies = [
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.30",
+  "jinja2>=3.1",
+  "python-multipart>=0.0.9", # HTML form posts
+  "pydantic>=2.7",
+  "pyyaml>=6.0",
+  "claude-agent-sdk>=0.2.159",
+]
+
+[project.scripts]
+repocop = "repocop.__main__:main"
+
+[dependency-groups]
+dev = [
+  "pytest>=8.2",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=5.0",
+  "httpx2", # Starlette/FastAPI TestClient (starlette>=1.x deprecates plain httpx)
+  "ruff>=0.6",
+  "mypy>=1.10",
+  "types-PyYAML",
+  "pytest-xdist>=3.8.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["repocop"]
+
+# ---------------------------------------------------------------- ruff
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["templates/default-repo"]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",  # pycodestyle
+  "F",       # pyflakes
+  "I",       # isort
+  "B",       # bugbear
+  "UP",      # pyupgrade
+  "SIM",     # simplify
+  "S",       # bandit (subprocess / path safety matters here)
+  "PTH",     # prefer pathlib
+  "RUF",
+]
+ignore = [
+  "S603", # subprocess without shell=True is the *desired* pattern; S602 (shell=True) stays on
+  "S607", # partial executable path: we intentionally resolve `git` / `claude` from PATH
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "S105", "S106", "S108"]
+
+# ---------------------------------------------------------------- mypy
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+plugins = ["pydantic.mypy"]
+files = ["repocop", "tests"]
+
+[[tool.mypy.overrides]]
+module = "tests.*"
+disallow_untyped_defs = false
+
+# ---------------------------------------------------------------- pytest
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra --strict-markers"
+asyncio_mode = "auto"
+markers = [
+  "claude: requires a real, authenticated Claude Code CLI (skipped by default)",
+  "slow: slow tests",
+]
+
+[tool.coverage.run]
+source = ["repocop"]
+branch = true

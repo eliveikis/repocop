@@ -1,0 +1,3 @@
+<div>{% if state.branch %}<code>{{ state.branch }}</code>{% else %}detached at <code>{{ state.commit[:12] }}</code>{% endif %}{% if state.unfinished %} <span class="badge">{{ state.unfinished }} unfinished</span>{% endif %}</div>
+<div>{% if state.changed %}{{ state.changed | length }} changed file{{ "" if state.changed | length == 1 else "s" }}{% else %}no changed files{% endif %}</div>
+<div>{% if state.ahead is not none %}{{ state.ahead }} ahead, {{ state.behind }} behind <code>{{ state.upstream }}</code>{% elif state.upstream %}upstream <code>{{ state.upstream }}</code> is gone{% else %}no upstream{% endif %}</div>

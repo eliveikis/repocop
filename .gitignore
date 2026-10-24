@@ -1,0 +1,58 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# --- RepoCop runtime state (never commit) ---
+# Local SQLite DB, logs, and captured session output.
+data/*
+!data/.gitkeep
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.log
+
+# Host-specific configuration (commit the *.example.* versions instead). Every YAML file at the
+# root is a host's own configuration, whatever it's named, including under a name it had before.
+.env
+.env.*
+!.env.example
+/*.yaml
+!/*.example.yaml
+
+# --- Claude Code ---
+# Personal overrides; the shared .claude/settings.json IS committed.
+.claude/settings.local.json
+CLAUDE.local.md
+# Worktrees created by Claude Code's own --worktree / EnterWorktree
+.claude/worktrees/
+
+# --- Editors / OS ---
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+.DS_Store
+Thumbs.db
+# Windows "Mark of the Web" alternate data streams copied into WSL
+*:Zone.Identifier
+*Zone.Identifier

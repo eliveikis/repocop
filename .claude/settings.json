@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "allow": [
+      "Bash(make help)",
+      "Bash(make install)",
+      "Bash(make test:*)",
+      "Bash(make lint)",
+      "Bash(make format)",
+      "Bash(make typecheck)",
+      "Bash(make check)",
+      "Bash(make doctor)",
+      "Bash(uv sync:*)",
+      "Bash(uv run pytest:*)",
+      "Bash(uv run ruff:*)",
+      "Bash(uv run mypy:*)",
+      "Bash(uv lock:*)",
+      "Bash(uv tree:*)",
+      "Bash(./scripts/doctor.sh)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git branch:*)",
+      "Bash(git worktree list:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(git ls-files:*)",
+      "Bash(git grep:*)",
+      "Bash(git merge-base:*)",
+      "Bash(git mv:*)",
+      "Bash(.claude/skills/address-pr-comments/fetch-threads.sh:*)",
+      "Bash(.claude/skills/complete-change/archive.sh:*)",
+      "Bash(sqlite3:*)"
+    ],
+    "ask": [
+      "Bash(uv add:*)",
+      "Bash(uv remove:*)",
+      "Bash(git push:*)",
+      "Bash(git commit:*)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./repocop.yaml)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git clean -f:*)",
+      "Bash(rm -rf ~:*)",
+      "Bash(rm -rf /:*)",
+      "Bash(cmd.exe *)",
+      "Bash(powershell.exe *)",
+      "Bash(pwsh.exe *)",
+      "Bash(wsl.exe *)",
+      "Bash(/mnt/*)"
+    ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/linux-only-path.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/format-python.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,1 @@
+{% set file = pages.get(name) %}{% if file %}<a href="{{ url_for('requirement_page', repository_id=repository.id, file_name=file) }}">{{ name }}</a>{% else %}<code>{{ name }}</code>{% endif %}

@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}Sync {{ repository.name }} · RepoCop{% endblock %}
+
+{% block content %}
+<p><a href="{{ url_for('repository_page', repository_id=repository.id) }}">← {{ repository.name }}</a></p>
+<h1>Sync {{ repository.name }} with the template</h1>
+
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+
+{% if waiting %}
+<p class="notice" role="status">
+  A sync is waiting: <a href="{{ url_for('task_page', task_id=waiting.id) }}">#{{ waiting.id }}</a>
+  on <code>{{ waiting.branch }}</code>. Push it and merge its pull request there. Once the merge
+  is on <code>origin</code> and fetched, this page offers whatever the template still has to add.
+</p>
+{% elif plan %}
+<p>
+  Compares the repo template at <code>{{ settings.template_dir }}</code> with what
+  <code>{{ plan.ref }}</code> has committed, as of the last fetch: where a merged pull request
+  lands. Picked files are committed on a new branch from there, in a RepoCop-owned worktree;
+  the checkout at <code>{{ repository.primary_path }}</code>
+  <span class="owner owner-human">human-owned</span> isn't touched.
+</p>
+{% if plan.up_to_date %}
+<p class="notice" role="status">Up to date: every template file matches <code>{{ plan.ref }}</code> or is the repository's own.</p>
+{% else %}
+<form method="post" action="{{ url_for('apply_template_sync', repository_id=repository.id) }}">
+<table class="sync-plan">
+  <thead>
+    <tr><th>File</th><th>State</th><th>Pick</th></tr>
+  </thead>
+  <tbody>
+    {% for file in plan.files %}
+    <tr>
+      <td><code>{{ file.path }}</code></td>
+      <td>{{ file.state }}{% if file.reason %}: {{ file.reason }}{% endif %}</td>
+      <td>
+        {% if file.state == "missing" %}<label><input type="checkbox" name="create" value="{{ file.path }}" checked> create</label>
+        {% elif file.state == "differs" %}<label><input type="checkbox" name="overwrite" value="{{ file.path }}" checked> overwrite</label>
+        {% elif file.state == "behind the template" %}<label><input type="checkbox" name="merge" value="{{ file.path }}" checked> merge</label>
+        {% elif file.state == "removed from the template" %}<label><input type="checkbox" name="delete" value="{{ file.path }}" checked> delete</label>
+        {% else %}—{% endif %}
+      </td>
+    </tr>
+    {% if file.diff %}
+    <tr class="sync-diff"><td colspan="3"><details><summary>Diff: <code>{{ plan.ref }}</code> → {% if file.state == "behind the template" %}merged{% elif file.state == "removed from the template" %}deleted{% else %}template{% endif %}</summary>{% set diff = file.diff %}{% include "partials/diff.html" %}</details></td></tr>
+    {% endif %}
+    {% endfor %}
+  </tbody>
+</table>
+<p><button type="submit">Commit picked files on a new branch</button></p>
+</form>
+<p class="hint">The template is the authority, so every file it offers is picked: missing files to be created, differing ones to be overwritten, merged files to be brought up to date, and files it no longer ships to be deleted. A merge adds what the template has and takes the template's values, and keeps what only the repository has. Untick a file to keep the repository's version. A starter file, once the repository has it, is its own and isn't offered. Only a file carrying the template's <code>managed by template</code> marker is offered for deletion: one without it is the repository's own, whatever its path.</p>
+{% endif %}
+{% endif %}
+{% endblock %}

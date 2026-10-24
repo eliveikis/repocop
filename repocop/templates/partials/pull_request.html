@@ -1,0 +1,20 @@
+<section class="pull-request" aria-labelledby="pull-request-heading">
+  <h2 id="pull-request-heading">Pull request</h2>
+  {% if pull_request_done == "push" %}<p class="notice" role="status">Pushed <code>{{ branch }}</code>.</p>
+  {% elif pull_request_done == "review" %}<p class="notice" role="status">Asked Copilot to review the pull request.</p>{% endif %}
+  {% if pull_request %}
+  <p><a href="{{ pull_request.url }}" target="_blank" rel="noopener noreferrer">{{ pull_request.url }}</a>, from <code>{{ branch }}</code></p>
+  <div class="pull-request-actions">
+    <form method="post" action="{{ url_for(pull_request_route, action='push', **pull_request_params) }}"><button type="submit">Push</button></form>
+    <form method="post" action="{{ url_for(pull_request_route, action='review', **pull_request_params) }}"><button type="submit">Request Copilot review</button></form>
+    <form method="post" action="{{ url_for(pull_request_route, action='open', **pull_request_params) }}" target="_blank"><button type="submit">Open a new PR</button></form>
+  </div>
+  <p class="hint">Push sends the branch's new commits to the pull request. GitHub is asked about it only when you click, so it may have been merged or closed since: Open a new PR then. Nothing is pushed until you click, and never by force. Merging is done on GitHub.</p>
+  {% else %}
+  <p><code>{{ branch }}</code> is only on this machine until its pull request is opened.</p>
+  <div class="pull-request-actions">
+    <form method="post" action="{{ url_for(pull_request_route, action='open', **pull_request_params) }}" target="_blank"><button type="submit">Open PR</button></form>
+  </div>
+  <p class="hint">Open PR pushes the branch to <code>origin</code>, opens a pull request into the default branch on GitHub, and shows it in a new tab. Nothing is pushed until you click, and never by force.</p>
+  {% endif %}
+</section>
