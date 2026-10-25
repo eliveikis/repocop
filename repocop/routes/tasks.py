@@ -12,8 +12,15 @@ from starlette.concurrency import run_in_threadpool
 from repocop.config import Settings
 from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RunnerDep, SettingsDep, TaskDep
-from repocop.services import pull_requests, repositories, requirements, reviews, tasks
-from repocop.services.tasks import Task
+from repocop.services import (
+    pull_requests,
+    repositories,
+    requirements,
+    reviews,
+    tasks,
+    template_sync,
+)
+from repocop.services.tasks import Status, Task
 from repocop.services.worktrees import Changes
 
 router = APIRouter()
@@ -216,5 +223,30 @@ def _render_task(
         "instructable": not reviews.is_review(current),
     }
     return _templates(request).TemplateResponse(
-        request, "tasks/show.html", context, status_code=status_code
+        request,
+        "tasks/show.html",
+        context | _waiting(conn, settings, current),
+        status_code=status_code,
     )
+
+
+def _waiting(conn: sqlite3.Connection, settings: Settings, task: Task) -> dict[str, Any]:
+    """What the page says of the task when it is its repository's sync that is done but not yet
+    on `origin`: where it hasn't landed, the pull request last known for its branch, and when the
+    checkout last fetched. Nothing for any other task."""
+    if task.workflow != template_sync.WORKFLOW or task.status is not Status.COMPLETED:
+        return {}
+    repository = repositories.get(conn, task.repository_id)
+    waiting = template_sync.waiting(conn, settings, repository) if repository else None
+    if repository is None or waiting is None or waiting.id != task.id:
+        return {}
+    try:
+        fetched_at = repositories.last_fetch(repository, settings)
+    except RepoCopError:
+        fetched_at = None
+    return {
+        "waiting": task,
+        "waiting_ref": repositories.origin_default(repository),
+        "waiting_pull_request": _pull_request(conn, task),
+        "fetched_at": fetched_at,
+    }

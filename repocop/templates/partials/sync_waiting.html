@@ -1,0 +1,4 @@
+<div class="notice sync-waiting">
+  <p>Template sync <a href="{{ url_for('task_page', task_id=waiting.id) }}">#{{ waiting.id }}</a>, on <code>{{ waiting.branch }}</code>, isn't on <code>{{ waiting_ref }}</code> as of the last fetch{% if fetched_at %}, {{ fetched_at | ago }}{% endif %}. {% if waiting_pull_request %}Merge <a href="{{ waiting_pull_request.url }}" target="_blank" rel="noopener noreferrer">its pull request</a> on GitHub, then fetch.{% else %}Open its pull request, merge it on GitHub, then fetch.{% endif %}</p>
+  <form method="post" action="{{ url_for('fetch_repository', repository_id=repository.id) }}"><button type="submit" class="primary">Fetch</button></form>
+</div>

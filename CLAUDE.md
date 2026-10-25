@@ -27,9 +27,9 @@ Python 3.12+, FastAPI, Jinja2 server-rendered HTML, HTMX (vendored in `repocop/s
 ```text
 repocop/            app package
   main.py config.py db.py
-  services/             repositories, bootstrap, template_sync, requirements, backlog, worktrees, tasks, runner, pull_requests, reviews, git, claude, github, codex
+  services/             repositories, bootstrap, template_sync, requirements, backlog, worktrees, tasks, runner, pull_requests, reviews, navigation, git, claude, github, codex
   routes/  templates/   thin handlers + Jinja
-  static/               css, vendored htmx
+  static/               css, the shell's script, vendored htmx
 templates/default-repo/ the repo template, synced into onboarded repos (NOT Jinja app templates)
 tests/                  hermetic; fixtures in conftest.py; fakes/ (stand-ins for the Claude SDK client, the GitHub CLI and the Codex CLI)
 specs/                  index.md, product.md, architecture.md, [<area>.md], decisions/, changes/{todo,archive}/

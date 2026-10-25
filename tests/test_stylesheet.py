@@ -1,6 +1,7 @@
 """Colour contrast in the stylesheet, checked from source so a regression fails `make check`.
 
-Backs `.claude/rules/web-ui.md` (colour tokens exist for both schemes and text meets WCAG AA).
+Backs `.claude/rules/web-ui.md` (colour tokens exist for both schemes, text meets WCAG AA, and
+controls and focus stand out from what is around them).
 """
 
 import re
@@ -14,12 +15,18 @@ import repocop
 STYLESHEET = Path(repocop.__file__).resolve().parent / "static" / "css" / "app.css"
 DARK_SCHEME = "@media (prefers-color-scheme: dark)"
 AA_TEXT_CONTRAST = 4.5
+AA_NON_TEXT_CONTRAST = 3.0  # a control's edge, and the focus ring (WCAG 1.4.11)
+
+SURFACES = ("bg", "surface", "panel")
 TEXT_COLOURS = ("fg", "muted", "link", "human", "repocop", "danger")
-SURFACES = ("bg", "panel")
-BADGE_FILLS = ("human", "repocop", "danger", "muted")  # status badges draw --bg text on these
-PAIRS = [(text, surface) for text in TEXT_COLOURS for surface in SURFACES] + [
-    ("bg", fill) for fill in BADGE_FILLS
+TONES = ("ok", "warn", "danger", "info", "neutral")  # each status pill: its text on its fill
+TEXT_PAIRS = [
+    *((text, surface) for text in TEXT_COLOURS for surface in SURFACES),
+    *((f"tone-{tone}-fg", f"tone-{tone}-bg") for tone in TONES),
+    ("on-accent", "accent"),
 ]
+NON_TEXT_PAIRS = [(edge, surface) for edge in ("control", "focus") for surface in SURFACES]
+DECORATIVE = ("border",)  # separators, which carry no meaning of their own
 
 
 def root_colours(css: str) -> dict[str, str]:
@@ -50,8 +57,24 @@ def test_stylesheet_dark_scheme_redefines_every_colour() -> None:
     assert colours["dark"].keys() == colours["light"].keys()
 
 
+def test_stylesheet_checks_the_contrast_of_every_colour() -> None:
+    checked = {name for pair in TEXT_PAIRS + NON_TEXT_PAIRS for name in pair}
+    assert scheme_colours()["light"].keys() == checked | set(DECORATIVE), (
+        "Every colour token is in a contrast pair here, or is decorative"
+    )
+
+
 @pytest.mark.parametrize("scheme", ["light", "dark"])
-@pytest.mark.parametrize(("text", "surface"), PAIRS)
+@pytest.mark.parametrize(("text", "surface"), TEXT_PAIRS)
 def test_stylesheet_text_meets_aa_contrast(scheme: str, text: str, surface: str) -> None:
     colours = scheme_colours()[scheme]
     assert contrast(colours[text], colours[surface]) >= AA_TEXT_CONTRAST
+
+
+@pytest.mark.parametrize("scheme", ["light", "dark"])
+@pytest.mark.parametrize(("edge", "surface"), NON_TEXT_PAIRS)
+def test_stylesheet_controls_and_focus_meet_aa_contrast(
+    scheme: str, edge: str, surface: str
+) -> None:
+    colours = scheme_colours()[scheme]
+    assert contrast(colours[edge], colours[surface]) >= AA_NON_TEXT_CONTRAST

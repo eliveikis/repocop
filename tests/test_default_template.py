@@ -13,6 +13,7 @@ from repocop.config import PROJECT_ROOT, Settings
 from repocop.services import bootstrap, repositories, template_sync
 from repocop.services.bootstrap import Kind
 from repocop.services.repositories import Status
+from tests.conftest import run_git
 
 TEMPLATE = PROJECT_ROOT / "templates" / "default-repo"
 # Shipped to onboarded repos as copies of this repo's own files, so edit both together.
@@ -25,8 +26,10 @@ MIRRORED = (
     ".claude/rules/reviews.md",
     ".claude/rules/test-policy.md",
     ".claude/hooks/linux-only-path.sh",
+    ".claude/hooks/amend-only-unpushed.sh",
     ".reviews/.gitignore",
     ".reviews/review.sh",
+    "specs/changes/README.md",
     "specs/changes/backlog.sh",
     "specs/changes/.gitignore",
 )
@@ -34,6 +37,7 @@ MIRRORED = (
 MARKDOWN_MARKER = "<!-- managed by template -->"
 COMMENT_MARKER = "# managed by template"
 LINUX_ONLY_PATH = TEMPLATE / ".claude" / "hooks" / "linux-only-path.sh"
+AMEND_ONLY_UNPUSHED = TEMPLATE / ".claude" / "hooks" / "amend-only-unpushed.sh"
 OSRELEASE = Path("/proc/sys/kernel/osrelease")
 ON_WSL = OSRELEASE.is_file() and "microsoft" in OSRELEASE.read_text().lower()
 # Real tools first, so the hook and the shell sourcing its output can run.
@@ -45,11 +49,6 @@ def files_under(root: Path, relative: str) -> dict[str, tuple[bytes, bool]]:
     base = root / relative
     paths = [base] if base.is_file() else sorted(p for p in base.rglob("*") if p.is_file())
     return {p.relative_to(root).as_posix(): (p.read_bytes(), os.access(p, os.X_OK)) for p in paths}
-
-
-def lifecycle(index: Path) -> str:
-    text = index.read_text(encoding="utf-8")
-    return text[text.index("## Lifecycle") :]
 
 
 def run_linux_only_path(tmp_path: Path) -> tuple[str, str]:
@@ -75,12 +74,6 @@ def test_default_template_mirrors_this_repos_shared_files(relative: str) -> None
         f"{shipped_path} differs from {relative} ({', '.join(drifted)}). Onboarded repos get "
         "the template's copy, so keep it repo-agnostic and copy it over: "
         f"rm -rf {shipped_path} && cp -a {relative} {shipped_path}"
-    )
-
-
-def test_default_template_lifecycle_matches_this_repos_index() -> None:
-    assert lifecycle(TEMPLATE / "specs" / "index.md") == lifecycle(
-        PROJECT_ROOT / "specs" / "index.md"
     )
 
 
@@ -181,6 +174,68 @@ def test_default_template_settings_run_linux_only_path_at_session_start() -> Non
     commands = [hook["command"] for entry in hooks["SessionStart"] for hook in entry["hooks"]]
     assert commands == ['"$CLAUDE_PROJECT_DIR"/.claude/hooks/linux-only-path.sh']
     assert os.access(LINUX_ONLY_PATH, os.X_OK)
+
+
+@pytest.mark.parametrize("root", [TEMPLATE, PROJECT_ROOT], ids=["template", "this repo"])
+def test_settings_check_each_bash_command_for_an_amend_of_a_pushed_commit(root: Path) -> None:
+    hooks = json.loads((root / ".claude" / "settings.json").read_text())["hooks"]
+    commands = [
+        hook["command"]
+        for entry in hooks["PreToolUse"]
+        if entry["matcher"] == "Bash"
+        for hook in entry["hooks"]
+    ]
+    assert '"$CLAUDE_PROJECT_DIR"/.claude/hooks/amend-only-unpushed.sh' in commands
+    assert os.access(AMEND_ONLY_UNPUSHED, os.X_OK)
+
+
+def run_amend_only_unpushed(checkout: Path, command: str) -> subprocess.CompletedProcess[str]:
+    """The hook's answer to Claude running `command` in `checkout`."""
+    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(checkout)}
+    return subprocess.run(
+        [AMEND_ONLY_UNPUSHED], input=json.dumps(payload), capture_output=True, text=True
+    )
+
+
+def test_amend_only_unpushed_refuses_to_amend_a_pushed_commit(primary_checkout: Path) -> None:
+    refused = run_amend_only_unpushed(primary_checkout, 'git commit --amend -m "Reworded"')
+    assert refused.returncode == 2
+    assert "already on origin/main" in refused.stderr
+    assert "Make a new commit instead" in refused.stderr
+
+
+def commit_unpushed(checkout: Path) -> None:
+    (checkout / "notes.md").write_text("Not pushed.\n")
+    run_git("add", "notes.md", cwd=checkout)
+    run_git("commit", "-qm", "Add notes", cwd=checkout)
+
+
+def test_amend_only_unpushed_lets_an_unpushed_commit_be_amended(primary_checkout: Path) -> None:
+    commit_unpushed(primary_checkout)
+    assert run_amend_only_unpushed(primary_checkout, "git commit --amend --no-edit").returncode == 0
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -C ../other commit --amend --no-edit",
+        "cd ../other && git commit --amend --no-edit",
+        "GIT_DIR=../other/.git git commit --amend --no-edit",
+        "git --work-tree=../other commit --amend --no-edit",
+    ],
+)
+def test_amend_only_unpushed_refuses_an_amend_aimed_at_another_checkout(
+    primary_checkout: Path, command: str
+) -> None:
+    commit_unpushed(primary_checkout)  # so only where it points can be the reason
+    refused = run_amend_only_unpushed(primary_checkout, command)
+    assert refused.returncode == 2
+    assert "can't tell which checkout it amends" in refused.stderr
+
+
+def test_amend_only_unpushed_ignores_other_commands(primary_checkout: Path) -> None:
+    allowed = run_amend_only_unpushed(primary_checkout, 'git commit -m "A new one"')
+    assert (allowed.returncode, allowed.stderr) == (0, "")
 
 
 @pytest.mark.skipif(not ON_WSL, reason="the hook acts only on WSL")

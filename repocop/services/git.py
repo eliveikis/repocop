@@ -261,11 +261,11 @@ def checkout_state(path: Path) -> CheckoutState:
         behind=behind,
         changed=sorted(changed),
         unfinished=unfinished_operation(path),
-        fetched_at=_last_fetch(path),
+        fetched_at=last_fetch(path),
     )
 
 
-def _last_fetch(path: Path) -> datetime | None:
+def last_fetch(path: Path) -> datetime | None:
     """When the checkout last fetched: the time git last wrote its FETCH_HEAD."""
     marker = path / _run(["rev-parse", "--git-path", "FETCH_HEAD"], cwd=path)
     try:

@@ -22,8 +22,8 @@
   {% if task.worktree_path %}<dt>Worktree</dt><dd><code>{{ task.worktree_path }}</code> <span class="owner owner-repocop">RepoCop-owned</span>{% if editor_link %} <a href="{{ editor_link }}">Open in editor</a>{% endif %}</dd>{% endif %}
   {% if task.base_commit %}<dt>Base commit</dt><dd><code>{{ task.base_commit[:12] }}</code></dd>{% endif %}
   {% if task.claude_session_id %}<dt>Session</dt><dd><code>{{ task.claude_session_id }}</code></dd>{% endif %}
-  <dt>Created</dt><dd>{{ task.created_at }}</dd>
-  <dt>Updated</dt><dd>{{ task.updated_at }}</dd>
+  <dt>Created</dt><dd>{{ task.created_at | ago }}</dd>
+  <dt>Updated</dt><dd>{{ task.updated_at | ago }}</dd>
 </dl>
 
 {% if resume_command %}
@@ -37,10 +37,10 @@
 
 <div class="task-actions">
   {% if task.status == "waiting_for_user" %}
-  <form method="post" action="{{ url_for('mark_task_done', task_id=task.id) }}"><button type="submit">Mark done</button></form>
+  <form method="post" action="{{ url_for('mark_task_done', task_id=task.id) }}"><button type="submit" class="primary">Mark done</button></form>
   {% endif %}
   {% if active %}
-  <form method="post" action="{{ url_for('cancel_task', task_id=task.id) }}"><button type="submit">Cancel task</button></form>
+  <form method="post" action="{{ url_for('cancel_task', task_id=task.id) }}"><button type="submit" class="danger">Cancel task</button></form>
   {% endif %}
   {% if task.status in ("failed", "cancelled") and requirement %}
   <form method="post" action="{{ url_for('start_task_again', task_id=task.id) }}"><button type="submit">Start again</button></form>

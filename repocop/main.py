@@ -8,11 +8,18 @@ from pathlib import Path
 
 from fastapi import Depends, FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
 
 from repocop import __version__, db
 from repocop.config import Settings, load_settings
-from repocop.routes import health, repositories, requirements, tasks, template_sync
+from repocop.routes import (
+    health,
+    navigation,
+    pages,
+    repositories,
+    requirements,
+    tasks,
+    template_sync,
+)
 from repocop.routes.dependencies import check_same_origin
 from repocop.services import claude
 from repocop.services.runner import TaskRunner
@@ -51,9 +58,10 @@ def create_app(
     )
     app.state.settings = settings
     app.state.claude_client = claude_client
-    app.state.templates = Jinja2Templates(directory=PACKAGE_DIR / "templates")
+    app.state.templates = pages.templates(PACKAGE_DIR / "templates")
     app.mount("/static", StaticFiles(directory=PACKAGE_DIR / "static"), name="static")
     app.include_router(health.router)
+    app.include_router(navigation.router)
     app.include_router(repositories.router)
     app.include_router(requirements.router)
     app.include_router(tasks.router)

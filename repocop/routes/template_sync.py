@@ -1,6 +1,7 @@
 """Template sync pages: the plan for a repository, and applying the picked files."""
 
 import sqlite3
+from datetime import datetime
 from typing import Annotated
 
 from fastapi import APIRouter, Form, Request
@@ -10,7 +11,7 @@ from fastapi.templating import Jinja2Templates
 from repocop.config import Settings
 from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RepositoryDep, SettingsDep
-from repocop.services import repositories, template_sync
+from repocop.services import pull_requests, repositories, template_sync
 from repocop.services.repositories import Repository
 
 router = APIRouter()
@@ -70,14 +71,30 @@ def _render(
         plan = repositories.template_plan(repository, settings)
     except RepoCopError as exc:
         error = error or str(exc)
+    waiting = template_sync.waiting(conn, settings, repository)
     context = {
         "repository": repository,
         "settings": settings,
         "plan": plan,
-        "waiting": template_sync.waiting(conn, settings, repository),
+        "waiting": waiting,
+        "waiting_ref": repositories.origin_default(repository),
+        "waiting_pull_request": (
+            pull_requests.get(conn, repository.id, waiting.branch)
+            if waiting and waiting.branch
+            else None
+        ),
+        "fetched_at": _last_fetch(repository, settings) if waiting else None,
         "notice": notice,
         "error": error,
     }
     return templates.TemplateResponse(
         request, "repositories/sync.html", context, status_code=status_code
     )
+
+
+def _last_fetch(repository: Repository, settings: Settings) -> datetime | None:
+    """When the checkout last fetched, or None if it never has or can't be read."""
+    try:
+        return repositories.last_fetch(repository, settings)
+    except RepoCopError:
+        return None

@@ -44,7 +44,7 @@ def wait_for_status(client: TestClient, task_id: int, status: str, timeout: floa
     deadline = time.monotonic() + timeout
     while True:
         html = client.get(f"/tasks/{task_id}").text
-        if f'class="status status-{status}">{status}<' in html:
+        if f'class="status status-{status}">{status}<' in html.partition("<main")[2]:
             return html
         if time.monotonic() > deadline:
             raise AssertionError(f"task #{task_id} never reached {status}")
@@ -95,6 +95,7 @@ def test_requirement_page_explains_when_no_skills_are_committed(
     client.post("/repositories/1/requirements", data={"name": "X", "kind": "feature", "body": ""})
     html = client.get("/repositories/1/requirements/x.md").text
     assert "No skills are committed" in html
+    assert 'href="http://testserver/repositories/1/sync">Sync with the template</a>' in html
     assert 'action="http://testserver/repositories/1/requirements/x.md/tasks"' not in html
 
 
@@ -327,14 +328,16 @@ def worktree(settings: Settings) -> Path:
 
 
 @pytest.mark.usefixtures("requirement")
-def test_task_page_loads_the_vendored_htmx_and_no_other_script(client: TestClient) -> None:
+def test_task_page_loads_only_the_vendored_htmx_and_the_shell_script(client: TestClient) -> None:
     start(client)
     html = client.get("/tasks/1").text
-    assert '<script src="http://testserver/static/vendor/htmx.min.js" defer></script>' in html
-    assert html.count("<script") == 1
-    script = client.get("/static/vendor/htmx.min.js")
-    assert script.status_code == 200
-    assert "javascript" in script.headers["content-type"]
+    scripts = re.findall(r'<script src="http://testserver(/static/[^"]+)" defer></script>', html)
+    assert scripts == ["/static/vendor/htmx.min.js", "/static/js/shell.js"]
+    assert html.count("<script") == len(scripts)
+    for path in scripts:
+        script = client.get(path)
+        assert script.status_code == 200
+        assert "javascript" in script.headers["content-type"]
 
 
 @pytest.mark.usefixtures("requirement")
@@ -375,7 +378,7 @@ def test_task_page_escapes_the_diff(client: TestClient, settings: Settings) -> N
 def test_task_page_polls_while_the_task_is_active_and_stops_after(client: TestClient) -> None:
     start(client)
     active = wait_for_status(client, 1, "waiting_for_user")
-    assert active.count('hx-trigger="every 2s"') == 3
+    assert active.partition("<main")[2].count('hx-trigger="every 2s"') == 3
     client.post("/tasks/1/cancel")
     assert 'hx-trigger="every 2s"' not in client.get("/tasks/1").text
 
