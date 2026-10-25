@@ -5,17 +5,43 @@
 # checks the repository the session is in, and knows only the pushes and fetches it has seen. An
 # amend that points git elsewhere (cd, -C, a git dir or work tree) can't be checked, so it is refused.
 input=$(cat)
-case $input in
+
+# The command alone, decoded from the hook's JSON, so line breaks are real and no other field counts.
+cmd=$(printf '%s' "$input" | awk '
+BEGIN { RS = "\001" }
+{
+  start = index($0, "\"command\"")
+  if (!start) exit
+  s = substr($0, start + 9)
+  if (!match(s, /^[ \t\r\n]*:[ \t\r\n]*"/)) exit
+  s = substr(s, RLENGTH + 1)
+  n = length(s)
+  out = ""
+  for (i = 1; i <= n; i++) {
+    c = substr(s, i, 1)
+    if (c == "\"") break
+    if (c != "\\") { out = out c; continue }
+    i++
+    e = substr(s, i, 1)
+    if (e == "n") out = out "\n"
+    else if (e == "t") out = out "\t"
+    else if (e == "r") out = out "\r"
+    else if (e == "u") { out = out " "; i += 4 }  # no check here reads a \u escape
+    else out = out e
+  }
+  printf "%s", out
+}')
+case $cmd in
 *--amend*) ;;
 *) exit 0 ;;
 esac
-case $input in
+case $cmd in
 *commit*) ;;
 *) exit 0 ;;
 esac
 
 elsewhere='(^|[^[:alnum:]_.-])(cd|pushd)[[:space:]]|[[:space:]]-C[[:space:]]|--git-dir|--work-tree|GIT_DIR=|GIT_WORK_TREE='
-if printf '%s' "$input" | grep -Eq "$elsewhere"; then
+if printf '%s\n' "$cmd" | grep -Eq "$elsewhere"; then
   echo "This amend runs git through cd, -C, a git dir or a work tree, so this hook can't tell which checkout it amends, or whether that commit is pushed. Run it in the session's checkout without them, or make a new commit instead (.claude/rules/commits.md)." >&2
   exit 2
 fi

@@ -144,12 +144,40 @@ def test_review_skills_report_their_one_commit_once(skill: str) -> None:
 def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None:
     # RepoCop sessions are headless, so a command outside the allowlist is simply denied.
     permissions = json.loads((TEMPLATE / ".claude" / "settings.json").read_text())["permissions"]
-    for command in ("git add", "git commit", "git mv", "git grep", "git merge-base", "make check"):
+    for command in (
+        "git add",
+        "git commit",
+        "git mv",
+        "git grep",
+        "git merge-base",
+        "git branch --show-current",
+        "git rev-parse",
+        "make check",
+    ):
         assert any(rule.startswith(f"Bash({command}") for rule in permissions["allow"]), command
     assert "Bash(git push:*)" in permissions["ask"]
     for script in sorted((TEMPLATE / ".claude" / "skills").glob("*/*.sh")):
         rule = f"Bash({script.relative_to(TEMPLATE).as_posix()}:*)"
         assert rule in permissions["allow"], rule
+
+
+def test_default_template_states_which_requirement_a_branch_belongs_to_once() -> None:
+    claude = TEMPLATE / ".claude"
+    stating = sorted(
+        path.relative_to(claude).as_posix()
+        for path in claude.rglob("*.md")
+        if "belongs to a requirement when" in path.read_text(encoding="utf-8")
+    )
+    assert stating == ["rules/specs.md"]
+    pointer = "`.claude/rules/specs.md` \u203a A branch's requirement"
+    for path in (
+        "rules/reviews.md",
+        "skills/review-requirement/SKILL.md",
+        "skills/implement/SKILL.md",
+        "skills/address-review/SKILL.md",
+        "skills/complete-change/SKILL.md",
+    ):
+        assert pointer in (claude / path).read_text(encoding="utf-8"), path
 
 
 def test_default_template_settings_deny_windows_programs() -> None:
@@ -189,9 +217,12 @@ def test_settings_check_each_bash_command_for_an_amend_of_a_pushed_commit(root: 
     assert os.access(AMEND_ONLY_UNPUSHED, os.X_OK)
 
 
-def run_amend_only_unpushed(checkout: Path, command: str) -> subprocess.CompletedProcess[str]:
+def run_amend_only_unpushed(
+    checkout: Path, command: str, description: str = ""
+) -> subprocess.CompletedProcess[str]:
     """The hook's answer to Claude running `command` in `checkout`."""
-    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(checkout)}
+    tool_input = {"command": command, "description": description}
+    payload = {"tool_name": "Bash", "tool_input": tool_input, "cwd": str(checkout)}
     return subprocess.run(
         [AMEND_ONLY_UNPUSHED], input=json.dumps(payload), capture_output=True, text=True
     )
@@ -222,6 +253,7 @@ def test_amend_only_unpushed_lets_an_unpushed_commit_be_amended(primary_checkout
         "cd ../other && git commit --amend --no-edit",
         "GIT_DIR=../other/.git git commit --amend --no-edit",
         "git --work-tree=../other commit --amend --no-edit",
+        "set -e\ncd ../other\ngit commit --amend --no-edit",
     ],
 )
 def test_amend_only_unpushed_refuses_an_amend_aimed_at_another_checkout(
@@ -235,6 +267,13 @@ def test_amend_only_unpushed_refuses_an_amend_aimed_at_another_checkout(
 
 def test_amend_only_unpushed_ignores_other_commands(primary_checkout: Path) -> None:
     allowed = run_amend_only_unpushed(primary_checkout, 'git commit -m "A new one"')
+    assert (allowed.returncode, allowed.stderr) == (0, "")
+
+
+def test_amend_only_unpushed_reads_only_the_command(primary_checkout: Path) -> None:
+    allowed = run_amend_only_unpushed(
+        primary_checkout, "git status", description="Check the branch before a commit --amend"
+    )
     assert (allowed.returncode, allowed.stderr) == (0, "")
 
 

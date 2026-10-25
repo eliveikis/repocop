@@ -6,6 +6,8 @@ A change is a requirement being delivered: what someone needs, why, and how to t
 
 ## Lifecycle
 
+Each step after the first runs a skill on the change's path. On the change's own branch you can leave the path out: the skill then works on the branch's requirement ([.claude/rules/specs.md](../../.claude/rules/specs.md) › A branch's requirement).
+
 1. **Propose.** Create the change in `todo/` (RepoCop's UI can do this for you), named, and in the format, [.claude/rules/specs.md](../../.claude/rules/specs.md) gives: a product story under Requirement, then Acceptance Criteria, and Out of scope, Implementation Notes and Open questions where needed. Its file name is its name: on its branch, in its pull request, and in the changes that wait for it.
 2. **Review.** Run `/review-requirement specs/changes/todo/<change>.md`, then resolve its blocking questions in the file. From then on the change is fixed: only a human edits it, and only when the work itself changes.
 3. **Implement.** Run `/implement specs/changes/todo/<change>.md`. It leaves the change as written, updates the specs as design decisions are made, and writes a decision record for each significant one.

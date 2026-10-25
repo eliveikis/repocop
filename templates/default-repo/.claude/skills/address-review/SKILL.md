@@ -1,7 +1,7 @@
 ---
 name: address-review
 description: Address a review of the current branch's changes — check each finding against the work, fix what should be fixed, and report the rest with reasons. Use when given a reviewer's findings, as text or as a file, and asked to address, fix or respond to them.
-argument-hint: "[requirement path] <the review's text, or the path of a file that holds it>"
+argument-hint: "[requirement path] [the review's text, or the path of a file that holds it]  (defaults to the branch's latest saved review)"
 ---
 <!-- managed by template -->
 
@@ -9,7 +9,7 @@ argument-hint: "[requirement path] <the review's text, or the path of a file tha
 
 The review to address: `$ARGUMENTS`
 
-That is the review's text, or the path of a file that holds it. If there is no review in it, stop and say so.
+That is the review's text, or the path of a file that holds it. With nothing given, address the review of this branch that `.reviews/review.sh` saved most recently (its header says how it names them), against the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If there is no such review, or the branch belongs to no requirement or to several, say so, ask for the path of what's missing, and change nothing. Name the review and the requirement you picked before you start. If what was given holds no review, stop and say so.
 
 A requirement's path may come first, as RepoCop passes it. Read that requirement: what it rules out makes a finding `out-of-scope`. Without one, learn what the change is for from the branch's commit messages since it left the default branch, and from any requirement file the branch adds or edits. When a finding's fit with that is unclear, it is a `question`.
 
