@@ -144,12 +144,40 @@ def test_review_skills_report_their_one_commit_once(skill: str) -> None:
 def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None:
     # RepoCop sessions are headless, so a command outside the allowlist is simply denied.
     permissions = json.loads((TEMPLATE / ".claude" / "settings.json").read_text())["permissions"]
-    for command in ("git add", "git commit", "git mv", "git grep", "git merge-base", "make check"):
+    for command in (
+        "git add",
+        "git commit",
+        "git mv",
+        "git grep",
+        "git merge-base",
+        "git branch --show-current",
+        "git rev-parse",
+        "make check",
+    ):
         assert any(rule.startswith(f"Bash({command}") for rule in permissions["allow"]), command
     assert "Bash(git push:*)" in permissions["ask"]
     for script in sorted((TEMPLATE / ".claude" / "skills").glob("*/*.sh")):
         rule = f"Bash({script.relative_to(TEMPLATE).as_posix()}:*)"
         assert rule in permissions["allow"], rule
+
+
+def test_default_template_states_which_requirement_a_branch_belongs_to_once() -> None:
+    claude = TEMPLATE / ".claude"
+    stating = sorted(
+        path.relative_to(claude).as_posix()
+        for path in claude.rglob("*.md")
+        if "belongs to a requirement when" in path.read_text(encoding="utf-8")
+    )
+    assert stating == ["rules/specs.md"]
+    pointer = "`.claude/rules/specs.md` \u203a A branch's requirement"
+    for path in (
+        "rules/reviews.md",
+        "skills/review-requirement/SKILL.md",
+        "skills/implement/SKILL.md",
+        "skills/address-review/SKILL.md",
+        "skills/complete-change/SKILL.md",
+    ):
+        assert pointer in (claude / path).read_text(encoding="utf-8"), path
 
 
 def test_default_template_settings_deny_windows_programs() -> None:

@@ -1,14 +1,14 @@
 ---
 name: review-requirement
 description: Critically review a requirement/spec Markdown file for ambiguity, gaps, contradictions, testability and scope before implementation starts. Use when asked to review, critique or sanity-check a requirement in specs/changes/.
-argument-hint: "<path-to-requirement.md>"
-allowed-tools: Read, Grep, Glob, Bash(git log:*), Bash(git ls-files:*)
+argument-hint: "[path-to-requirement.md]  (defaults to the branch's requirement)"
+allowed-tools: Read, Grep, Glob, Bash(git log:*), Bash(git ls-files:*), Bash(git branch --show-current), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git diff:*)
 ---
 <!-- managed by template -->
 
 # Review requirement
 
-Review the requirement at `$ARGUMENTS`. If no path was given, list `specs/changes/todo/` and ask which one.
+Review the requirement at `$ARGUMENTS`. With no path, review the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, or to several, say so and ask for the path. Name the requirement you picked before you start.
 
 This review is **read-only**. Do not edit the requirement or any code. Produce findings and let the human decide.
 

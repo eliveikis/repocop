@@ -1,13 +1,15 @@
 ---
 name: implement
 description: Implement a requirement end-to-end on the current branch — plan, build each piece with its check written first, verify with the repo's check command, and summarize. Use when asked to implement a change in specs/changes/todo/.
-argument-hint: "<path-to-requirement.md> [scope note]"
+argument-hint: "[path-to-requirement.md] [scope note]  (defaults to the branch's requirement)"
 ---
 <!-- managed by template -->
 
 # Implement
 
 Implement: `$ARGUMENTS`
+
+With no path, implement the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, or to several, say so, ask for the path, and change nothing. Name the requirement you picked before you start.
 
 ## Preconditions (stop and report if any fail)
 
