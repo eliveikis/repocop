@@ -204,11 +204,33 @@ def test_amend_only_unpushed_refuses_to_amend_a_pushed_commit(primary_checkout: 
     assert "Make a new commit instead" in refused.stderr
 
 
+def commit_unpushed(checkout: Path) -> None:
+    (checkout / "notes.md").write_text("Not pushed.\n")
+    run_git("add", "notes.md", cwd=checkout)
+    run_git("commit", "-qm", "Add notes", cwd=checkout)
+
+
 def test_amend_only_unpushed_lets_an_unpushed_commit_be_amended(primary_checkout: Path) -> None:
-    (primary_checkout / "notes.md").write_text("Not pushed.\n")
-    run_git("add", "notes.md", cwd=primary_checkout)
-    run_git("commit", "-qm", "Add notes", cwd=primary_checkout)
+    commit_unpushed(primary_checkout)
     assert run_amend_only_unpushed(primary_checkout, "git commit --amend --no-edit").returncode == 0
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        "git -C ../other commit --amend --no-edit",
+        "cd ../other && git commit --amend --no-edit",
+        "GIT_DIR=../other/.git git commit --amend --no-edit",
+        "git --work-tree=../other commit --amend --no-edit",
+    ],
+)
+def test_amend_only_unpushed_refuses_an_amend_aimed_at_another_checkout(
+    primary_checkout: Path, command: str
+) -> None:
+    commit_unpushed(primary_checkout)  # so only where it points can be the reason
+    refused = run_amend_only_unpushed(primary_checkout, command)
+    assert refused.returncode == 2
+    assert "can't tell which checkout it amends" in refused.stderr
 
 
 def test_amend_only_unpushed_ignores_other_commands(primary_checkout: Path) -> None:

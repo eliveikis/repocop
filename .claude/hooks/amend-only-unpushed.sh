@@ -2,7 +2,8 @@
 # managed by template
 # PreToolUse hook for Bash: refuse `git commit --amend` when the commit it would replace is already
 # on a remote-tracking branch, so pushed history is never rewritten (.claude/rules/commits.md). It
-# checks the repository the session is in, and knows only the pushes and fetches it has seen.
+# checks the repository the session is in, and knows only the pushes and fetches it has seen. An
+# amend that points git elsewhere (cd, -C, a git dir or work tree) can't be checked, so it is refused.
 input=$(cat)
 case $input in
 *--amend*) ;;
@@ -12,6 +13,12 @@ case $input in
 *commit*) ;;
 *) exit 0 ;;
 esac
+
+elsewhere='(^|[^[:alnum:]_.-])(cd|pushd)[[:space:]]|[[:space:]]-C[[:space:]]|--git-dir|--work-tree|GIT_DIR=|GIT_WORK_TREE='
+if printf '%s' "$input" | grep -Eq "$elsewhere"; then
+  echo "This amend runs git through cd, -C, a git dir or a work tree, so this hook can't tell which checkout it amends, or whether that commit is pushed. Run it in the session's checkout without them, or make a new commit instead (.claude/rules/commits.md)." >&2
+  exit 2
+fi
 
 dir=$(printf '%s' "$input" | sed -n 's/.*"cwd" *: *"\([^"]*\)".*/\1/p')
 [ -n "$dir" ] && cd "$dir" 2>/dev/null

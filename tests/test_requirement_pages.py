@@ -412,6 +412,18 @@ def test_repository_page_can_show_only_the_unblocked(
 
 
 @pytest.mark.usefixtures("registered")
+def test_repository_page_offers_the_way_out_of_the_filter_once_nothing_is_blocked(
+    client: TestClient, settings: Settings
+) -> None:
+    create(client, name="Export")
+    hand_made(settings, "search-notes.md")
+    (checkout(settings) / "specs/changes/archive").mkdir()
+    run_git("mv", "specs/changes/todo/export.md", "specs/changes/archive/", cwd=checkout(settings))
+    html = client.get("/repositories/1?ready=true").text  # it still hides the delivered export
+    assert 'href="http://testserver/repositories/1">all</a> · <strong>unblocked</strong>' in html
+
+
+@pytest.mark.usefixtures("registered")
 def test_repository_page_shows_dependency_problems_and_lists_their_changes_apart(
     client: TestClient, settings: Settings
 ) -> None:

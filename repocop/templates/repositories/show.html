@@ -75,9 +75,10 @@
   {% endif %}
   {% if listing and listing.entries %}
   {% set page = url_for('repository_page', repository_id=repository.id) %}
-  {# Blocked by and the filter say something only once some change waits on another. #}
+  {# Blocked by and the filter say something only once some change waits on another; the filter
+     also stays while it's on, so the way back to all is never hidden. #}
   {% set blocking = listing.apart or listing.levels | length > 1 %}
-  {% if blocking %}<p class="filter">Show: {% if ready %}<a href="{{ page }}">all</a> · <strong>unblocked</strong>{% else %}<strong>all</strong> · <a href="{{ page.include_query_params(ready='true') }}">unblocked</a>{% endif %}</p>{% endif %}
+  {% if blocking or ready %}<p class="filter">Show: {% if ready %}<a href="{{ page }}">all</a> · <strong>unblocked</strong>{% else %}<strong>all</strong> · <a href="{{ page.include_query_params(ready='true') }}">unblocked</a>{% endif %}</p>{% endif %}
   {% set pages = listing.pages %}
   <div class="table-scroll">
   <table class="requirements">
