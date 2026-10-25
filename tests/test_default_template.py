@@ -27,6 +27,7 @@ MIRRORED = (
     ".claude/hooks/linux-only-path.sh",
     ".reviews/.gitignore",
     ".reviews/review.sh",
+    "specs/changes/README.md",
     "specs/changes/backlog.sh",
     "specs/changes/.gitignore",
 )
@@ -45,11 +46,6 @@ def files_under(root: Path, relative: str) -> dict[str, tuple[bytes, bool]]:
     base = root / relative
     paths = [base] if base.is_file() else sorted(p for p in base.rglob("*") if p.is_file())
     return {p.relative_to(root).as_posix(): (p.read_bytes(), os.access(p, os.X_OK)) for p in paths}
-
-
-def lifecycle(index: Path) -> str:
-    text = index.read_text(encoding="utf-8")
-    return text[text.index("## Lifecycle") :]
 
 
 def run_linux_only_path(tmp_path: Path) -> tuple[str, str]:
@@ -75,12 +71,6 @@ def test_default_template_mirrors_this_repos_shared_files(relative: str) -> None
         f"{shipped_path} differs from {relative} ({', '.join(drifted)}). Onboarded repos get "
         "the template's copy, so keep it repo-agnostic and copy it over: "
         f"rm -rf {shipped_path} && cp -a {relative} {shipped_path}"
-    )
-
-
-def test_default_template_lifecycle_matches_this_repos_index() -> None:
-    assert lifecycle(TEMPLATE / "specs" / "index.md") == lifecycle(
-        PROJECT_ROOT / "specs" / "index.md"
     )
 
 
