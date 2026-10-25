@@ -49,7 +49,7 @@
   <input id="jump-input" class="jump-input" name="q" type="text" autocomplete="off" spellcheck="false"
     role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-listbox"
     aria-label="Jump to a repository, requirement or task" placeholder="Jump to a repository, requirement or task"
-    hx-get="{{ url_for('switcher_matches') }}" hx-trigger="input changed delay:120ms, jumpopen"
+    hx-get="{{ url_for('switcher_matches') }}" hx-trigger="input delay:120ms, jumpopen"
     hx-target="#jump-results" hx-sync="this:replace">
   <div id="jump-results" class="jump-results"><div id="jump-listbox" role="listbox" aria-label="Matches"></div></div>
   <p id="jump-count" class="visually-hidden" role="status"></p>

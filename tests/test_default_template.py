@@ -217,9 +217,12 @@ def test_settings_check_each_bash_command_for_an_amend_of_a_pushed_commit(root: 
     assert os.access(AMEND_ONLY_UNPUSHED, os.X_OK)
 
 
-def run_amend_only_unpushed(checkout: Path, command: str) -> subprocess.CompletedProcess[str]:
+def run_amend_only_unpushed(
+    checkout: Path, command: str, description: str = ""
+) -> subprocess.CompletedProcess[str]:
     """The hook's answer to Claude running `command` in `checkout`."""
-    payload = {"tool_name": "Bash", "tool_input": {"command": command}, "cwd": str(checkout)}
+    tool_input = {"command": command, "description": description}
+    payload = {"tool_name": "Bash", "tool_input": tool_input, "cwd": str(checkout)}
     return subprocess.run(
         [AMEND_ONLY_UNPUSHED], input=json.dumps(payload), capture_output=True, text=True
     )
@@ -250,6 +253,7 @@ def test_amend_only_unpushed_lets_an_unpushed_commit_be_amended(primary_checkout
         "cd ../other && git commit --amend --no-edit",
         "GIT_DIR=../other/.git git commit --amend --no-edit",
         "git --work-tree=../other commit --amend --no-edit",
+        "set -e\ncd ../other\ngit commit --amend --no-edit",
     ],
 )
 def test_amend_only_unpushed_refuses_an_amend_aimed_at_another_checkout(
@@ -263,6 +267,13 @@ def test_amend_only_unpushed_refuses_an_amend_aimed_at_another_checkout(
 
 def test_amend_only_unpushed_ignores_other_commands(primary_checkout: Path) -> None:
     allowed = run_amend_only_unpushed(primary_checkout, 'git commit -m "A new one"')
+    assert (allowed.returncode, allowed.stderr) == (0, "")
+
+
+def test_amend_only_unpushed_reads_only_the_command(primary_checkout: Path) -> None:
+    allowed = run_amend_only_unpushed(
+        primary_checkout, "git status", description="Check the branch before a commit --amend"
+    )
     assert (allowed.returncode, allowed.stderr) == (0, "")
 
 
