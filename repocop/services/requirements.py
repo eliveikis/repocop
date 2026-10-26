@@ -1,24 +1,18 @@
 """Requirements: Markdown files in a repository's primary checkout, named by their files.
 
 Every Markdown file in the `todo/` folder of the repository's `changes_dir` (default
-`specs/changes`) is a requirement, whoever wrote it. Its file name, without `.md`, is its name,
-and it has no id. The file is its text, with no title heading. The database records a
-requirement only when something needs a row for it: its creation here, a kind saved for it, or
-its first task. A row holds a key of the database's own, the path and the kind (invariant 4).
-Saving writes that one file and commits it alone on the current branch, refused mid-merge,
-mid-rebase or on a detached HEAD (ADR-004). Details: "Requirement storage" in
-`specs/architecture.md`.
+`specs/changes`) is a requirement. Its developer writes and commits it in their own editor, and
+RepoCop only reads it. Its file name, without `.md`, is its name, and it has no id. The file is
+its text, with no title heading. The database records a requirement only when its first task
+needs a row for it, and a row holds a key of the database's own and the path (invariant 4).
+Details: "Requirement storage" in `specs/architecture.md`.
 """
 
 from __future__ import annotations
 
-import hashlib
-import logging
 import re
 import sqlite3
-import threading
-from collections.abc import Callable
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
@@ -28,27 +22,14 @@ from repocop.errors import RepoCopError
 from repocop.services import git, repositories
 from repocop.services.repositories import Repository, RepositoryError
 
-logger = logging.getLogger(__name__)
-
-SLUG_MAX_LENGTH = 50
-NAME_MAX_LENGTH = 200
 TODO_FOLDER = "todo"  # in a repository's changes folder: the requirements still to deliver
 ARCHIVE_FOLDER = "archive"  # beside it: the delivered ones
 # Before an archived change's name: the UTC date and time it was archived (ADR-028).
 ARCHIVE_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z-")
 
-# Requirement writes and commits run one at a time, so two can't take one file name and git
-# never races on a checkout's index. RepoCop is one process.
-_WRITE_LOCK = threading.Lock()
-
 
 class RequirementError(RepoCopError):
-    """A requirement can't be created, read, saved or committed as asked."""
-
-
-class Kind(StrEnum):
-    FEATURE = "feature"
-    FIX = "fix"
+    """A requirement can't be found or read as asked."""
 
 
 class Location(StrEnum):
@@ -61,7 +42,6 @@ class Location(StrEnum):
 class Requirement:
     repository_id: int
     path: str  # relative to the checkout
-    kind: Kind = Kind.FEATURE
     id: int | None = None  # the key of its database row; None until something records it
 
     @property
@@ -75,19 +55,13 @@ class Requirement:
 
     @classmethod
     def from_row(cls, row: sqlite3.Row) -> Requirement:
-        return cls(row["repository_id"], row["path"], Kind(row["kind"]), row["id"])
+        return cls(row["repository_id"], row["path"], row["id"])
 
 
 @dataclass(frozen=True)
 class Content:
     body: str  # the file's whole text
-    version: str  # a hash of the file, to notice edits made elsewhere before overwriting
-
-
-@dataclass(frozen=True)
-class Saved:
-    requirement: Requirement
-    committed: bool  # False when the commit failed; the file is saved either way
+    path: str  # where the file was read, relative to the checkout: its path or the archive's
 
 
 @dataclass(frozen=True)
@@ -98,118 +72,9 @@ class Detail:
     uncommitted: bool
 
 
-def slugify(name: str) -> str:
-    """Lowercase letters, digits and single dashes, at most 50 characters."""
-    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
-    return slug[:SLUG_MAX_LENGTH].rstrip("-")
-
-
-def create(
-    conn: sqlite3.Connection,
-    settings: Settings,
-    repository: Repository,
-    *,
-    name: str,
-    body: str,
-    kind: str,
-) -> Saved:
-    """Write a new requirement as `<slug of name>.md` in the requirements folder, record it with
-    its kind, and commit it alone. `name` makes its file name, and isn't written into the file.
-
-    Refused when that file name is already used: in the requirements folder, in the archive
-    beside it, or by a requirement RepoCop has recorded, whose branch may still exist.
-    """
-    name = _checked_name(name)
-    body, checked_kind = _checked(body, kind)
-    slug = slugify(name)
-    if not slug:
-        raise RequirementError("the name needs some letters or digits")
-    checkout = _checkout(repository, settings)
-    path = str(PurePosixPath(todo_dir(repository)) / f"{slug}.md")
-    taken = RequirementError(
-        f"{slug} is already the name of a requirement in {repository.name}, "
-        "in its requirements folder, its archive or its history. Pick another name."
-    )
-    with _WRITE_LOCK:
-        _check_committable(checkout)
-        target = _inside(checkout, path)
-        if (
-            target.exists()
-            or archived_path(checkout, path) is not None
-            or _recorded(conn, repository, path) is not None
-        ):
-            raise taken
-        target.parent.mkdir(parents=True, exist_ok=True)
-        try:
-            with target.open("x", encoding="utf-8", newline="\n") as out:
-                out.write(_text(body))
-        except FileExistsError:
-            raise taken from None
-        requirement = record(conn, Requirement(repository.id, path, checked_kind))
-        message = f"Add {requirement.name}"
-        committed = _attempt(lambda: git.commit_file(checkout, path, message), path)
-    return Saved(requirement, committed)
-
-
-def update(
-    conn: sqlite3.Connection,
-    settings: Settings,
-    repository: Repository,
-    requirement: Requirement,
-    *,
-    body: str,
-    kind: str,
-    version: str,
-) -> Saved:
-    """Save new text and kind. Refused if the file changed since `version` was read. A new kind
-    records a requirement that isn't recorded yet."""
-    body, checked_kind = _checked(body, kind)
-    checkout = _checkout(repository, settings)
-    with _WRITE_LOCK:
-        target = _inside(checkout, requirement.path)
-        if not target.is_file():
-            raise RequirementError(
-                f"{requirement.path} isn't at its path any more (archived or moved), "
-                "so it can't be edited here"
-            )
-        current = target.read_bytes()
-        if _version(current) != version:
-            raise RequirementError(
-                f"{requirement.path} changed on disk since you opened it. Reload to see the "
-                "current text; your edits weren't saved."
-            )
-        text = _text(body)
-        rewrite = text.encode("utf-8") != current
-        if rewrite:
-            _check_committable(checkout)
-        if rewrite or checked_kind is not requirement.kind:
-            requirement = _set_kind(conn, requirement, checked_kind)
-        if not rewrite:
-            return Saved(requirement, not git.has_changes(checkout, requirement.path))
-        target.write_text(text, encoding="utf-8", newline="\n")
-        message = f"Update {requirement.name}"
-        committed = _attempt(
-            lambda: git.commit_file(checkout, requirement.path, message), requirement.path
-        )
-    return Saved(requirement, committed)
-
-
-def commit(settings: Settings, repository: Repository, requirement: Requirement) -> None:
-    """Commit the requirement's file alone, e.g. after a hand edit or a failed commit."""
-    checkout = _checkout(repository, settings)
-    with _WRITE_LOCK:
-        target = _inside(checkout, requirement.path)
-        if not target.is_file():
-            raise RequirementError(f"{requirement.path} isn't at its path any more")
-        if not git.has_changes(checkout, requirement.path):
-            raise RequirementError(f"{requirement.path} has nothing to commit")
-        _check_committable(checkout)
-        git.commit_file(checkout, requirement.path, f"Update {requirement.name}")
-
-
 def read(settings: Settings, repository: Repository, requirement: Requirement) -> Content:
-    """The requirement's text and version, from its path or the archive folder. Refused when the
-    file can't be read, or isn't UTF-8 text."""
+    """The requirement's text, from its path or the archive folder. Refused when the file can't
+    be read, or isn't UTF-8 text."""
     checkout = _checkout(repository, settings)
     for path in (requirement.path, archived_path(checkout, requirement.path)):
         if path is None:
@@ -217,13 +82,12 @@ def read(settings: Settings, repository: Repository, requirement: Requirement) -
         target = _inside(checkout, path)
         if target.is_file():
             try:
-                data = target.read_bytes()
-                text = data.decode("utf-8")
+                text = target.read_bytes().decode("utf-8")
             except UnicodeDecodeError:
                 raise RequirementError(f"{path} can't be read: it isn't UTF-8 text") from None
             except OSError as exc:
                 raise RequirementError(f"{path} can't be read: {exc.strerror}") from None
-            return Content(text.strip("\n"), _version(data))
+            return Content(text.strip("\n"), path)
     raise RequirementError(f"{requirement.path} is missing from {checkout}")
 
 
@@ -287,16 +151,15 @@ def find(
 
 
 def record(conn: sqlite3.Connection, requirement: Requirement) -> Requirement:
-    """The requirement as the database records it, recording it with its kind first if it
-    isn't yet."""
+    """The requirement as the database records it, recording it first if it isn't yet."""
     if requirement.id is not None:
         return requirement
     now = db.timestamp()
     with db.transaction(conn):
         conn.execute(
-            "INSERT INTO requirements (repository_id, path, kind, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?, ?) ON CONFLICT (repository_id, path) DO NOTHING",
-            (requirement.repository_id, requirement.path, requirement.kind.value, now, now),
+            "INSERT INTO requirements (repository_id, path, created_at, updated_at)"
+            " VALUES (?, ?, ?, ?) ON CONFLICT (repository_id, path) DO NOTHING",
+            (requirement.repository_id, requirement.path, now, now),
         )
         row = conn.execute(
             "SELECT * FROM requirements WHERE repository_id = ? AND path = ?",
@@ -330,12 +193,6 @@ def detail(settings: Settings, repository: Repository, requirement: Requirement)
     content = None if where is Location.MISSING else read(settings, repository, requirement)
     uncommitted = where is Location.ACTIVE and is_uncommitted(settings, repository, requirement)
     return Detail(requirement, where, content, uncommitted)
-
-
-def details_for(
-    conn: sqlite3.Connection, settings: Settings, repository: Repository
-) -> list[Detail]:
-    return [detail(settings, repository, r) for r in list_for(conn, repository)]
 
 
 def get(conn: sqlite3.Connection, requirement_id: int) -> Requirement | None:
@@ -374,31 +231,6 @@ def archived_path(checkout: Path, path: str) -> str | None:
     return str(folder / max(found, key=lambda found_name: (found_name != name, found_name)))
 
 
-def _text(body: str) -> str:
-    """What a requirement's file holds for `body`: the text, ending in one newline."""
-    text = body.strip("\n")
-    return f"{text}\n" if text else ""
-
-
-def _checked_name(name: str) -> str:
-    name = name.strip()
-    if not name:
-        raise RequirementError("give the requirement a name")
-    if "\n" in name or "\r" in name:
-        raise RequirementError("the name must be a single line")
-    if len(name) > NAME_MAX_LENGTH:
-        raise RequirementError(f"keep the name under {NAME_MAX_LENGTH} characters")
-    return name
-
-
-def _checked(body: str, kind: str) -> tuple[str, Kind]:
-    try:
-        checked_kind = Kind(kind)
-    except ValueError:
-        raise RequirementError(f"unknown kind {kind!r}: use feature or fix") from None
-    return body.replace("\r\n", "\n").replace("\r", "\n"), checked_kind
-
-
 def _checkout(repository: Repository, settings: Settings) -> Path:
     try:
         return repositories.require_checkout(repository, settings)
@@ -414,49 +246,11 @@ def _inside(checkout: Path, path: str) -> Path:
     return target
 
 
-def _check_committable(checkout: Path) -> None:
-    """Refuse to commit in a checkout mid-merge, mid-rebase or on a detached HEAD (ADR-004)."""
-    if operation := git.unfinished_operation(checkout):
-        raise RequirementError(
-            f"{checkout} is in the middle of a {operation}. Finish or abort it, then try again."
-        )
-    if git.current_branch(checkout) is None:
-        raise RequirementError(
-            f"{checkout} is on a detached HEAD. Check out a branch, then try again."
-        )
-
-
-def _attempt(commit: Callable[[], None], path: str) -> bool:
-    """Run a commit; on failure keep the saved file, log why, and report False."""
-    try:
-        commit()
-    except git.GitError as exc:
-        logger.warning("Saved %s but couldn't commit it: %s", path, exc)
-        return False
-    return True
-
-
 def _recorded(conn: sqlite3.Connection, repository: Repository, path: str) -> Requirement | None:
     row = conn.execute(
         "SELECT * FROM requirements WHERE repository_id = ? AND path = ?", (repository.id, path)
     ).fetchone()
     return Requirement.from_row(row) if row else None
-
-
-def _set_kind(conn: sqlite3.Connection, requirement: Requirement, kind: Kind) -> Requirement:
-    """The requirement with `kind`, as recorded: a new kind records one that isn't yet."""
-    if requirement.id is None:
-        return (
-            requirement
-            if kind is requirement.kind
-            else record(conn, replace(requirement, kind=kind))
-        )
-    with db.transaction(conn):
-        conn.execute(
-            "UPDATE requirements SET kind = ?, updated_at = ? WHERE id = ?",
-            (kind.value, db.timestamp(), requirement.id),
-        )
-    return replace(requirement, kind=kind)
 
 
 def _markdown_files(checkout: Path, folder: PurePosixPath) -> list[Path]:
@@ -481,7 +275,3 @@ def _archived_name(file_name: str) -> str:
     """A file's name without the stamp an archive puts before it, if it has one."""
     stamp = ARCHIVE_STAMP.match(file_name)
     return file_name[stamp.end() :] if stamp else file_name
-
-
-def _version(data: bytes) -> str:
-    return hashlib.sha256(data).hexdigest()

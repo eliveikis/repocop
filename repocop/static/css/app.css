@@ -258,10 +258,8 @@ kbd {
 main { width: 100%; max-width: var(--content-width); padding: var(--space-5) var(--gutter) var(--space-7); }
 main.wide { max-width: none; }
 
-.page-head, .section-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-4); }
-.page-head { margin-bottom: var(--space-4); }
-.page-head h1, .section-head h2 { margin: 0; }
-.section-head { margin: var(--space-6) 0 var(--space-3); }
+.page-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-3) var(--space-4); margin-bottom: var(--space-4); }
+.page-head h1 { margin: 0; }
 
 /* Links to a long page's sections, which stay in view while it scrolls. */
 .section-links {
@@ -393,7 +391,7 @@ td.name { font-weight: 500; }
 
 /* ---------------------------------------------------------------- notices, help, empty states */
 
-.notice, .error, .claude-auth, .commit {
+.notice, .error, .claude-auth {
   margin: var(--space-3) 0;
   padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
@@ -406,9 +404,8 @@ td.name { font-weight: 500; }
 .error p, .notice p { margin: var(--space-2) 0; }
 .error-text { color: var(--danger); }
 .claude-auth-subscription { border-left-color: var(--human); }
-.claude-auth-api_key, .interrupted, .commit { border-left-color: var(--repocop); }
+.claude-auth-api_key, .interrupted { border-left-color: var(--repocop); }
 .claude-auth-problem { border-left-color: var(--danger); }
-.commit { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3); }
 .sync-waiting { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); border-left-color: var(--repocop); }
 .sync-waiting p { flex: 1 1 30rem; margin: 0; }
 
@@ -573,15 +570,14 @@ p.facts { display: block; color: var(--muted); }
 
 .claude-auth { margin-top: 0; }
 .add-repository { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3) var(--space-5); }
-.add-repository label, .requirement label, .start-task label, .instruction label { display: flex; flex-direction: column; gap: var(--space-1); font-weight: 500; }
+.add-repository label, .start-task label, .instruction label { display: flex; flex-direction: column; gap: var(--space-1); font-weight: 500; }
 .add-repository input { min-width: min(22rem, 100%); }
 
-.requirement { display: flex; flex-direction: column; gap: var(--space-4); max-width: 60rem; }
-.requirement textarea { width: 100%; min-height: 24em; resize: vertical; }
-.requirement .kind { display: flex; gap: var(--space-5); margin: 0; padding: 0; border: 0; }
-.requirement .kind legend { margin-bottom: var(--space-2); padding: 0; font-weight: 500; }
-.requirement .kind label { flex-direction: row; align-items: center; gap: var(--space-2); font-weight: 400; }
-.requirement button, .instruction button { align-self: start; }
+.requirement-text { max-width: 60rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.commands { margin: var(--space-3) 0; padding: 0; list-style: none; }
+.commands pre { margin: var(--space-2) 0; }
+.commands code { user-select: all; }
+.instruction button { align-self: start; }
 .start-task { display: flex; flex-wrap: wrap; align-items: end; gap: var(--space-3); margin: var(--space-3) 0; }
 .filter { margin: var(--space-2) 0 var(--space-3); font-size: var(--text-sm); }
 

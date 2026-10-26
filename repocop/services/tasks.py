@@ -141,8 +141,8 @@ def start(
             raise TaskError(f"{requirement.name} is {where}, so no new tasks start on it")
         if requirements.is_uncommitted(settings, repository, requirement):
             raise TaskError(
-                f"{requirement.name} has uncommitted changes. Commit it first, so the task "
-                "works from the text you see."
+                f"{requirement.name} has uncommitted changes. Commit {requirement.path} first, "
+                "so the task works from the text you see."
             )
         _refuse_while_active(conn, requirement)
         worktree = _worktree_for(conn, settings, repository, requirement)

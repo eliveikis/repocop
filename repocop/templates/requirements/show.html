@@ -4,19 +4,18 @@
   (repository.name, url_for('repository_page', repository_id=repository.id)),
   (requirement.name, url_for('requirement_page', repository_id=repository.id, file_name=requirement.file_name)),
 ] %}
+{% set active = detail and detail.location == "active" %}
 
 {% block title %}{{ requirement.name }} · RepoCop{% endblock %}
 
 {% block toasts %}
-{% if saved == "committed" %}<p class="toast">Saved and committed.</p>
-{% elif committed %}<p class="toast">Committed.</p>{% endif %}
 {% if pull_request_done == "push" %}<p class="toast">Pushed <code>{{ branch }}</code>.</p>
 {% elif pull_request_done == "review" %}<p class="toast">Asked Copilot to review the pull request.</p>{% endif %}
 {% endblock %}
 
 {% block content %}
 <h1>{{ requirement.name }}</h1>
-<p class="facts"><code>{{ requirement.path }}</code> · {{ requirement.kind }}{% if detail %} · {{ detail.location }}{% endif %}</p>
+<p class="facts"><code>{{ detail.content.path if detail and detail.content else requirement.path }}</code> <span class="owner owner-human">human-owned</span>{% if detail %} · {{ detail.location }}{% endif %}{% if editor_link %} · <a href="{{ editor_link }}">Open in editor</a>{% endif %}</p>
 {% if change %}
 <dl class="facts dependencies">
   <dt>Blocked by</dt>
@@ -27,26 +26,27 @@
 {% for problem in change_problems %}<p class="error" role="alert">{{ problem }}</p>{% endfor %}
 {% endif %}
 
-{% if saved == "uncommitted" %}<p class="notice">Saved, but not committed. Commit it below to retry and see why.</p>{% endif %}
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 {% if detail and detail.uncommitted %}
-<form class="commit" method="post" action="{{ url_for('commit_requirement', repository_id=repository.id, file_name=requirement.file_name) }}">
-  This file has uncommitted changes. <button type="submit" class="primary">Commit {{ requirement.name }}</button>
-</form>
+<p class="notice">This file has uncommitted changes. Commit it before starting a task.</p>
 {% endif %}
 
-{% if detail and detail.location == "active" and form %}
-<form class="requirement" method="post" action="{{ url_for('save_requirement', repository_id=repository.id, file_name=requirement.file_name) }}">
-  <input type="hidden" name="version" value="{{ form.version }}">
-  {% include "partials/requirement_fields.html" %}
-  <button type="submit" class="primary">Save</button>
-</form>
-{% elif detail and detail.location == "archived" %}
-<p>Archived, so it's read-only here.</p>
-<pre>{{ detail.content.body }}</pre>
+{% if detail and detail.content %}
+<pre class="requirement-text">{{ detail.content.body }}</pre>
 {% elif detail %}
 <p class="error" role="alert">The file is missing from <code>{{ requirement.path }}</code> and from the archive folder beside it.</p>
+{% endif %}
+
+{% if active and workflow_lines %}
+<section id="your-agent" aria-labelledby="your-agent-heading">
+<h2 id="your-agent-heading">In your own agent</h2>
+<p>Do the work on a branch named <code>{{ requirement.name }}</code>, so a review can tell which requirement it's for. Then run one of these in your agent session in the checkout:</p>
+<ul class="commands">
+  {% for line in workflow_lines %}<li><pre><code>{{ line }}</code></pre></li>
+  {% endfor %}
+</ul>
+</section>
 {% endif %}
 
 <section id="tasks" aria-labelledby="tasks-heading">
@@ -69,12 +69,12 @@
   </tbody>
 </table>
 </div>
-{% elif detail and detail.location == "active" and workflows %}
+{% elif active and workflows %}
 <p class="empty">No tasks yet. Pick a workflow and start one.</p>
-{% elif not (detail and detail.location == "active") %}
+{% elif not active %}
 <p class="empty">No tasks yet.</p>
 {% endif %}
-{% if detail and detail.location == "active" %}
+{% if active %}
 {% if workflows %}
 <form class="start-task" method="post" action="{{ url_for('start_task', repository_id=repository.id, file_name=requirement.file_name) }}">
   <label>Workflow

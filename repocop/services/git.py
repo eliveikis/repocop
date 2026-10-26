@@ -446,12 +446,6 @@ def commit_files(path: Path, files: list[str], message: str) -> None:
     commit_paths(path, files, message)
 
 
-def commit_file(path: Path, file: str, message: str) -> None:
-    """Commit `file` alone on the current branch; anything else staged stays staged, uncommitted."""
-    _run(["add", "--", file], cwd=path)
-    commit_paths(path, [file], message)
-
-
 def commit_paths(path: Path, files: list[str], message: str) -> None:
     """Commit the staged state of `files` alone; anything else staged stays staged, uncommitted."""
     _run(["commit", "--quiet", "--message", message, "--only", "--", *files], cwd=path)

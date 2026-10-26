@@ -252,6 +252,24 @@ def test_editor_link_puts_the_encoded_path_in_the_template() -> None:
     assert link == "vscode://vscode-remote/wsl+Ubuntu/home/me/my%20repo/a%23b%3Fc/"
 
 
+@pytest.mark.parametrize(
+    ("template", "expected"),
+    [
+        ("vscode://file{path}/", "vscode://file/srv/code/sample/specs/x.md"),
+        ("vscode://file{path}", "vscode://file/srv/code/sample/specs/x.md"),
+        (
+            "editor://open?file={path}/&new=1",
+            "editor://open?file=/srv/code/sample/specs/x.md&new=1",
+        ),
+    ],
+)
+def test_editor_link_to_a_file_leaves_out_the_slash_that_marks_a_folder(
+    template: str, expected: str
+) -> None:
+    link = Settings(editor_url=template).editor_link(Path("/srv/code/sample/specs/x.md"), file=True)
+    assert link == expected
+
+
 @pytest.mark.parametrize("value", ["vscode://file/", "vscode://file{path}{path}", "vscode://{pat}"])
 def test_settings_reject_an_editor_url_without_exactly_one_path_placeholder(value: str) -> None:
     with pytest.raises(ValueError, match="editor_url"):

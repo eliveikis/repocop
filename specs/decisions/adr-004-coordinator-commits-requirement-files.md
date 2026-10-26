@@ -1,6 +1,6 @@
 # ADR-004: The coordinator commits the requirement files it saves
 
-**Status:** accepted · **Date:** 2026-09-24
+**Status:** superseded by ADR-037 · **Date:** 2026-09-24
 
 ## Context
 

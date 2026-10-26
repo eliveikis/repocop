@@ -1,6 +1,6 @@
 # ADR-029: The repo template reaches a repository only through sync
 
-**Status:** accepted · **Date:** 2026-10-14
+**Status:** accepted, its saved requirement file superseded by ADR-037 · **Date:** 2026-10-14
 
 ## Context
 

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from repocop.config import Settings
-from tests.conftest import run_git
+from tests.conftest import add_requirement, run_git
 from tests.fakes.fake_gh import FakeGh
 
 BRANCH = "agent/bulk-user-import"
@@ -32,18 +32,15 @@ ONLY_LOCAL = "is only on this machine until its pull request is opened"
 def requirement(
     client: TestClient, settings: Settings, github_checkout: Path, fake_gh: FakeGh
 ) -> None:
-    """Repository `sample` on github.com with a committed skill, and bulk-user-import created
-    in the UI."""
+    """Repository `sample` on github.com with a committed skill, and bulk-user-import
+    committed in its checkout."""
     folder = github_checkout / ".claude" / "skills" / "implement"
     folder.mkdir(parents=True)
     (folder / "SKILL.md").write_text("# implement\n")
     run_git("add", ".claude", cwd=github_checkout)
     run_git("commit", "-qm", "Add skills", cwd=github_checkout)
     client.post("/repositories", data={"remote_url": "", "name": "sample"})
-    client.post(
-        "/repositories/1/requirements",
-        data={"name": "Bulk user import", "kind": "feature", "body": "Import users."},
-    )
+    add_requirement(github_checkout)
 
 
 def wait_for_status(client: TestClient, task_id: int, status: str) -> None:

@@ -25,7 +25,9 @@ from fastapi.testclient import TestClient
 from repocop import db
 from repocop.config import FORMER_NAME, Settings
 from repocop.main import create_app
-from repocop.services import bootstrap, claude
+from repocop.services import bootstrap, claude, requirements
+from repocop.services.repositories import Repository
+from repocop.services.requirements import Requirement
 from tests.fakes.fake_claude import FakeClaudeFactory
 from tests.fakes.fake_codex import FakeCodex
 from tests.fakes.fake_gh import FakeGh
@@ -47,6 +49,40 @@ def write_template(template_dir: Path, checkout: Path, repo_name: str = "sample"
         target = checkout / path
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(bootstrap.rendered(template_dir, path, repo_name))
+
+
+def add_requirement(
+    checkout: Path,
+    file_name: str = "bulk-user-import.md",
+    text: str = "Import users.\n",
+    *,
+    folder: str = "specs/changes/todo",
+    commit: bool = True,
+) -> str:
+    """Write a requirement into the checkout's `folder`, as its developer would, and commit it
+    unless `commit` is False. Returns its path relative to the checkout."""
+    path = Path(folder) / file_name
+    (checkout / path).parent.mkdir(parents=True, exist_ok=True)
+    (checkout / path).write_text(text)
+    if commit:
+        run_git("add", "--", str(path), cwd=checkout)
+        run_git("commit", "-qm", f"Add {path.stem}", cwd=checkout)
+    return str(path)
+
+
+def recorded_requirement(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    repository: Repository,
+    file_name: str = "bulk-user-import.md",
+    text: str = "Import users.\n",
+) -> Requirement:
+    """A requirement its developer wrote and committed in the repository's todo folder, recorded
+    as its first task records it."""
+    add_requirement(repository.primary_path, file_name, text)
+    found = requirements.find(conn, settings, repository, file_name)
+    assert found is not None
+    return requirements.record(conn, found)
 
 
 def process_gone(pid: int | None, timeout: float = 5.0) -> bool:

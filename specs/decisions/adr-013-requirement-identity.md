@@ -1,6 +1,6 @@
 # ADR-013: Requirement identity
 
-**Status:** accepted, its heading superseded by ADR-031 and its id by ADR-034 · **Date:** 2026-09-24
+**Status:** accepted, its heading superseded by ADR-031, its id by ADR-034 and its kind by ADR-037 · **Date:** 2026-09-24
 
 ## Context
 

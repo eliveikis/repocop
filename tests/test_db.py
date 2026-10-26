@@ -63,8 +63,8 @@ def add_repository(connection: sqlite3.Connection, name: str = "sample") -> int:
 
 def add_requirement(connection: sqlite3.Connection, repository_id: int, req_id: int = 1) -> int:
     connection.execute(
-        "INSERT INTO requirements (id, repository_id, path, kind, created_at, updated_at)"
-        " VALUES (?, ?, ?, 'feature', ?, ?)",
+        "INSERT INTO requirements (id, repository_id, path, created_at, updated_at)"
+        " VALUES (?, ?, ?, ?, ?)",
         (req_id, repository_id, f"specs/changes/todo/req-{req_id}-x.md", NOW, NOW),
     )
     return req_id
@@ -256,6 +256,28 @@ def test_migrate_gives_tasks_a_restart_stopped_the_reason_that_names_no_product(
     assert json.loads(payload) == {"to": "failed", "error": "app_restarted"}
 
 
+def test_migrate_drops_the_requirements_kind_and_keeps_their_rows(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    before = db.connect(tmp_path / "before.db")
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:7])
+        db.migrate(before)
+    repository = add_repository(before)
+    before.execute(
+        "INSERT INTO requirements (id, repository_id, path, kind, created_at, updated_at)"
+        " VALUES (7, ?, 'specs/changes/todo/login-crash.md', 'fix', ?, ?)",
+        (repository, NOW, NOW),
+    )
+    task = add_task(before, repository, requirement_id=7)
+    db.migrate(before)
+    assert "kind" not in columns(before, "requirements")
+    row = before.execute("SELECT id, path FROM requirements").fetchone()
+    assert tuple(row) == (7, "specs/changes/todo/login-crash.md")
+    linked = before.execute("SELECT requirement_id FROM tasks WHERE id = ?", (task,)).fetchone()
+    assert linked[0] == 7
+
+
 def test_migrate_refuses_database_from_newer_repocop(conn: sqlite3.Connection) -> None:
     conn.execute(f"PRAGMA user_version = {len(db.MIGRATIONS) + 1}")
     with pytest.raises(DatabaseError, match="newer"):
@@ -360,16 +382,6 @@ def test_schema_rejects_duplicate_event_seq_for_a_task(conn: sqlite3.Connection)
         add_event(conn, task_id, 1)
 
 
-def test_schema_rejects_unknown_requirement_kind(conn: sqlite3.Connection) -> None:
-    repository_id = add_repository(conn)
-    with pytest.raises(sqlite3.IntegrityError, match="CHECK"):
-        conn.execute(
-            "INSERT INTO requirements (id, repository_id, path, kind, created_at, updated_at)"
-            " VALUES (1, ?, 'specs/req-1-x.md', 'chore', ?, ?)",
-            (repository_id, NOW, NOW),
-        )
-
-
 def test_schema_rejects_duplicate_repository_name(conn: sqlite3.Connection) -> None:
     add_repository(conn, "sample")
     with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
@@ -420,7 +432,6 @@ def test_schema_stores_only_references_for_requirements(conn: sqlite3.Connection
         "id",
         "repository_id",
         "path",
-        "kind",
         "created_at",
         "updated_at",
     }

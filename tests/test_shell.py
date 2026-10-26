@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from repocop.config import Settings
-from tests.conftest import run_git
+from tests.conftest import add_requirement, run_git
 
 REQUIREMENT_PAGE = "/repositories/1/requirements/bulk-user-import.md"
 
@@ -23,17 +23,15 @@ def checkout(settings: Settings) -> Path:
 
 @pytest.fixture
 def requirement(client: TestClient, settings: Settings, remote_repo: Path) -> None:
-    """Repository `sample` with a committed skill, and bulk-user-import created through the UI."""
+    """Repository `sample` with a committed skill, and bulk-user-import committed in its
+    checkout."""
     client.post("/repositories", data={"remote_url": str(remote_repo)})
     folder = checkout(settings) / ".claude" / "skills" / "implement"
     folder.mkdir(parents=True)
     (folder / "SKILL.md").write_text("# implement\n")
     run_git("add", ".claude", cwd=checkout(settings))
     run_git("commit", "-qm", "Add skills", cwd=checkout(settings))
-    client.post(
-        "/repositories/1/requirements",
-        data={"name": "Bulk user import", "kind": "feature", "body": "Import users."},
-    )
+    add_requirement(checkout(settings))
 
 
 def start_task(client: TestClient) -> None:
@@ -79,7 +77,6 @@ def test_every_page_has_a_sidebar_with_the_repositories_and_the_active_tasks(
         "/",
         "/repositories/1",
         "/repositories/1/sync",
-        "/repositories/1/requirements/new",
         REQUIREMENT_PAGE,
         "/tasks/1",
     ]

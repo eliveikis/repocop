@@ -51,10 +51,11 @@ review_effort: high
 # delivered ones.
 changes_dir: specs/changes
 
-# Adds an "Open in editor" link beside each primary checkout and worktree. A URL template with
-# {path} exactly once, replaced by the folder's absolute path. Your browser's machine opens the
-# link, so pick the form that reaches this host from there. Unset: no link is shown.
-# The trailing slash makes VS Code open a folder even when its name contains a dot.
+# Adds an "Open in editor" link beside each primary checkout, worktree and requirement file. A
+# URL template with {path} exactly once, replaced by the folder's or file's absolute path. Your
+# browser's machine opens the link, so pick the form that reaches this host from there. Unset: no
+# link is shown. The trailing slash makes VS Code open a folder even when its name contains a
+# dot, and a file's link leaves it out.
 #   VS Code on the same machine as RepoCop (the form VS Code documents):
 # editor_url: vscode://file{path}/
 #   RepoCop in WSL, browser on Windows (replace Ubuntu with your distro's name):

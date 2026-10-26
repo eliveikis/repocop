@@ -51,8 +51,7 @@ class Snapshot:
 
 
 def requirement_names(name: str) -> tuple[str, str]:
-    """(folder name, branch) for the worktree of the requirement called `name`, whatever its
-    kind."""
+    """(folder name, branch) for the worktree of the requirement called `name`."""
     return name, f"{BRANCH_PREFIX}{name}"
 
 

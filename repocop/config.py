@@ -108,11 +108,15 @@ class Settings(BaseModel):
             raise ValueError("must contain {path} exactly once")
         return value
 
-    def editor_link(self, path: Path) -> str | None:
-        """The URL that opens `path` in the configured editor, or None when none is configured."""
+    def editor_link(self, path: Path, *, file: bool = False) -> str | None:
+        """The URL that opens `path` in the configured editor, or None when none is configured.
+
+        For a `file`, a slash right after `{path}` is left out, since it marks a folder.
+        """
         if self.editor_url is None:
             return None
-        return self.editor_url.replace("{path}", quote(str(path), safe="/"))
+        template = self.editor_url.replace("{path}/", "{path}") if file else self.editor_url
+        return template.replace("{path}", quote(str(path), safe="/"))
 
     @field_validator(*PATH_FIELDS, mode="before")
     @classmethod

@@ -39,7 +39,7 @@ Don't mix up `repocop/templates/` (UI pages) with `templates/default-repo/` (fil
 
 ## Invariants (details in `.claude/rules/safety.md`)
 
-1. Agents never run in, or modify, a repo's **human-owned primary checkout**. They work only in RepoCop worktrees under `<worktrees_root>/<repo>/`: one worktree and branch per requirement (`agent/<name>`, its file name without `.md`), shared by its tasks in turn. RepoCop's only commit in the primary checkout is a UI-saved requirement file, committed alone (ADR-004).
+1. The agents RepoCop starts never run in, or modify, a repo's **human-owned primary checkout**. They work only in RepoCop worktrees under `<worktrees_root>/<repo>/`: one worktree and branch per requirement (`agent/<name>`, its file name without `.md`), shared by its tasks in turn. RepoCop makes no commit there: its only write is a fetch, and requirements are read-only in RepoCop (ADR-037).
 2. Only `services/git.py` runs git, only `services/claude.py` talks to Claude Code, only `services/github.py` runs the GitHub CLI and only `services/codex.py` runs Codex, always with argv lists and never `shell=True`.
 3. Never overwrite existing repo files silently, never auto-delete worktrees or branches, and never push without an explicit click or by force.
 4. RepoCop's database stores execution state and references only, never copies of requirements or repo config.
