@@ -1,8 +1,8 @@
 """SQLite persistence: connections, explicit transactions, and forward-only migrations.
 
 The database holds execution state and references only (invariant 4): repo paths, requirement
-paths and kinds, task state, the event log, and pull request addresses. Requirement names and
-text, and repo config, are read from the repos themselves.
+paths, task state, the event log, and pull request addresses. Requirement names and text, and
+repo config, are read from the repos themselves.
 
 Migrations are numbered by `PRAGMA user_version`. Never edit a released migration; append a
 new one.
@@ -137,6 +137,11 @@ MIGRATIONS: tuple[str, ...] = (
     WHERE kind = 'status_change'
         AND json_extract(payload_json, '$.error') = '{FORMER_NAME}_restarted';
     """,  # noqa: S608 - a constant, never input
+    # 8: a requirement has no kind: nothing sets one once requirements are written outside
+    # RepoCop, and every branch it names starts agent/ whatever the kind.
+    """
+    ALTER TABLE requirements DROP COLUMN kind;
+    """,
 )
 
 

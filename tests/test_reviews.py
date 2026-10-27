@@ -11,14 +11,14 @@ from pathlib import Path
 import pytest
 
 from repocop.config import Settings
-from repocop.services import claude, codex, repositories, requirements, reviews, tasks
+from repocop.services import claude, codex, repositories, reviews, tasks
 from repocop.services.codex import CodexError
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Requirement
 from repocop.services.reviews import ReviewError
 from repocop.services.runner import CHANGED_WORKTREE, TaskRunner
 from repocop.services.tasks import Status, Task, TaskError
-from tests.conftest import kill_process, process_gone, run_git
+from tests.conftest import kill_process, process_gone, recorded_requirement, run_git
 from tests.fakes.fake_claude import FakeClaudeFactory
 from tests.fakes.fake_codex import FakeCodex
 
@@ -38,9 +38,7 @@ def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Rep
 @pytest.fixture
 def requirement(conn: sqlite3.Connection, settings: Settings, repo: Repository) -> Requirement:
     """bulk-user-import, with no branch yet."""
-    return requirements.create(
-        conn, settings, repo, name="Bulk user import", body="Import users.", kind="feature"
-    ).requirement
+    return recorded_requirement(conn, settings, repo)
 
 
 @pytest.fixture

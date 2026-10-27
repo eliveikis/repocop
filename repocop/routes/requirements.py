@@ -1,6 +1,6 @@
-"""Requirement pages: create a requirement in a repository, then view, edit and commit it, start
-tasks on it, have its branch reviewed, and act on its branch's pull request. A requirement's
-pages are found by its repository and its file name."""
+"""Requirement pages: show a requirement read-only, with the line that runs each workflow on it,
+start tasks on it, have its branch reviewed, and act on its branch's pull request. A
+requirement's pages are found by its repository and its file name."""
 
 import sqlite3
 from pathlib import PurePosixPath
@@ -16,7 +16,6 @@ from repocop.config import Settings
 from repocop.errors import RepoCopError
 from repocop.routes.dependencies import (
     ConnectionDep,
-    RepositoryDep,
     RequirementDep,
     RunnerDep,
     SettingsDep,
@@ -31,37 +30,13 @@ from repocop.services import (
 )
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Location, Requirement
+from repocop.services.runner import workflow_prompt
 
 router = APIRouter()
 # A requirement's page, named by its repository and its file.
 REQUIREMENT_PATH = "/repositories/{repository_id}/requirements/{file_name:file}"
 
 FormField = Annotated[str, Form()]
-
-
-@router.get("/repositories/{repository_id}/requirements/new", response_class=HTMLResponse)
-def new_requirement_page(request: Request, repository: RepositoryDep) -> HTMLResponse:
-    return _render_new(request, repository)
-
-
-@router.post("/repositories/{repository_id}/requirements", response_class=HTMLResponse)
-def create_requirement(
-    request: Request,
-    conn: ConnectionDep,
-    settings: SettingsDep,
-    repository: RepositoryDep,
-    name: FormField = "",
-    kind: FormField = "feature",
-    body: FormField = "",
-) -> Response:
-    try:
-        saved = requirements.create(conn, settings, repository, name=name, body=body, kind=kind)
-    except RepoCopError as exc:
-        form = {"name": name, "kind": kind, "body": body}
-        return _render_new(request, repository, form=form, error=str(exc), status_code=400)
-    return _redirect(
-        request, saved.requirement, saved="committed" if saved.committed else "uncommitted"
-    )
 
 
 @router.get("/requirements/{requirement_id}")
@@ -81,63 +56,9 @@ def requirement_page(
     conn: ConnectionDep,
     settings: SettingsDep,
     requirement: RequirementDep,
-    saved: str | None = None,
-    committed: bool = False,
     pull_request: pull_requests.Action | None = None,
 ) -> HTMLResponse:
-    return _render_requirement(
-        request,
-        conn,
-        settings,
-        requirement,
-        saved=saved,
-        committed=committed,
-        pull_request_done=pull_request,
-    )
-
-
-@router.post(REQUIREMENT_PATH, response_class=HTMLResponse)
-def save_requirement(
-    request: Request,
-    conn: ConnectionDep,
-    settings: SettingsDep,
-    requirement: RequirementDep,
-    kind: FormField = "feature",
-    body: FormField = "",
-    version: FormField = "",
-) -> Response:
-    repository = _repository_of(conn, requirement)
-    try:
-        saved = requirements.update(
-            conn,
-            settings,
-            repository,
-            requirement,
-            body=body,
-            kind=kind,
-            version=version,
-        )
-    except RepoCopError as exc:
-        form = {"kind": kind, "body": body, "version": version}
-        return _render_requirement(
-            request, conn, settings, requirement, form=form, error=str(exc), status_code=400
-        )
-    return _redirect(
-        request, saved.requirement, saved="committed" if saved.committed else "uncommitted"
-    )
-
-
-@router.post(REQUIREMENT_PATH + "/commit", response_class=HTMLResponse)
-def commit_requirement(
-    request: Request, conn: ConnectionDep, settings: SettingsDep, requirement: RequirementDep
-) -> Response:
-    try:
-        requirements.commit(settings, _repository_of(conn, requirement), requirement)
-    except RepoCopError as exc:
-        return _render_requirement(
-            request, conn, settings, requirement, error=str(exc), status_code=400
-        )
-    return _redirect(request, requirement, committed="true")
+    return _render_requirement(request, conn, settings, requirement, pull_request_done=pull_request)
 
 
 @router.post(REQUIREMENT_PATH + "/tasks", response_class=HTMLResponse)
@@ -239,7 +160,8 @@ def requirement_pull_request(
         )
     if action is pull_requests.Action.OPEN:  # the new pull request, on GitHub
         return RedirectResponse(done.url, status_code=303)
-    return _redirect(request, requirement, pull_request=action.value)
+    target = _page(request, requirement).include_query_params(pull_request=action.value)
+    return RedirectResponse(target, status_code=303)
 
 
 def _repository_of(conn: sqlite3.Connection, requirement: Requirement) -> Repository:
@@ -257,41 +179,13 @@ def _page(request: Request, requirement: Requirement) -> URL:
     )
 
 
-def _redirect(request: Request, requirement: Requirement, **params: str) -> RedirectResponse:
-    target = _page(request, requirement).include_query_params(**params)
-    return RedirectResponse(target, status_code=303)
-
-
-def _render_new(
-    request: Request,
-    repository: Repository,
-    *,
-    form: dict[str, str] | None = None,
-    error: str | None = None,
-    status_code: int = 200,
-) -> HTMLResponse:
-    templates: Jinja2Templates = request.app.state.templates
-    context = {
-        "repository": repository,
-        "todo_dir": requirements.todo_dir(repository),
-        "form": form or {"name": "", "kind": "feature", "body": ""},
-        "error": error,
-    }
-    return templates.TemplateResponse(
-        request, "requirements/new.html", context, status_code=status_code
-    )
-
-
 def _render_requirement(
     request: Request,
     conn: sqlite3.Connection,
     settings: Settings,
     requirement: Requirement,
     *,
-    form: dict[str, str] | None = None,
     error: str | None = None,
-    saved: str | None = None,
-    committed: bool = False,
     pull_request_done: pull_requests.Action | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
@@ -313,22 +207,18 @@ def _render_requirement(
             change = ordered.delivered_change(file, detail.content.body)
     except RepoCopError as exc:
         error = error or str(exc)
-    if form is None and detail is not None and detail.content is not None:
-        form = {
-            "kind": requirement.kind.value,
-            "body": detail.content.body,
-            "version": detail.content.version,
-        }
+    shown = detail.content if detail else None
     context = {
         "repository": repository,
         "requirement": requirement,
         "detail": detail,
+        "editor_link": (
+            settings.editor_link(repository.primary_path / shown.path, file=True) if shown else None
+        ),
         "tasks": tasks.list_for_requirement(conn, requirement),
         "workflows": workflows,
-        "form": form,
+        "workflow_lines": [workflow_prompt(workflow, requirement.path) for workflow in workflows],
         "error": error,
-        "saved": saved,
-        "committed": committed,
         "branch": branch,
         "review": reviews.latest(conn, settings, requirement) if branch else None,
         "reviewer": reviews.REVIEWER,

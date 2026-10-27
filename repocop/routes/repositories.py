@@ -145,6 +145,7 @@ def _render_repository(
             else None
         ),
         "checkout": _checkout(repository, settings, status),
+        "remote": repositories.remote(repository, settings),
         "changed_shown": CHANGED_FILES_SHOWN,
         "fetched": fetched,
         "fetch_error": fetch_error,
@@ -197,7 +198,8 @@ def _render_list(
     for repo in repositories.list_all(conn):
         status = repositories.status(repo, settings)
         waiting = _waiting(conn, settings, repo, status)
-        listed.append((repo, status, waiting, _checkout(repo, settings, status)))
+        checkout = _checkout(repo, settings, status)
+        listed.append((repo, status, waiting, checkout, repositories.remote(repo, settings)))
     context = {
         "settings": settings,
         "claude_auth": claude.auth_status(settings),

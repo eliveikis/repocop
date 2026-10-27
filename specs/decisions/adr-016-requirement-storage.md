@@ -1,6 +1,6 @@
 # ADR-016: Requirement storage
 
-**Status:** accepted, its next id superseded by ADR-034 · **Date:** 2026-09-25
+**Status:** accepted, its next id superseded by ADR-034 and its saves by ADR-037 · **Date:** 2026-09-25
 
 ## Context
 

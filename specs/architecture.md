@@ -23,7 +23,7 @@ flowchart TD
         repos["repositories.py<br/>registry, onboarding, status"]
         sync["template_sync.py<br/>plan, commit on a sync branch"]
         boot["bootstrap.py<br/>repo template: compare with a branch"]
-        reqs["requirements.py<br/>read/write/commit requirement Markdown"]
+        reqs["requirements.py<br/>read requirement Markdown"]
         wts["worktrees.py<br/>create/list agent worktrees + guards"]
         git["git.py<br/>ONLY place that runs git"]
         tasksvc["tasks.py<br/>task state machine + events"]
@@ -54,8 +54,7 @@ flowchart TD
     reqs --> git
     wts --> git
     repos & reqs & tasksvc & prs --> db
-    git -->|"clone, fetch, status, commit requirement file only"| primary
-    boot -->|"create missing template files, uncommitted"| primary
+    git -->|"clone, fetch, status, read"| primary
     git -->|"worktree add, status, diff, push"| worktree
     github -->|"gh pr create, edit"| hub
     claude -->|"spawn with cwd = worktree"| cc
@@ -94,7 +93,6 @@ erDiagram
         int id PK "its own key, never shown"
         int repository_id FK
         text path "relative to repo"
-        text kind "feature or fix"
         text created_at
         text updated_at
     }
@@ -130,7 +128,7 @@ erDiagram
     }
 ```
 
-- Task ids are a global counter. A requirement has no id: its name is its file name, kept only as part of its path, and its row's key is the database's own, never shown. A requirement is recorded only when something needs a row for it: its creation in the UI, a kind saved for it, or its first task.
+- Task ids are a global counter. A requirement has no id: its name is its file name, kept only as part of its path, and its row's key is the database's own, never shown. A requirement is recorded only when its first task needs a row for it.
 - `tasks.workflow` is a repo skill name (`review-requirement`, `implement`, …) or one of RepoCop's own, `template-sync` and `Codex review`, which have no Claude session.
 - All tasks of one requirement share its branch, worktree and base commit, which each records. `git diff <base_commit>` in the worktree shows everything they changed.
 - `tasks.status` ∈ `queued | running | waiting_for_user | completed | failed | cancelled`
@@ -153,36 +151,37 @@ erDiagram
 
 ## Requirements, branches and worktrees
 
-**Identity.** A requirement is a Markdown file in the `todo/` folder of its repository's changes folder, whoever wrote it, and it has no id. Its file name, without `.md`, is its name on the pages, in commit messages and in its pull request's title, and its pages are found by its repository and file name: `/repositories/<id>/requirements/<file name>`, the file name percent-encoded, so any name a file can have links to its own page. The file holds its text and no title heading. The name given at creation makes the file name, which is fixed from then on, and creating a requirement under a name the repository already uses (in the folder, in the archive, or among the requirements RepoCop has recorded) is refused. The kind (`feature` or `fix`) is stored in the DB. An older change's heading is part of its text, and an older change's `req-<n>-` prefix is part of its name.
+**Identity.** A requirement is a Markdown file in the `todo/` folder of its repository's changes folder, which its developer writes and commits in their own editor, and it has no id. Its file name, without `.md`, is its name on the pages, in commit messages and in its pull request's title, and its pages are found by its repository and file name: `/repositories/<id>/requirements/<file name>`, the file name percent-encoded, so any name a file can have links to its own page. The file holds its text and no title heading. An older change's heading is part of its text, and an older change's `req-<n>-` prefix is part of its name.
+
+**Read-only.** Nothing in RepoCop creates, edits or commits a requirement file. The repository's page says where to add one, and a requirement's page shows its text as the file holds it, from its folder or the archive, with an "Open in editor" link to that file. For an active requirement, the page gives the line that runs each of the repository's workflows on it in the developer's own agent session, `/implement specs/changes/todo/bulk-user-import.md`, built by the code that builds a RepoCop task's first prompt, and names the branch to do the work on: the requirement's name, `bulk-user-import`.
 
 **One branch and worktree per requirement.**
 
 | Requirement | Branch | Worktree |
 |-------------|--------|----------|
-| `bulk-user-import.md`, kind feature | `agent/bulk-user-import` | `<worktrees_root>/crm-api/bulk-user-import` |
-| `login-crash.md`, kind fix | `agent/login-crash` | `<worktrees_root>/crm-api/login-crash` |
+| `bulk-user-import.md` | `agent/bulk-user-import` | `<worktrees_root>/crm-api/bulk-user-import` |
+| `login-crash.md` | `agent/login-crash` | `<worktrees_root>/crm-api/login-crash` |
 | an older change, `req-7-search.md` | `agent/req-7-search` | `<worktrees_root>/crm-api/req-7-search` |
 | no requirement: template sync, task #43 | `agent/template-sync-43` | `<worktrees_root>/crm-api/template-sync-43` |
 
 - The first task on a requirement records it if it isn't yet, and creates its branch and worktree from the primary checkout's HEAD, recorded as the base commit. A file name git won't take as a branch name is refused there, with git's reason. Later tasks (review → implement → address-pr-comments) reuse them, so the PR's branch is the requirement's branch. A worktree that has disappeared isn't recreated, and a branch RepoCop didn't create isn't reused.
 - A task's workflow is a skill committed at HEAD as `.claude/skills/<name>/SKILL.md`, since that's what its worktree will contain.
 - A worktree is only ever at its path under `<worktrees_root>/<repo>/`. Anything that would put one elsewhere, such as inside a primary checkout, is refused, and a path there counts as the repository's worktree only if its git common directory is the primary checkout's.
-- **Every branch RepoCop names starts `agent/`**, whatever the requirement's kind, so a person can tell agent work from their own. A branch named before that keeps its name, and its tasks, reviews and pull request use it as before.
+- **Every branch RepoCop names starts `agent/`**, so a person can tell its work from their own. A branch named before that keeps its name, and its tasks, reviews and pull request use it as before.
 - **Every RepoCop-launched session runs in a worktree**, including `review-requirement`.
 - **Several requirements can be in flight in one repository at once**, each in its own worktree. The only limit is one active task per worktree.
-- **The primary checkout stays free for the human's own Claude Code sessions.** RepoCop doesn't detect, manage or track them.
+- **The primary checkout stays free for the developer's own agent sessions**, where they work on a branch named for the requirement, apart from RepoCop's `agent/` one. RepoCop doesn't detect, manage or track those sessions.
 
 **Commits and freshness.**
 
-- **RepoCop commits requirement files it saves**: that file only, on whatever branch the primary checkout has checked out. Anything else staged or modified there is left untouched.
-- **An uncommitted requirement blocks task start**, with a "Commit requirement" button that makes the same single-file commit. Nothing is copied into a worktree behind the human's back.
+- **RepoCop makes no commit in a primary checkout.** Its only write there is a fetch, and a requirement reaches a worktree only once its developer has committed it.
+- **An uncommitted requirement blocks task start**, and the reason names the file to commit first. Nothing is copied into a worktree behind the human's back.
 - **Edits after a task starts don't reach it.** The human tells the session about them through the instruction box.
 
 ## Requirement storage
 
 - **One changes folder per repository**, its `changes_dir` (`specs/changes` by default), laid out as the repo template's specs convention says: `todo/` holds the requirements still to deliver, and `/complete-change` archives into `archive/` beside it, under the file's name stamped with the UTC date and time it was archived, so the archive lists changes in the order they finished. An archive made before the stamp keeps its plain name, and RepoCop finds either.
-- **Saving** is refused while the checkout is mid-merge, mid-rebase, mid-cherry-pick or mid-revert, or on a detached HEAD, and when the file changed on disk since it was read. A failed commit keeps the file saved but uncommitted, and its page offers Commit. Writes run one at a time, so two can't take one file name and commits never race on a checkout's index.
-- **Location is read from disk:** `active` at its path, `archived` in the archive folder (shown read-only), `missing` when in neither.
+- **Location is read from disk:** `active` at its path, `archived` in the archive folder, `missing` when in neither.
 - **Dependencies** come from each change's `depends-on` front matter (`.claude/rules/specs.md`), read from disk on each page load like the rest. The requirements list orders the folder's changes by level: those no undelivered change holds up, then those one undelivered change away, and so on, by their longest chain, then the delivered and missing requirements. Once some change waits on another, each row says what it is blocked by, and a filter shows only the unblocked; until then neither is shown, so a repository that declares no dependencies sees a plain list. Each requirement's page shows what it's blocked by and what it blocks. A problem (a name that matches no change or several, a change that needs itself, a cycle, a list that can't be read) is shown above the list, and the changes it holds up come after the others, marked as unable to be ordered. A name is only compared with the folder's file names, never used to build a path.
 - **The template's `specs/changes/backlog.sh` orders the same backlog** outside RepoCop, by the same rules and with the same problems, and draws it as a git-ignored Mermaid graph. RepoCop never runs a repository's scripts, so it applies the rules itself, and `tests/test_backlog.py` holds the two to the same results.
 
@@ -194,11 +193,11 @@ Sessions run through the Python Claude Agent SDK (`claude-agent-sdk`, `ClaudeSDK
 
 - **Skills** are invoked by name in the prompt: `/review-requirement specs/changes/todo/bulk-user-import.md`. They resolve from the worktree's `.claude/skills/`, so RepoCop hard-codes nothing about what a skill does.
 - **Project settings are always loaded.** No "bare" or isolation mode skips repo config.
-- **Permissions:** `acceptEdits` plus the repo's own `.claude/settings.json` allowlist, never bypassed. A denied action shows up in the transcript, and the human answers through the instruction box. Asking on the task page instead is [req-4](changes/todo/req-4-permission-prompts.md).
+- **Permissions:** `acceptEdits` plus the repo's own `.claude/settings.json` allowlist, never bypassed. A denied action shows up in the transcript, and the human answers through the instruction box.
 - **Authentication:** the host's Claude Code subscription login by default. `ANTHROPIC_API_KEY` and `ANTHROPIC_AUTH_TOKEN` are blanked for every session, then a configured key is set. A session whose `init` reports another credential is stopped with the reason. The main page shows the credential and its state from `claude auth status --json`.
 - **Updates.** The session id is stored as soon as `init` arrives; it's the key for resuming and for restart recovery. Messages become visible events (text, tool use, tool results, raw; never thinking; long text clipped), which `services/runner.py` records while it drives the status machine. An instruction goes to the task's live session and is answered as its next turn; for a waiting task, it resumes the session.
 - **Continuing in a terminal.** Once no task is active in its worktree, a task's page shows `cd <worktree> && claude --resume <session id>`. It's hidden while any task there is active, because two writers in one session interleave. RepoCop doesn't track what happens in that terminal.
-- **Testing.** The default suite fakes the SDK client at `services/claude.py`'s boundary (`tests/fakes/fake_claude.py`), producing the SDK's public message types in the order below, and a guard makes the real client fail. A capped real-Claude smoke test is [req-3](changes/todo/req-3-real-claude-smoke-test.md).
+- **Testing.** The default suite fakes the SDK client at `services/claude.py`'s boundary (`tests/fakes/fake_claude.py`), producing the SDK's public message types in the order below, and a guard makes the real client fail.
 
 **Verified against the real CLI** (2026-09-25, Claude Code 2.1.282 and SDK 0.2.159; the facts the code and the fake rely on):
 
@@ -228,9 +227,9 @@ Every page reads and works without JavaScript, but for the switcher and shortcut
 
 **Live task page.** While a task is active, its header, transcript (only events after the last `seq` shown) and worktree panel (git status and diff) refresh every 2 s. An inactive task's fragments carry no trigger, so polling stops. The instruction box sits outside them, so typed text is never replaced, and without JavaScript the page still works with a manual refresh. The diff is read-only and covers everything since the base commit, including untracked files. It's capped in size, and the page says when part was left out.
 
-**Editor links.** When `editor_url` is configured, a URL template containing `{path}`, each primary checkout and worktree that is on disk gets an "Open in editor" link built from it. The link is opened by the browser's machine. RepoCop launches nothing, so it also works when the browser isn't on RepoCop's host.
+**Editor links.** When `editor_url` is configured, a URL template containing `{path}`, each primary checkout, worktree and requirement file that is on disk gets an "Open in editor" link built from it. For a file, a slash right after `{path}` is left out, since it would mark a folder. The link is opened by the browser's machine. RepoCop launches nothing, so it also works when the browser isn't on RepoCop's host.
 
-**Remote links.** A repository's remote links to the repository's page on its host, `https://<host>/<path>`, which is where GitHub and hosts laid out like it serve it. A local remote is shown without a link.
+**Remote links.** A repository's remote is shown as its checkout's `origin` has it now, read from git on each page load, so another spelling of the registered remote set since, such as ssh for https, shows as it is. While the checkout is missing, the remote it was registered with is shown. It links to the repository's page on its host, `https://<host>/<path>`, which is where GitHub and hosts laid out like it serve it. A local remote is shown without a link.
 
 ## Template sync
 
@@ -342,7 +341,7 @@ sequenceDiagram
     U->>C: Start "implement" on requirement
     C->>G: requirement committed, no other active task?
     alt blocked
-        C-->>U: notification + "Commit requirement"
+        C-->>U: refused, with the reason
     else ok
         C->>G: reuse the requirement's worktree, or create it from primary HEAD
         C->>S: spawn in worktree: /implement specs/changes/todo/bulk-user-import.md

@@ -264,12 +264,12 @@ def test_has_changes_sees_untracked_and_modified_files(primary_checkout: Path) -
     assert git.has_changes(primary_checkout, "README.md")
 
 
-def test_commit_file_commits_only_that_file(primary_checkout: Path) -> None:
+def test_commit_files_leaves_what_else_is_staged_or_modified(primary_checkout: Path) -> None:
     (primary_checkout / "staged.txt").write_text("staged by the human\n")
     run_git("add", "staged.txt", cwd=primary_checkout)
     (primary_checkout / "README.md").write_text("modified by the human\n")
     (primary_checkout / "req.md").write_text("# Req\n")
-    git.commit_file(primary_checkout, "req.md", "Add req")
+    git.commit_files(primary_checkout, ["req.md"], "Add req")
     assert (
         run_git("show", "--name-only", "--format=%s", "HEAD", cwd=primary_checkout)
         == "Add req\n\nreq.md"

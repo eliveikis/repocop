@@ -62,10 +62,8 @@
 {% endif %}
 
 <section id="requirements" aria-labelledby="requirements-heading">
-  <div class="section-head">
-    <h2 id="requirements-heading">Requirements</h2>
-    <a class="button" href="{{ url_for('new_requirement_page', repository_id=repository.id) }}">New requirement</a>
-  </div>
+  <h2 id="requirements-heading">Requirements</h2>
+  <p class="hint">To add a requirement, write a Markdown file in <code>{{ todo_dir }}</code>, named for the change, such as <code>bulk-import.md</code>, and commit it.</p>
   {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
   {% if listing and listing.problems %}
   <div class="error" role="alert">
@@ -83,7 +81,7 @@
   <div class="table-scroll">
   <table class="requirements">
     <thead>
-      <tr><th>Name</th><th>Kind</th><th>State</th>{% if blocking %}<th>Blocked by</th>{% endif %}</tr>
+      <tr><th>Name</th><th>State</th>{% if blocking %}<th>Blocked by</th>{% endif %}</tr>
     </thead>
     <tbody>
     {% set held_up = false %}
@@ -97,12 +95,12 @@
   </div>
   {% if ready and not listing.levels %}<p class="empty">Every change here waits on another. <a href="{{ page }}">Show all</a> to see what each waits on.</p>{% endif %}
   <details class="help"><summary>How this works</summary>
-    <p>Changes are listed in the order they can start. One that needs others delivered first lists them in its front matter, under <code>depends-on:</code>, and one in the archive is delivered. Every Markdown file in <code>{{ todo_dir }}</code> is a requirement, named by its file.</p>
+    <p>Changes are listed in the order they can start. One that needs others delivered first lists them in its front matter, under <code>depends-on:</code>, and one in the archive is delivered.</p>
   </details>
   {% elif not error %}
   <div class="empty-state">
-    <p>No requirements yet. Write the first one: it's saved as a Markdown file in <code>{{ todo_dir }}</code>, and committed on its own.</p>
-    <a class="button primary" href="{{ url_for('new_requirement_page', repository_id=repository.id) }}">New requirement</a>
+    <p>No requirements yet.</p>
+    {% if checkout.editor_link %}<a class="button primary" href="{{ checkout.editor_link }}">Open in editor</a>{% endif %}
   </div>
   {% endif %}
 </section>

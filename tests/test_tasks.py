@@ -22,7 +22,7 @@ from repocop.services import (
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Requirement
 from repocop.services.tasks import Status, Task, TaskError
-from tests.conftest import run_git
+from tests.conftest import recorded_requirement, run_git
 
 
 def commit_skills(checkout: Path, *names: str) -> None:
@@ -45,12 +45,9 @@ def new_requirement(
     conn: sqlite3.Connection,
     settings: Settings,
     repo: Repository,
-    name: str = "Bulk user import",
-    kind: str = "feature",
+    name: str = "bulk-user-import",
 ) -> Requirement:
-    return requirements.create(
-        conn, settings, repo, name=name, body="Import users.", kind=kind
-    ).requirement
+    return recorded_requirement(conn, settings, repo, f"{name}.md")
 
 
 # ---------------------------------------------------------------- workflows
@@ -116,8 +113,8 @@ def test_start_keeps_the_branch_name_of_a_requirement_recorded_under_an_id(
     run_git("add", ".", cwd=repo.primary_path)
     run_git("commit", "-qm", "Add req-7-search", cwd=repo.primary_path)
     conn.execute(
-        "INSERT INTO requirements (id, repository_id, path, kind, created_at, updated_at)"
-        " VALUES (7, ?, 'specs/changes/todo/req-7-search.md', 'fix', '', '')",
+        "INSERT INTO requirements (id, repository_id, path, created_at, updated_at)"
+        " VALUES (7, ?, 'specs/changes/todo/req-7-search.md', '', '')",
         (repo.id,),
     )
     found = requirements.find(conn, settings, repo, "req-7-search.md")
@@ -170,7 +167,8 @@ def test_start_refuses_a_requirement_with_uncommitted_changes(
 ) -> None:
     requirement = new_requirement(conn, settings, repo)
     (repo.primary_path / requirement.path).write_text("# Bulk user import\n\nEdited by hand.\n")
-    with pytest.raises(TaskError, match="uncommitted"):
+    commit_first = "uncommitted changes. Commit specs/changes/todo/bulk-user-import.md first"
+    with pytest.raises(TaskError, match=commit_first):
         tasks.start(conn, settings, requirement, "implement")
     assert not (settings.worktrees_root / "sample").exists()
     assert tasks.list_for_requirement(conn, requirement) == []
@@ -211,7 +209,7 @@ def test_start_does_not_wait_for_another_requirements_held_starts(
     conn: sqlite3.Connection, settings: Settings, repo: Repository
 ) -> None:
     held = new_requirement(conn, settings, repo)
-    other = new_requirement(conn, settings, repo, name="Login crash", kind="fix")
+    other = new_requirement(conn, settings, repo, name="login-crash")
     with tasks.hold_starts(held):
         assert tasks.start(conn, settings, other, "implement").status is Status.QUEUED
 
@@ -637,11 +635,11 @@ def test_start_again_starts_a_workflow_of_repocops_own_on_the_branch_again(
 # ---------------------------------------------------------------- branch names
 
 
-def test_a_requirements_new_branch_is_an_agent_branch_for_a_feature_and_a_fix_alike(
+def test_a_requirements_new_branch_is_an_agent_branch_named_for_it(
     conn: sqlite3.Connection, settings: Settings, repo: Repository
 ) -> None:
-    feature = new_requirement(conn, settings, repo, name="Bulk user import", kind="feature")
-    fix = new_requirement(conn, settings, repo, name="Login crash", kind="fix")
+    feature = new_requirement(conn, settings, repo)
+    fix = new_requirement(conn, settings, repo, name="login-crash")
     assert tasks.start(conn, settings, feature, "implement").branch == "agent/bulk-user-import"
     assert tasks.start(conn, settings, fix, "implement").branch == "agent/login-crash"
 

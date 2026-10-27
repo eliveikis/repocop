@@ -1,8 +1,0 @@
-<fieldset class="kind">
-  <legend>Kind</legend>
-  <label><input type="radio" name="kind" value="feature"{% if form.kind == "feature" %} checked{% endif %}> feature</label>
-  <label><input type="radio" name="kind" value="fix"{% if form.kind == "fix" %} checked{% endif %}> fix</label>
-</fieldset>
-<label>Requirement
-  <textarea name="body" rows="24">{{ form.body }}</textarea>
-</label>

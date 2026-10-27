@@ -9,11 +9,11 @@ from pathlib import Path
 import pytest
 
 from repocop.config import Settings
-from repocop.services import claude, repositories, requirements, tasks
+from repocop.services import claude, repositories, tasks
 from repocop.services.repositories import Repository
 from repocop.services.runner import RESTART_REASON, TaskRunner
 from repocop.services.tasks import Status, Task, TaskError
-from tests.conftest import run_git
+from tests.conftest import recorded_requirement, run_git
 from tests.fakes.fake_claude import FakeClaudeFactory
 
 
@@ -30,11 +30,9 @@ def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Rep
 
 
 def queue(
-    conn: sqlite3.Connection, settings: Settings, repo: Repository, name: str = "Bulk user import"
+    conn: sqlite3.Connection, settings: Settings, repo: Repository, name: str = "bulk-user-import"
 ) -> Task:
-    requirement = requirements.create(
-        conn, settings, repo, name=name, body="Import users.", kind="feature"
-    ).requirement
+    requirement = recorded_requirement(conn, settings, repo, f"{name}.md")
     return tasks.start(conn, settings, requirement, "implement")
 
 
@@ -158,8 +156,8 @@ async def test_an_instruction_reaches_only_its_own_tasks_session(
     conn: sqlite3.Connection, settings: Settings, repo: Repository
 ) -> None:
     slow = FakeClaudeFactory(delay=0.05)
-    first = queue(conn, settings, repo, name="First")
-    second = queue(conn, settings, repo, name="Second")
+    first = queue(conn, settings, repo, name="first")
+    second = queue(conn, settings, repo, name="second")
     runner = TaskRunner(settings, slow)
     runner.run(first.id)
     runner.run(second.id)

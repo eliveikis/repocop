@@ -15,11 +15,10 @@ They enforce the design pillars in `specs/product.md`. A change that weakens one
 - At config load, refuse a `worktrees_root` inside `repos_root` or any primary checkout.
 
 ## Human-owned checkout
-- The primary checkout is **human-owned**: agents never run in it, and RepoCop never checks out, resets, stashes or cleans there.
-- RepoCop's only writes there are explicit and user-initiated: saving a requirement file, and fetching from `origin`. The repo template reaches a repository only through a sync (ADR-029), which works on its own worktree branch and never writes there.
+- The primary checkout is **human-owned**: the agents RepoCop starts never run in it, and RepoCop never checks out, resets, stashes, cleans or commits there.
+- RepoCop's only write there is explicit and user-initiated: fetching from `origin`. Requirements are read-only in RepoCop, written and committed by their developer (ADR-037). The repo template reaches a repository only through a sync (ADR-029), which works on its own worktree branch and never writes there.
 - A fetch updates `origin`'s remote-tracking branches and nothing else, whatever refspecs the git config holds: no tags, no pruning, never a pull or merge. Nothing fetches on a page load or in the background (ADR-022).
 - Reading the checkout never writes to it: git runs without optional locks, so a status check doesn't rewrite the index.
-- Its only RepoCop commit is a saved requirement file: `git commit -- <path>` so nothing else staged goes in, on the current branch, refused mid-merge, mid-rebase or on a detached HEAD (ADR-004).
 - `claude.py` and `codex.py` each refuse to launch unless `cwd` is a registered RepoCop worktree, enforced in code and covered by a test.
 
 ## Files

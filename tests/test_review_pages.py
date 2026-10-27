@@ -7,7 +7,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from repocop.config import Settings
-from tests.conftest import run_git
+from tests.conftest import add_requirement, run_git
 from tests.fakes.fake_claude import FakeClaudeFactory
 from tests.fakes.fake_codex import FakeCodex
 from tests.fakes.fake_gh import FakeGh
@@ -23,8 +23,8 @@ INSTRUCTION_FORM = '<form class="instruction"'
 def requirement(
     client: TestClient, github_checkout: Path, fake_gh: FakeGh, fake_codex: FakeCodex
 ) -> None:
-    """Repository `sample` on github.com with a committed skill, and bulk-user-import created
-    in the UI."""
+    """Repository `sample` on github.com with a committed skill, and bulk-user-import
+    committed in its checkout."""
     for name in ("implement", "address-review"):
         folder = github_checkout / ".claude" / "skills" / name
         folder.mkdir(parents=True)
@@ -32,10 +32,7 @@ def requirement(
     run_git("add", ".claude", cwd=github_checkout)
     run_git("commit", "-qm", "Add skills", cwd=github_checkout)
     client.post("/repositories", data={"remote_url": "", "name": "sample"})
-    client.post(
-        "/repositories/1/requirements",
-        data={"name": "Bulk user import", "kind": "feature", "body": "Import users."},
-    )
+    add_requirement(github_checkout)
 
 
 @pytest.fixture

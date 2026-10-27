@@ -15,7 +15,6 @@ from repocop.services import (
     git,
     pull_requests,
     repositories,
-    requirements,
     tasks,
     template_sync,
 )
@@ -23,7 +22,7 @@ from repocop.services.pull_requests import Action, PullRequestError
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Requirement
 from repocop.services.tasks import Status, Task
-from tests.conftest import run_git
+from tests.conftest import recorded_requirement, run_git
 from tests.fakes.fake_gh import FakeGh
 
 BRANCH = "agent/bulk-user-import"
@@ -49,9 +48,7 @@ def repo(conn: sqlite3.Connection, settings: Settings, github_checkout: Path) ->
 @pytest.fixture
 def requirement(conn: sqlite3.Connection, settings: Settings, repo: Repository) -> Requirement:
     """bulk-user-import, whose one task has completed in its worktree."""
-    created = requirements.create(
-        conn, settings, repo, name="Bulk user import", body="Import users.", kind="feature"
-    ).requirement
+    created = recorded_requirement(conn, settings, repo)
     task = tasks.start(conn, settings, created, "implement")
     tasks.transition(conn, task.id, Status.RUNNING)
     tasks.transition(conn, task.id, Status.COMPLETED)
@@ -172,9 +169,9 @@ def test_a_requirements_pull_request_is_titled_by_its_file_name_even_once_it_is_
 def test_nothing_is_offered_for_a_requirement_before_its_first_task(
     conn: sqlite3.Connection, settings: Settings, repo: Repository
 ) -> None:
-    created = requirements.create(conn, settings, repo, name="New", body="", kind="feature")
+    created = recorded_requirement(conn, settings, repo, "new.md", "")
     with pytest.raises(PullRequestError, match="new has no branch yet"):
-        pull_requests.of_requirement(conn, settings, created.requirement)
+        pull_requests.of_requirement(conn, settings, created)
 
 
 @pytest.mark.parametrize("action", list(Action))
@@ -293,13 +290,11 @@ def test_actions_are_refused_when_origin_is_not_a_github_remote(
 ) -> None:
     commit_skill(primary_checkout)
     repo = repositories.register(conn, settings, str(remote_repo)).repository
-    created = requirements.create(
-        conn, settings, repo, name="Bulk user import", body="", kind="fix"
-    )
-    task = tasks.start(conn, settings, created.requirement, "implement")
+    created = recorded_requirement(conn, settings, repo)
+    task = tasks.start(conn, settings, created, "implement")
     tasks.transition(conn, task.id, Status.CANCELLED)
     with pytest.raises(RepoCopError, match=r"isn't a repository on github\.com"):
-        act(conn, settings, created.requirement, action)
+        act(conn, settings, created, action)
     assert remote_branches(remote_repo) == ["main"]
     assert fake_gh.calls == []
 

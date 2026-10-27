@@ -1,8 +1,8 @@
 # RepoCop
 
-A small, local **fleet manager for agentic repositories**: keep many unrelated Git repositories in step with one repo template (the same rules, skills and spec layout), see where each one's work stands, and start, watch and steer coding agents' work in them. Claude Code runs the work today, and Codex can review a branch before its pull request.
+A small, local **fleet manager for agentic repositories**: keep many unrelated Git repositories in step with one repo template (the same rules, skills and spec layout), and see where each one's work stands. Claude Code runs the work today, and Codex can review a branch before its pull request.
 
-Pick a repository and a requirement in it, and start a workflow: one of the skills the repository has committed. RepoCop runs Claude in a **dedicated git worktree and branch**, so your own checkout stays yours. You watch the session live, send it instructions, and inspect its diff, all from one page. Before the pull request, one click has Codex review the branch on your machine, and another hands that review to a task that addresses it. When the work is ready, one click pushes the branch and opens its pull request on GitHub.
+Write a requirement in your own editor and commit it, then run the repository's workflows from your own agent session: each requirement's page gives the line that runs each one on it, and the branch to do the work on. RepoCop can also run a workflow itself, as a task in a **dedicated git worktree and branch**, so your own checkout stays yours. You watch the session live, send it instructions, and inspect its diff, all from one page. Before the pull request, one click has Codex review the branch on your machine, and another hands that review to a task that addresses it. When the work is ready, one click pushes the branch and opens its pull request on GitHub.
 
 ## How it works
 
@@ -11,7 +11,7 @@ Pick a repository and a requirement in it, and start a workflow: one of the skil
 ~/agent-worktrees/crm-api/bulk-user-import/   # RepoCop's worktree, on branch agent/bulk-user-import
 ```
 
-- Requirements, specs, `CLAUDE.md` and `.claude/` live in each repository. RepoCop keeps only references and execution history.
+- Requirements, specs, `CLAUDE.md` and `.claude/` live in each repository. RepoCop only reads them, and keeps only references and execution history.
 - The repo template's files reach a repository through **Sync with template**, as a branch and pull request you review.
 - Each task gets its own Claude Code session in its requirement's worktree, with the repository's own instructions, rules, skills and settings. Many run at once, one per worktree.
 - You can keep running `claude` in your own checkout while tasks run.

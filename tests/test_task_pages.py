@@ -15,7 +15,7 @@ from repocop.config import Settings
 from repocop.main import create_app
 from repocop.services import git, tasks
 from repocop.services.tasks import Status
-from tests.conftest import push_commit, run_git
+from tests.conftest import add_requirement, push_commit, run_git
 from tests.fakes.fake_claude import FakeClaudeFactory
 
 
@@ -25,7 +25,7 @@ def checkout(settings: Settings) -> Path:
 
 @pytest.fixture
 def requirement(client: TestClient, settings: Settings, remote_repo: Path) -> None:
-    """Repository `sample` with committed skills, and bulk-user-import created through the UI."""
+    """Repository `sample` with committed skills, and bulk-user-import committed in its checkout."""
     client.post("/repositories", data={"remote_url": str(remote_repo)})
     for name in ("implement", "review-requirement"):
         folder = checkout(settings) / ".claude" / "skills" / name
@@ -33,10 +33,7 @@ def requirement(client: TestClient, settings: Settings, remote_repo: Path) -> No
         (folder / "SKILL.md").write_text(f"# {name}\n")
     run_git("add", ".claude", cwd=checkout(settings))
     run_git("commit", "-qm", "Add skills", cwd=checkout(settings))
-    client.post(
-        "/repositories/1/requirements",
-        data={"name": "Bulk user import", "kind": "feature", "body": "Import users."},
-    )
+    add_requirement(checkout(settings))
 
 
 def wait_for_status(client: TestClient, task_id: int, status: str, timeout: float = 5.0) -> str:
@@ -89,10 +86,10 @@ def test_requirement_page_offers_the_committed_skills_as_workflows(client: TestC
 
 
 def test_requirement_page_explains_when_no_skills_are_committed(
-    client: TestClient, remote_repo: Path
+    client: TestClient, settings: Settings, remote_repo: Path
 ) -> None:
     client.post("/repositories", data={"remote_url": str(remote_repo)})
-    client.post("/repositories/1/requirements", data={"name": "X", "kind": "feature", "body": ""})
+    add_requirement(checkout(settings), "x.md", "")
     html = client.get("/repositories/1/requirements/x.md").text
     assert "No skills are committed" in html
     assert 'href="http://testserver/repositories/1/sync">Sync with the template</a>' in html
@@ -145,11 +142,9 @@ def test_start_task_with_uncommitted_changes_says_to_commit_first(
         "/repositories/1/requirements/bulk-user-import.md/tasks", data={"workflow": "implement"}
     )
     assert response.status_code == 400
-    assert "uncommitted changes. Commit it first" in response.text
-    assert (
-        'action="http://testserver/repositories/1/requirements/bulk-user-import.md/commit"'
-        in response.text
-    )
+    commit_first = "uncommitted changes. Commit specs/changes/todo/bulk-user-import.md first"
+    assert commit_first in response.text
+    assert "/commit" not in response.text
 
 
 @pytest.mark.usefixtures("requirement")

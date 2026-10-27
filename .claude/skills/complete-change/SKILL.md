@@ -9,7 +9,7 @@ argument-hint: "[path-to-change.md]  (defaults to the branch's requirement)"
 
 Complete: `$ARGUMENTS`
 
-With no path, complete the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, or to several, say so, ask for the path, and change nothing. Name the change you picked before you start.
+With no path, complete the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so, ask for the path, and change nothing. Name the change you picked before you start.
 
 Run this on the change's own branch once its work is done, so the fold-in and the archive land in the same PR as the work. It only finalizes the change: it doesn't go over the acceptance criteria again, which the work's own tests and reviews already did.
 

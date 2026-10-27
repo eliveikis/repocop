@@ -319,11 +319,8 @@ class TaskRunner:
         }
 
     def _first_prompt(self, conn: sqlite3.Connection, task: Task) -> str:
-        """`/<workflow> <requirement path>`: the repo's skill does the rest."""
         requirement = requirements.get(conn, task.requirement_id) if task.requirement_id else None
-        if requirement is None:
-            return f"/{task.workflow}"
-        return f"/{task.workflow} {requirement.path}"
+        return workflow_prompt(task.workflow, requirement.path if requirement else None)
 
     def _record(self, task_id: int, kind: str, payload: dict[str, object]) -> None:
         with self._db() as conn:
@@ -346,6 +343,15 @@ class TaskRunner:
     def _db(self) -> Iterator[sqlite3.Connection]:
         with contextlib.closing(db.connect(self._settings.database_path)) as conn:
             yield conn
+
+
+def workflow_prompt(workflow: str, requirement_path: str | None = None) -> str:
+    """The line that runs `workflow` in an agent session, on the requirement at
+    `requirement_path` when one is given: `/implement specs/changes/todo/bulk-import.md`. The
+    repository's skill does the rest."""
+    if requirement_path is None:
+        return f"/{workflow}"
+    return f"/{workflow} {requirement_path}"
 
 
 def _cancelled(live: _Live) -> bool:
