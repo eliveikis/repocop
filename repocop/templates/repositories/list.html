@@ -22,7 +22,7 @@
     <tr><th>Name</th><th>Status</th><th>Checkout</th><th>Remote</th><th>Paths</th></tr>
   </thead>
   <tbody>
-    {% for repo, status, waiting, checkout in repositories %}
+    {% for repo, status, waiting, checkout, remote in repositories %}
     <tr>
       <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a></td>
       <td>{% include "partials/repository_status.html" %}</td>

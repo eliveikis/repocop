@@ -69,10 +69,15 @@ class Repository:
             updated_at=row["updated_at"],
         )
 
+
+@dataclass(frozen=True)
+class Remote:
+    url: str
+
     @property
     def web_url(self) -> str | None:
-        """The repository's page on its remote's host, or None when the remote isn't on one."""
-        return git.web_url(self.remote_url)
+        """The repository's page on the remote's host, or None when the remote isn't on one."""
+        return git.web_url(self.url)
 
 
 @dataclass(frozen=True)
@@ -235,14 +240,26 @@ def require_checkout(repository: Repository, settings: Settings) -> Path:
     return repository.primary_path
 
 
+def remote(repository: Repository, settings: Settings) -> Remote:
+    """The repository's remote as its checkout's `origin` has it now, read from git, so another
+    spelling of it set since it was registered, such as ssh for https, shows as it is. While the
+    checkout isn't there (see status), the remote it was registered with."""
+    return Remote(_present_origin(repository, settings) or repository.remote_url)
+
+
 def _checkout_present(repository: Repository, settings: Settings) -> bool:
-    """The recorded path is a real folder in `repos_root` holding a checkout of this remote."""
+    return _present_origin(repository, settings) is not None
+
+
+def _present_origin(repository: Repository, settings: Settings) -> str | None:
+    """The checkout's `origin` when the recorded path is a real folder in `repos_root` holding a
+    checkout of this remote, else None."""
     path = repository.primary_path
     if path.is_symlink() or not _is_child(settings.repos_root, path) or not git.is_checkout(path):
-        return False
+        return None
     origin = git.remote_url(path)
     identity = git.remote_identity(repository.remote_url)
-    return origin is not None and git.remote_identity(origin) == identity
+    return origin if origin is not None and git.remote_identity(origin) == identity else None
 
 
 def _origin_of_checkout(settings: Settings, name: str) -> str:

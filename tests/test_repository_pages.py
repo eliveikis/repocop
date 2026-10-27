@@ -101,6 +101,29 @@ def test_a_remote_on_a_host_links_to_the_repositorys_page_there(
     assert link in client.get("/repositories/1").text
 
 
+def test_a_remote_shows_as_the_checkouts_origin_has_it_now(
+    client: TestClient, primary_checkout: Path
+) -> None:
+    run_git(
+        "remote", "set-url", "origin", "https://github.com/owner/repo.git", cwd=primary_checkout
+    )
+    add(client, "", name="sample")
+    run_git("remote", "set-url", "origin", "git@github.com:owner/repo.git", cwd=primary_checkout)
+    link = '<a href="https://github.com/owner/repo"><code>git@github.com:owner/repo.git</code></a>'
+    assert link in client.get("/").text
+    assert link in client.get("/repositories/1").text
+    assert "https://github.com/owner/repo.git" not in client.get("/repositories/1").text
+
+
+def test_a_missing_checkouts_remote_shows_as_it_was_registered(
+    client: TestClient, settings: Settings, remote_repo: Path, tmp_path: Path
+) -> None:
+    add(client, str(remote_repo))
+    (settings.repos_root / "sample").rename(tmp_path / "moved-away")
+    assert f"<td><code>{remote_repo}</code></td>" in client.get("/").text
+    assert f"<dd><code>{remote_repo}</code></dd>" in client.get("/repositories/1").text
+
+
 def test_a_local_remote_is_not_a_link(client: TestClient, remote_repo: Path) -> None:
     add(client, str(remote_repo))
     assert f"<td><code>{remote_repo}</code></td>" in client.get("/").text
