@@ -8,7 +8,7 @@ allowed-tools: Read, Grep, Glob, Bash(git log:*), Bash(git ls-files:*), Bash(git
 
 # Review requirement
 
-Review the requirement at `$ARGUMENTS`. With no path, review the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, or to several, say so and ask for the path. Name the requirement you picked before you start.
+Review the requirement at `$ARGUMENTS`. With no path, review the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so and ask for the path. Name the requirement you picked before you start.
 
 This review is **read-only**. Do not edit the requirement or any code. Produce findings and let the human decide.
 

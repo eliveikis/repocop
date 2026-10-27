@@ -9,7 +9,7 @@ argument-hint: "[path-to-requirement.md] [scope note]  (defaults to the branch's
 
 Implement: `$ARGUMENTS`
 
-With no path, implement the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, or to several, say so, ask for the path, and change nothing. Name the requirement you picked before you start.
+With no path, implement the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so, ask for the path, and change nothing. Name the requirement you picked before you start.
 
 ## Preconditions (stop and report if any fail)
 
