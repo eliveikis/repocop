@@ -50,4 +50,4 @@ High-level themes. Each is delivered through one or more changes under `changes/
 
 ## Non-goals (for now)
 
-Multi-user auth, public deployment, distributed workers or job queues, SPA frontends, webhooks, auto-merge, a single agent working across several repos, a plugin framework, an editor for repository files, and a chat interface beyond today's task page.
+Multi-user auth, public deployment, distributed workers or job queues, SPA frontends, webhooks, auto-merge, a single agent working across several repos, a plugin framework, an editor for repository files, and extending the workflow sessions RepoCop runs itself, such as a chat interface beyond today's task page, permission prompts or sandboxing.
