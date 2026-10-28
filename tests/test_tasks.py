@@ -36,7 +36,9 @@ def commit_skills(checkout: Path, *names: str) -> None:
 
 @pytest.fixture
 def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Repository:
-    repository = repositories.register(conn, settings, str(remote_repo)).repository
+    repository = repositories.register(
+        conn, settings, str(remote_repo), default_branch="main"
+    ).repository
     commit_skills(repository.primary_path, "implement", "review-requirement")
     return repository
 

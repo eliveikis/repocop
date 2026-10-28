@@ -142,7 +142,7 @@ def test_clone_creates_a_checkout_of_the_remote(remote_repo: Path, tmp_path: Pat
     git.clone(str(remote_repo), dest)
     assert git.is_checkout(dest)
     assert git.remote_url(dest) == str(remote_repo)
-    assert git.default_branch(dest) == "main"
+    assert git.tracked_branches(dest) == git.RemoteBranches("main", ("main",))
 
 
 def test_clone_passes_the_url_as_one_argument_not_through_a_shell(
@@ -209,11 +209,6 @@ def test_is_checkout_is_false_for_a_subdirectory_of_a_checkout(primary_checkout:
 def test_remote_url_is_none_without_origin(tmp_path: Path) -> None:
     run_git("init", "-q", "-b", "main", cwd=tmp_path)
     assert git.remote_url(tmp_path) is None
-
-
-def test_default_branch_falls_back_to_the_checked_out_branch(tmp_path: Path) -> None:
-    run_git("init", "-q", "-b", "trunk", cwd=tmp_path)
-    assert git.default_branch(tmp_path) == "trunk"
 
 
 # ---------------------------------------------------------------- branch state and commits

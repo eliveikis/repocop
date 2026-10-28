@@ -16,7 +16,7 @@ TODO = Path("specs/changes/todo")
 
 @pytest.fixture
 def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Repository:
-    return repositories.register(conn, settings, str(remote_repo)).repository
+    return repositories.register(conn, settings, str(remote_repo), default_branch="main").repository
 
 
 def bulk_import(conn: sqlite3.Connection, settings: Settings, repo: Repository) -> Requirement:
@@ -175,7 +175,7 @@ def test_in_folder_lists_the_todo_folder_of_the_repositorys_changes_folder(
     conn: sqlite3.Connection, settings: Settings, remote_repo: Path
 ) -> None:
     custom = settings.model_copy(update={"changes_dir": "docs/rfcs"})
-    repo = repositories.register(conn, custom, str(remote_repo)).repository
+    repo = repositories.register(conn, custom, str(remote_repo), default_branch="main").repository
     add_requirement(repo.primary_path, "faster-search.md", folder="docs/rfcs/todo")
     add_requirement(repo.primary_path, "elsewhere.md")
     assert requirements.in_folder(conn, custom, repo) == [

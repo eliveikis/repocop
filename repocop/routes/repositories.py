@@ -1,6 +1,6 @@
-"""Repository pages: the main page with the fleet's board and the registry, Add repository,
-fetching one repository or all of them, each repository's page, and removing a completed template
-sync's branch."""
+"""Repository pages: the main page with the fleet's board and the registry, adding a repository
+and choosing its default branch, fetching one repository or all of them, each repository's page
+and changing its default branch, and removing a completed template sync's branch."""
 
 import contextlib
 import sqlite3
@@ -67,9 +67,22 @@ def add_repository(
     settings: SettingsDep,
     remote_url: Annotated[str, Form()] = "",
     name: Annotated[str, Form()] = "",
+    default_branch: Annotated[str, Form()] = "",
 ) -> Response:
+    """Add a repository in two steps. Without `default_branch`, show what adding it does and ask
+    for its default branch, suggesting the one `origin` names. With it, register it."""
     try:
-        registration = repositories.register(conn, settings, remote_url, name)
+        if default_branch.strip():
+            registration = repositories.register(
+                conn, settings, remote_url, name, default_branch=default_branch
+            )
+        else:
+            proposed = repositories.propose(conn, settings, remote_url, name)
+            if isinstance(proposed, repositories.Candidate):
+                templates: Jinja2Templates = request.app.state.templates
+                context = {"candidate": proposed}
+                return templates.TemplateResponse(request, "repositories/add.html", context)
+            registration = proposed
     except RepoCopError as exc:
         form = {"remote_url": remote_url, "name": name}
         return _render_list(request, conn, settings, error=str(exc), form=form, status_code=400)
@@ -85,9 +98,18 @@ def fetch_all_repositories(
 ) -> HTMLResponse:
     """Fetch every repository whose checkout is there, each as its own Fetch does."""
     listed = [r for r in repositories.list_all(conn) if repositories.checkout_present(r, settings)]
-    errors = repositories.fetch_each(listed, settings)
-    results = [(repository, errors[repository.id]) for repository in listed]
-    return _render_list(request, conn, settings, fetched_all=results)
+    fetched = repositories.fetch_each(listed, settings)
+    summary = {
+        "fetched": sum(1 for repository in listed if fetched[repository.id].error is None),
+        "of": len(listed),
+        "failures": [(r, fetched[r.id].error) for r in listed if fetched[r.id].error],
+        "offers": [
+            (r, offered)
+            for r in listed
+            if (offered := fetched[r.id].origin_default) and offered != r.default_branch
+        ],
+    }
+    return _render_list(request, conn, settings, fetched_all=summary)
 
 
 @router.get("/repositories/{repository_id}", response_class=HTMLResponse)
@@ -99,9 +121,19 @@ def repository_page(
     fetched: bool = False,
     removed: str | None = None,
     ready: bool = False,
+    origin_default: str | None = None,
+    default_branch_set: bool = False,
 ) -> HTMLResponse:
     return _render_repository(
-        request, conn, settings, repository, fetched=fetched, removed=removed, ready=ready
+        request,
+        conn,
+        settings,
+        repository,
+        fetched=fetched,
+        removed=removed,
+        ready=ready,
+        origin_default=origin_default,
+        default_branch_set=default_branch_set,
     )
 
 
@@ -110,13 +142,34 @@ def fetch_repository(
     request: Request, conn: ConnectionDep, settings: SettingsDep, repository: RepositoryDep
 ) -> Response:
     try:
-        repositories.fetch(repository, settings)
+        origin_default = repositories.fetch(repository, settings)
     except RepoCopError as exc:
         return _render_repository(
             request, conn, settings, repository, fetch_error=str(exc), status_code=400
         )
+    params = {"fetched": "true"}
+    if origin_default and origin_default != repository.default_branch:
+        params["origin_default"] = origin_default  # offered on the page, never switched to
     target = request.url_for("repository_page", repository_id=repository.id)
-    return RedirectResponse(target.include_query_params(fetched="true"), status_code=303)
+    return RedirectResponse(target.include_query_params(**params), status_code=303)
+
+
+@router.post("/repositories/{repository_id}/default-branch", response_class=HTMLResponse)
+def change_default_branch(
+    request: Request,
+    conn: ConnectionDep,
+    settings: SettingsDep,
+    repository: RepositoryDep,
+    default_branch: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        repositories.set_default_branch(conn, settings, repository, default_branch.strip())
+    except RepoCopError as exc:
+        return _render_repository(
+            request, conn, settings, repository, default_branch_error=str(exc), status_code=400
+        )
+    target = request.url_for("repository_page", repository_id=repository.id)
+    return RedirectResponse(target.include_query_params(default_branch_set="true"), 303)
 
 
 @router.post("/repositories/{repository_id}/syncs/{task_id}/remove", response_class=HTMLResponse)
@@ -153,6 +206,9 @@ def _render_repository(
     removed: str | None = None,
     sync_error: str | None = None,
     ready: bool = False,
+    origin_default: str | None = None,
+    default_branch_set: bool = False,
+    default_branch_error: str | None = None,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
     listing = None
@@ -162,6 +218,10 @@ def _render_repository(
         error = error or str(exc)
     status = repositories.status(repository, settings)
     waiting = _waiting(conn, settings, repository, status)
+    origin_branches = None
+    if status is not Status.MISSING:
+        with contextlib.suppress(RepoCopError):  # without them, the default branch can't change
+            origin_branches = repositories.origin_branches(repository, settings)
     context = {
         "repository": repository,
         "status": status,
@@ -174,6 +234,16 @@ def _render_repository(
         ),
         "checkout": _checkout(repository, settings, status),
         "remote": repositories.remote(repository, settings),
+        "origin_branches": origin_branches,
+        "origin_default": (
+            origin_default
+            if origin_branches
+            and origin_default in origin_branches.branches
+            and origin_default != repository.default_branch
+            else None
+        ),
+        "default_branch_set": default_branch_set,
+        "default_branch_error": default_branch_error,
         "changed_shown": CHANGED_FILES_SHOWN,
         "fetched": fetched,
         "fetch_error": fetch_error,
@@ -220,7 +290,7 @@ def _render_list(
     error: str | None = None,
     form: dict[str, str] | None = None,
     with_pull_requests: bool = False,
-    fetched_all: list[tuple[Repository, str | None]] | None = None,
+    fetched_all: dict[str, Any] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates

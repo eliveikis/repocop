@@ -26,7 +26,7 @@ def checkout(settings: Settings) -> Path:
 @pytest.fixture
 def requirement(client: TestClient, settings: Settings, remote_repo: Path) -> None:
     """Repository `sample` with committed skills, and bulk-user-import committed in its checkout."""
-    client.post("/repositories", data={"remote_url": str(remote_repo)})
+    client.post("/repositories", data={"remote_url": str(remote_repo), "default_branch": "main"})
     for name in ("implement", "review-requirement"):
         folder = checkout(settings) / ".claude" / "skills" / name
         folder.mkdir(parents=True)
@@ -88,7 +88,7 @@ def test_requirement_page_offers_the_committed_skills_as_workflows(client: TestC
 def test_requirement_page_explains_when_no_skills_are_committed(
     client: TestClient, settings: Settings, remote_repo: Path
 ) -> None:
-    client.post("/repositories", data={"remote_url": str(remote_repo)})
+    client.post("/repositories", data={"remote_url": str(remote_repo), "default_branch": "main"})
     add_requirement(checkout(settings), "x.md", "")
     html = client.get("/repositories/1/requirements/x.md").text
     assert "No skills are committed" in html

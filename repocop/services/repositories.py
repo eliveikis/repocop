@@ -7,6 +7,7 @@ its RepoCop-owned worktrees under `<worktrees_root>/<name>/` (ADR-015).
 
 from __future__ import annotations
 
+import logging
 import re
 import sqlite3
 import threading
@@ -25,6 +26,7 @@ NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 
 # RepoCop is one process, so this serializes every registration (see `register`).
 _REGISTER_LOCK = threading.Lock()
+logger = logging.getLogger(__name__)
 FETCHES_AT_ONCE = 8  # how many repositories fetch side by side
 
 
@@ -88,24 +90,98 @@ class Registration:
     outcome: Outcome
 
 
-def register(
+@dataclass(frozen=True)
+class Candidate:
+    """A repository about to be registered, whose default branch is still to be chosen."""
+
+    remote_url: str
+    name: str
+    primary_path: Path
+    outcome: Outcome  # what registering it does: clone it, or register the checkout found
+    branches: git.RemoteBranches  # what to choose from, and the default origin names
+    unreachable: str | None = None  # why origin couldn't be asked: branches as last fetched
+
+
+@dataclass(frozen=True)
+class _Target:
+    url: str
+    name: str
+    primary_path: Path
+    worktrees_root: Path
+    outcome: Outcome
+
+
+def propose(
     conn: sqlite3.Connection, settings: Settings, remote_url: str, name: str = ""
+) -> Candidate | Registration:
+    """What registering would do, with `origin`'s branches to choose the default branch from and
+    the one `origin` itself names, asked of `origin`. Nothing is cloned or recorded.
+
+    For a checkout already on disk whose `origin` can't be reached, its branches are as it last
+    fetched them. A remote that is already registered returns the existing repository.
+    """
+    target = _target(conn, settings, remote_url, name)
+    if isinstance(target, Registration):
+        return target
+    if target.outcome is Outcome.CLONED:
+        settings.repos_root.mkdir(parents=True, exist_ok=True)
+        try:
+            branches = git.remote_branches(target.url, cwd=settings.repos_root)
+        except git.GitError as exc:
+            raise RepositoryError(f"{target.url} can't be reached: {exc}") from exc
+        return Candidate(target.url, target.name, target.primary_path, target.outcome, branches)
+    try:
+        branches = git.remote_branches("origin", cwd=target.primary_path)
+    except git.GitError as exc:
+        found = git.tracked_branches(target.primary_path)
+        return Candidate(
+            target.url, target.name, target.primary_path, target.outcome, found, str(exc)
+        )
+    return Candidate(target.url, target.name, target.primary_path, target.outcome, branches)
+
+
+def register(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    remote_url: str,
+    name: str = "",
+    *,
+    default_branch: str,
 ) -> Registration:
-    """Register the repo at `remote_url`, cloning it unless a checkout of it is already on disk.
+    """Register the repo at `remote_url`, cloning it unless a checkout of it is already on disk,
+    with `default_branch` as the branch it compares with, which its user chose.
 
     With no `remote_url`, the checkout already at `<repos_root>/<name>` is registered, with its
     `origin` as the remote. A remote that is already registered, under any spelling, returns the
     existing repository.
-    An existing directory that isn't a checkout of this remote is refused and left untouched.
+    An existing directory that isn't a checkout of this remote is refused and left untouched, and
+    so is a default branch git wouldn't take as a branch's name.
     Registrations run one at a time, so concurrent adds of one remote register it once.
     """
     with _REGISTER_LOCK:
-        return _register(conn, settings, remote_url, name)
+        return _register(conn, settings, remote_url, name, default_branch.strip())
 
 
-def _register(
+def set_default_branch(
+    conn: sqlite3.Connection, settings: Settings, repository: Repository, branch: str
+) -> Repository:
+    """Make `branch` the repository's default branch. Refused unless `origin` has it, as the
+    checkout last fetched."""
+    if branch not in origin_branches(repository, settings).branches:
+        raise RepositoryError(f"origin has no branch {branch}, as last fetched")
+    with db.transaction(conn):
+        row = conn.execute(
+            "UPDATE repositories SET default_branch = ?, updated_at = ? WHERE id = ? RETURNING *",
+            (branch, db.timestamp(), repository.id),
+        ).fetchone()
+    return Repository.from_row(row)
+
+
+def _target(
     conn: sqlite3.Connection, settings: Settings, remote_url: str, name: str
-) -> Registration:
+) -> _Target | Registration:
+    """Where registering `remote_url` or the checkout called `name` puts it, and whether it
+    clones, refused when that can't be done safely. A registered remote returns its record."""
     remote_url, name = remote_url.strip(), name.strip()
     url = git.check_remote_url(remote_url or _origin_of_checkout(settings, name))
     identity = git.remote_identity(url)
@@ -123,19 +199,28 @@ def _register(
         raise RepositoryError(
             f"{primary_path} is a symlink, so it was left untouched. Choose another name."
         )
+    if not primary_path.exists():
+        return _Target(url, name, primary_path, worktrees_root, Outcome.CLONED)
+    origin = git.remote_url(primary_path) if git.is_checkout(primary_path) else None
+    if origin is None or git.remote_identity(origin) != identity:
+        raise RepositoryError(
+            f"{primary_path} already exists and is not a checkout of {url}, so it was left "
+            "untouched. Choose another name."
+        )
+    return _Target(url, name, primary_path, worktrees_root, Outcome.FOUND_ON_DISK)
 
-    if primary_path.exists():
-        origin = git.remote_url(primary_path) if git.is_checkout(primary_path) else None
-        if origin is None or git.remote_identity(origin) != identity:
-            raise RepositoryError(
-                f"{primary_path} already exists and is not a checkout of {url}, so it was left "
-                "untouched. Choose another name."
-            )
-        outcome = Outcome.FOUND_ON_DISK
-    else:
-        settings.repos_root.mkdir(parents=True, exist_ok=True)
-        git.clone(url, primary_path)
-        outcome = Outcome.CLONED
+
+def _register(
+    conn: sqlite3.Connection, settings: Settings, remote_url: str, name: str, default_branch: str
+) -> Registration:
+    target = _target(conn, settings, remote_url, name)
+    if isinstance(target, Registration):
+        return target
+    settings.repos_root.mkdir(parents=True, exist_ok=True)
+    if not git.is_branch_name(default_branch, cwd=settings.repos_root):
+        raise RepositoryError(f"{default_branch} isn't a name git takes for a branch")
+    if target.outcome is Outcome.CLONED:
+        git.clone(target.url, target.primary_path)
 
     now = db.timestamp()
     try:
@@ -145,19 +230,19 @@ def _register(
                 " default_branch, changes_dir, created_at, updated_at)"
                 " VALUES (?, ?, ?, ?, ?, ?, ?, ?) RETURNING *",
                 (
-                    name,
-                    url,
-                    str(primary_path),
-                    str(worktrees_root),
-                    git.default_branch(primary_path),
+                    target.name,
+                    target.url,
+                    str(target.primary_path),
+                    str(target.worktrees_root),
+                    default_branch,
                     settings.changes_dir,
                     now,
                     now,
                 ),
             ).fetchone()
     except sqlite3.IntegrityError as exc:
-        raise RepositoryError(f"{name!r} was registered at the same time: {exc}") from exc
-    return Registration(Repository.from_row(row), outcome)
+        raise RepositoryError(f"{target.name!r} was registered at the same time: {exc}") from exc
+    return Registration(Repository.from_row(row), target.outcome)
 
 
 def get(conn: sqlite3.Connection, repository_id: int) -> Repository | None:
@@ -217,6 +302,11 @@ def template_plan(repository: Repository, settings: Settings) -> bootstrap.SyncP
         raise
 
 
+def origin_branches(repository: Repository, settings: Settings) -> git.RemoteBranches:
+    """`origin`'s branches and default branch as the primary checkout last fetched them."""
+    return git.tracked_branches(require_checkout(repository, settings))
+
+
 def checkout_state(repository: Repository, settings: Settings) -> git.CheckoutState:
     """The primary checkout's branch, upstream and uncommitted files, read from git now."""
     return git.checkout_state(require_checkout(repository, settings))
@@ -227,21 +317,38 @@ def last_fetch(repository: Repository, settings: Settings) -> datetime | None:
     return git.last_fetch(require_checkout(repository, settings))
 
 
-def fetch(repository: Repository, settings: Settings) -> None:
-    """Fetch `origin` in the primary checkout: only remote-tracking branches change (ADR-022)."""
-    git.fetch(require_checkout(repository, settings))
-
-
-def fetch_each(listed: list[Repository], settings: Settings) -> dict[int, str | None]:
-    """Fetch each repository as `fetch` does, side by side, each with its own timeout. Returns
-    each one's error, or None when it fetched, by its id: one failing doesn't stop the others."""
-
-    def attempt(repository: Repository) -> str | None:
-        try:
-            fetch(repository, settings)
-        except RepoCopError as exc:
-            return str(exc)
+def fetch(repository: Repository, settings: Settings) -> str | None:
+    """Fetch `origin` in the primary checkout: only remote-tracking branches change (ADR-022).
+    Returns the default branch `origin` names now, asked of it, or None when it names none or
+    can't say. The repository's own default branch is left as its user chose it."""
+    checkout = require_checkout(repository, settings)
+    git.fetch(checkout)
+    try:
+        return git.remote_branches("origin", cwd=checkout).default
+    except git.GitError as exc:
+        logger.warning(
+            "Fetched %s, but couldn't ask origin for its default branch: %s", repository.name, exc
+        )
         return None
+
+
+@dataclass(frozen=True)
+class Fetched:
+    """How one repository's fetch went."""
+
+    error: str | None  # why it failed, or None when it fetched
+    origin_default: str | None = None  # the default branch origin names now, as `fetch` says
+
+
+def fetch_each(listed: list[Repository], settings: Settings) -> dict[int, Fetched]:
+    """Fetch each repository as `fetch` does, side by side, each with its own timeout. Returns
+    how each went, by its id: one failing doesn't stop the others."""
+
+    def attempt(repository: Repository) -> Fetched:
+        try:
+            return Fetched(None, fetch(repository, settings))
+        except RepoCopError as exc:
+            return Fetched(str(exc))
 
     with ThreadPoolExecutor(max_workers=max(1, min(FETCHES_AT_ONCE, len(listed)))) as pool:
         results = {repository.id: pool.submit(attempt, repository) for repository in listed}

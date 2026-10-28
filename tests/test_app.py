@@ -104,7 +104,7 @@ def test_a_post_sent_from_repocops_own_page_is_accepted(
 ) -> None:
     response = client.post(
         "/repositories",
-        data={"remote_url": str(remote_repo)},
+        data={"remote_url": str(remote_repo), "default_branch": "main"},
         headers=headers,
         follow_redirects=False,
     )

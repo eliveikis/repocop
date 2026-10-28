@@ -25,7 +25,7 @@ def checkout(settings: Settings) -> Path:
 def requirement(client: TestClient, settings: Settings, remote_repo: Path) -> None:
     """Repository `sample` with a committed skill, and bulk-user-import committed in its
     checkout."""
-    client.post("/repositories", data={"remote_url": str(remote_repo)})
+    client.post("/repositories", data={"remote_url": str(remote_repo), "default_branch": "main"})
     folder = checkout(settings) / ".claude" / "skills" / "implement"
     folder.mkdir(parents=True)
     (folder / "SKILL.md").write_text("# implement\n")
@@ -194,7 +194,7 @@ def test_section_links_lead_to_sections_of_their_page(client: TestClient) -> Non
 def test_a_confirmation_is_a_toast_and_an_error_stays_inline(
     client: TestClient, remote_repo: Path
 ) -> None:
-    client.post("/repositories", data={"remote_url": str(remote_repo)})
+    client.post("/repositories", data={"remote_url": str(remote_repo), "default_branch": "main"})
     fetched = client.post("/repositories/1/fetch").text
     assert '<p class="toast">Fetched from origin.</p>' in toasts(fetched)
     refused = client.post("/repositories", data={"remote_url": "-x"})

@@ -16,7 +16,7 @@ def checkout(settings: Settings) -> Path:
 
 @pytest.fixture
 def registered(client: TestClient, remote_repo: Path) -> None:
-    client.post("/repositories", data={"remote_url": str(remote_repo)})
+    client.post("/repositories", data={"remote_url": str(remote_repo), "default_branch": "main"})
 
 
 def waiting_notice(html: str) -> str:
@@ -38,7 +38,7 @@ def test_sync_page_says_a_repository_with_no_commits_needs_one(
 ) -> None:
     empty = tmp_path / "empty.git"
     run_git("init", "-q", "--bare", str(empty), cwd=tmp_path)
-    client.post("/repositories", data={"remote_url": str(empty)})
+    client.post("/repositories", data={"remote_url": str(empty), "default_branch": "main"})
     html = client.get("/repositories/1/sync").text
     assert "empty has no commits yet. Make a first commit on" in html
     assert "<form" not in html

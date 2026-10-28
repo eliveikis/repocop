@@ -28,6 +28,7 @@ from repocop.errors import RepoCopError
 LOCAL_TIMEOUT_S = 60.0
 MAX_NEW_FILES_IN_DIFF = 100
 NETWORK_TIMEOUT_S = 600.0
+ASK_TIMEOUT_S = 60.0  # how long asking a remote about its branches may take
 TERMINATE_GRACE_S = 5.0
 
 _USER = r"[A-Za-z0-9][A-Za-z0-9._-]*"
@@ -185,17 +186,55 @@ def remote_url(path: Path) -> str | None:
         return None
 
 
-def default_branch(path: Path) -> str:
-    """The branch `origin/HEAD` points to, or else the checked-out branch."""
-    with contextlib.suppress(GitError):
+@dataclass(frozen=True)
+class RemoteBranches:
+    """A remote's branches, and the one its HEAD names: its default branch."""
+
+    default: str | None  # None when the remote's HEAD names no branch, as an empty one's doesn't
+    branches: tuple[str, ...]  # sorted
+
+
+def remote_branches(remote: str, *, cwd: Path, timeout: float = ASK_TIMEOUT_S) -> RemoteBranches:
+    """`remote`'s branches and default branch, asked of the remote itself: `origin` of the
+    checkout at `cwd`, or a URL. Read-only: nothing is fetched or written."""
+    if remote != "origin":
+        check_remote_url(remote)
+    args = ["ls-remote", "--symref", remote, "HEAD", "refs/heads/*"]
+    default, branches = None, []
+    for line in _run(args, cwd=cwd, timeout=timeout, network=True).splitlines():
+        target, _, ref = line.partition("\t")
+        if ref == "HEAD" and target.startswith("ref: refs/heads/"):
+            default = target.removeprefix("ref: refs/heads/")
+        elif ref.startswith("refs/heads/"):
+            branches.append(ref.removeprefix("refs/heads/"))
+    return RemoteBranches(default, tuple(sorted(branches)))
+
+
+def tracked_branches(path: Path) -> RemoteBranches:
+    """`origin`'s branches and default branch as the checkout last fetched them, from its
+    remote-tracking branches and `origin/HEAD`, without asking `origin`."""
+    default = None
+    with contextlib.suppress(GitError):  # origin/HEAD is unset
         ref = _run(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], cwd=path)
-        return ref.removeprefix("origin/")
-    branch = _run(["branch", "--show-current"], cwd=path)
-    if not branch:
-        raise GitError(
-            f"can't tell the default branch of {path}: HEAD is detached and origin/HEAD is unset"
-        )
-    return branch
+        default = ref.removeprefix("origin/")
+    listing = _run(["for-each-ref", "--format=%(refname)", "refs/remotes/origin"], cwd=path)
+    branches = [
+        ref.removeprefix("refs/remotes/origin/")
+        for ref in listing.splitlines()
+        if ref != "refs/remotes/origin/HEAD"
+    ]
+    return RemoteBranches(default, tuple(sorted(branches)))
+
+
+def is_branch_name(name: str, *, cwd: Path) -> bool:
+    """Whether git takes `name` as a branch's name."""
+    if not name or name.startswith("-"):
+        return False
+    try:
+        _run(["check-ref-format", f"refs/heads/{name}"], cwd=cwd)
+    except GitError:
+        return False
+    return True
 
 
 def current_branch(path: Path) -> str | None:

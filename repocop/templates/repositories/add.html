@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% set crumbs = [
+  ("Repositories", url_for('list_repositories')),
+  ("Add " ~ candidate.name, url_for('list_repositories') ~ "#add"),
+] %}
+
+{% block title %}Add {{ candidate.name }} · RepoCop{% endblock %}
+
+{% block content %}
+<h1>Add {{ candidate.name }}</h1>
+
+<p>
+  {% if candidate.outcome == "found_on_disk" %}Registers the checkout already at <code>{{ candidate.primary_path }}</code> <span class="owner owner-human">human-owned</span>, a checkout of <code>{{ candidate.remote_url }}</code>. Nothing in it changes.
+  {% else %}Clones <code>{{ candidate.remote_url }}</code> into <code>{{ candidate.primary_path }}</code> <span class="owner owner-human">human-owned</span>.{% endif %}
+</p>
+{% if candidate.unreachable %}<p class="notice">origin couldn't be reached, so its branches are as the checkout last fetched them: {{ candidate.unreachable }}</p>{% endif %}
+
+{% set branches = candidate.branches.branches %}
+{% set suggested = candidate.branches.default %}
+<form class="add-repository" method="post" action="{{ url_for('add_repository') }}">
+  <input type="hidden" name="remote_url" value="{{ candidate.remote_url }}">
+  <input type="hidden" name="name" value="{{ candidate.name }}">
+  <label>Default branch
+    <span class="hint">{% if suggested %}origin's own default is <code>{{ suggested }}</code>{% else %}origin names no default{% endif %}</span>
+    {% if branches %}<select name="default_branch">{% for branch in branches %}<option{% if branch == suggested %} selected{% endif %}>{{ branch }}</option>{% endfor %}</select>
+    {% else %}<input name="default_branch" value="{{ suggested or 'main' }}" required>{% endif %}
+  </label>
+  <button type="submit" class="primary">Add {{ candidate.name }}</button>
+  <a class="button" href="{{ url_for('list_repositories') }}">Cancel</a>
+</form>
+{% if not branches %}<p class="hint">origin has no branches yet: name the branch its first commit will go on.</p>{% endif %}
+<details class="help"><summary>How this works</summary>
+  <p>The default branch is what RepoCop compares a repository with: whether it's in step with the template, what's delivered, how far each branch has got, and what reviews and pull requests are against. It's usually the one origin names, and you can change it on the repository's page later. A fetch tells you when origin's own default changes.</p>
+</details>
+{% endblock %}

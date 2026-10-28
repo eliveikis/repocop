@@ -21,7 +21,9 @@ LINK = f'<a href="http://testserver{PAGE}">bulk-user-import</a>'
 
 @pytest.fixture
 def registered(client: TestClient, remote_repo: Path) -> None:
-    response = client.post("/repositories", data={"remote_url": str(remote_repo)})
+    response = client.post(
+        "/repositories", data={"remote_url": str(remote_repo), "default_branch": "main"}
+    )
     assert response.status_code == 200, response.text
 
 

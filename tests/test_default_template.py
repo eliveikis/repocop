@@ -102,7 +102,7 @@ def test_default_template_syncs_a_fresh_repository_until_it_is_ready(
     conn: sqlite3.Connection, settings: Settings, remote_repo: Path
 ) -> None:
     real = settings.model_copy(update={"template_dir": TEMPLATE})
-    repo = repositories.register(conn, real, str(remote_repo)).repository
+    repo = repositories.register(conn, real, str(remote_repo), default_branch="main").repository
     missing = [file.path for file in repositories.template_plan(repo, real).missing]
     task = template_sync.apply(conn, real, repo, create=missing, overwrite=[])
     assert task is not None and task.branch is not None and task.worktree_path is not None

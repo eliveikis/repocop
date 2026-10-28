@@ -408,6 +408,13 @@ td.name { font-weight: 500; }
 .claude-auth-problem { border-left-color: var(--danger); }
 .sync-waiting { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); border-left-color: var(--repocop); }
 .sync-waiting p { flex: 1 1 30rem; margin: 0; }
+.default-offer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-3) var(--space-4); }
+.default-offer p { flex: 1 1 30rem; margin: 0; }
+.fetch-offers { padding-left: var(--space-6); }
+details.change { display: inline-block; margin-left: var(--space-3); vertical-align: top; }
+details.change > summary { color: var(--link); cursor: pointer; }
+details.change[open] > summary { margin-bottom: var(--space-2); }
+details.change .actions { margin: 0; }
 
 .empty { color: var(--muted); }
 .empty-state {

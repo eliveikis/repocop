@@ -31,7 +31,9 @@ def requirement(
         (folder / "SKILL.md").write_text(f"# {name}\n")
     run_git("add", ".claude", cwd=github_checkout)
     run_git("commit", "-qm", "Add skills", cwd=github_checkout)
-    client.post("/repositories", data={"remote_url": "", "name": "sample"})
+    client.post(
+        "/repositories", data={"remote_url": "", "name": "sample", "default_branch": "main"}
+    )
     add_requirement(github_checkout)
 
 

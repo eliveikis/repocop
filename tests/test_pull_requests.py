@@ -42,7 +42,7 @@ def commit_skill(checkout: Path) -> None:
 def repo(conn: sqlite3.Connection, settings: Settings, github_checkout: Path) -> Repository:
     """Repository `sample`, registered with its github.com remote."""
     commit_skill(github_checkout)
-    return repositories.register(conn, settings, "", "sample").repository
+    return repositories.register(conn, settings, "", "sample", default_branch="main").repository
 
 
 @pytest.fixture
@@ -289,7 +289,7 @@ def test_actions_are_refused_when_origin_is_not_a_github_remote(
     action: Action,
 ) -> None:
     commit_skill(primary_checkout)
-    repo = repositories.register(conn, settings, str(remote_repo)).repository
+    repo = repositories.register(conn, settings, str(remote_repo), default_branch="main").repository
     created = recorded_requirement(conn, settings, repo)
     task = tasks.start(conn, settings, created, "implement")
     tasks.transition(conn, task.id, Status.CANCELLED)

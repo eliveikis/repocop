@@ -22,7 +22,9 @@ REQUIREMENT = "specs/req.md"
 
 @pytest.fixture
 def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Repository:
-    repository = repositories.register(conn, settings, str(remote_repo)).repository
+    repository = repositories.register(
+        conn, settings, str(remote_repo), default_branch="main"
+    ).repository
     skill = repository.primary_path / ".claude" / "skills" / "implement"
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("# implement\n")

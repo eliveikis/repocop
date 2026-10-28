@@ -15,7 +15,7 @@ from tests.conftest import run_git
 
 @pytest.fixture
 def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Repository:
-    return repositories.register(conn, settings, str(remote_repo)).repository
+    return repositories.register(conn, settings, str(remote_repo), default_branch="main").repository
 
 
 @pytest.mark.parametrize("name", ["login-crash", "req-124-login-crash"])

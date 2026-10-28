@@ -67,7 +67,7 @@ def commit_on_branch(repo: Path, branch: str, file: str) -> None:
 @pytest.fixture
 def registered(client: TestClient, settings: Settings, remote_repo: Path) -> Path:
     """Repository `sample`, registered by its remote, and its checkout."""
-    client.post("/repositories", data={"remote_url": str(remote_repo)})
+    client.post("/repositories", data={"remote_url": str(remote_repo), "default_branch": "main"})
     return checkout(settings)
 
 
@@ -215,7 +215,7 @@ def on_github(
 ) -> Path:
     """Repository `sample` on github.com, registered from its checkout, with `pushed-work`
     pushed and an open pull request for it."""
-    client.post("/repositories", data={"name": "sample"})
+    client.post("/repositories", data={"name": "sample", "default_branch": "main"})
     add_requirement(github_checkout, "pushed-work.md")
     add_requirement(github_checkout, "forked-work.md")
     commit_on_branch(github_checkout, "pushed-work", "a.txt")
@@ -287,7 +287,7 @@ def test_fetch_all_fetches_every_repository_and_reports_each(
 ) -> None:
     other = tmp_path / "remotes" / "other.git"
     run_git("clone", "-q", "--bare", str(remote_repo), str(other), cwd=tmp_path)
-    client.post("/repositories", data={"remote_url": str(other)})
+    client.post("/repositories", data={"remote_url": str(other), "default_branch": "main"})
     shutil.rmtree(other)
     push_commit(remote_repo, tmp_path)
     response = client.post("/repositories/fetch-all")

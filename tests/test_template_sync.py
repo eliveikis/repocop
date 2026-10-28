@@ -16,7 +16,7 @@ from tests.conftest import run_git, write_template
 
 @pytest.fixture
 def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Repository:
-    return repositories.register(conn, settings, str(remote_repo)).repository
+    return repositories.register(conn, settings, str(remote_repo), default_branch="main").repository
 
 
 def commit_everything(checkout: Path, message: str = "commit") -> None:

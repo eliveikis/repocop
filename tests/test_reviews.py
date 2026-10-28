@@ -25,7 +25,9 @@ from tests.fakes.fake_codex import FakeCodex
 
 @pytest.fixture
 def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Repository:
-    repository = repositories.register(conn, settings, str(remote_repo)).repository
+    repository = repositories.register(
+        conn, settings, str(remote_repo), default_branch="main"
+    ).repository
     for name in ("implement", "address-review"):
         folder = repository.primary_path / ".claude" / "skills" / name
         folder.mkdir(parents=True)

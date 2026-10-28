@@ -9,6 +9,7 @@
 
 {% block toasts %}
 {% if fetched %}<p class="toast">Fetched from origin.</p>{% endif %}
+{% if default_branch_set %}<p class="toast">{{ repository.name }} now compares with <code>{{ repository.default_branch }}</code>.</p>{% endif %}
 {% if removed %}<p class="toast">Removed <code>{{ removed }}</code> and its worktree.</p>{% endif %}
 {% endblock %}
 
@@ -31,7 +32,22 @@
     <dt>Status</dt><dd>{% include "partials/repository_status.html" %}</dd>
     <dt>Remote</dt><dd>{% include "partials/repository_remote.html" %}</dd>
     <dt>Paths</dt><dd class="paths">{% include "partials/repository_paths.html" %}</dd>
+    <dt>Default branch</dt><dd><code>{{ repository.default_branch }}</code>{% if origin_branches and origin_branches.branches %}
+      <details class="change">
+        <summary>Change</summary>
+        <form class="actions" method="post" action="{{ url_for('change_default_branch', repository_id=repository.id) }}">
+          <select name="default_branch" aria-label="Default branch">{% for branch in origin_branches.branches %}<option{% if branch == repository.default_branch %} selected{% endif %}>{{ branch }}</option>{% endfor %}</select>
+          <button type="submit">Use it</button>
+        </form>
+      </details>{% endif %}</dd>
   </dl>
+  {% if default_branch_error %}<p class="error" role="alert">{{ default_branch_error }}</p>{% endif %}
+  {% if origin_default %}
+  <div class="notice default-offer">
+    <p>origin's default branch is now <code>{{ origin_default }}</code>, but {{ repository.name }} compares with <code>{{ repository.default_branch }}</code>.</p>
+    <form method="post" action="{{ url_for('change_default_branch', repository_id=repository.id) }}"><input type="hidden" name="default_branch" value="{{ origin_default }}"><button type="submit" class="primary">Use <code>{{ origin_default }}</code></button></form>
+  </div>
+  {% endif %}
   {% if waiting %}{% set fetched_at = checkout.state.fetched_at if checkout.state else none %}{% include "partials/sync_waiting.html" %}{% endif %}
 </section>
 
