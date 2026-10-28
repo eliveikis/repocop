@@ -516,6 +516,33 @@ def test_files_containing_downloads_nothing_a_partial_clone_lacks(
     assert f"?{blob}" in lacking.split()
 
 
+def test_files_at_lists_names_as_they_are_however_git_would_quote_them(
+    primary_checkout: Path,
+) -> None:
+    (primary_checkout / "notes").mkdir()
+    (primary_checkout / "notes" / "café.md").write_text("Un café.\n")
+    (primary_checkout / "notes" / "plain.md").write_text("Plain.\n")
+    run_git("add", "-A", cwd=primary_checkout)
+    run_git("commit", "-qm", "notes", cwd=primary_checkout)
+    assert git.files_at(primary_checkout, "HEAD", "notes") == ["notes/café.md", "notes/plain.md"]
+
+
+def test_files_at_downloads_nothing_a_partial_clone_lacks(
+    remote_repo: Path, tmp_path: Path
+) -> None:
+    run_git("config", "uploadpack.allowFilter", "true", cwd=remote_repo)
+    partial = tmp_path / "partial"
+    run_git("clone", "-q", "--filter=tree:0", remote_repo.as_uri(), str(partial), cwd=tmp_path)
+    push_commit(remote_repo, tmp_path, name="new.md")
+    run_git("fetch", "-q", "origin", cwd=partial)
+    lacking_before = run_git("rev-list", "--objects", "--missing=print", "origin/main", cwd=partial)
+    assert any(line.startswith("?") for line in lacking_before.split())
+    with pytest.raises(git.GitError, match="in what the checkout already has"):
+        git.files_at(partial, "origin/main", "specs")
+    lacking = run_git("rev-list", "--objects", "--missing=print", "origin/main", cwd=partial)
+    assert lacking == lacking_before
+
+
 def test_has_commits_is_false_only_before_the_first_commit(
     primary_checkout: Path, tmp_path: Path
 ) -> None:

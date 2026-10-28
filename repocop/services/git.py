@@ -580,9 +580,20 @@ def on_origin(path: Path, tips: list[str]) -> set[str]:
 
 
 def files_at(path: Path, treeish: str, folder: str) -> list[str]:
-    """Paths of the files under `folder` in `treeish` (e.g. HEAD), ignoring the working tree."""
-    listing = _run(["ls-tree", "-r", "--name-only", treeish, "--", folder], cwd=path)
-    return listing.splitlines()
+    """Paths of the files under `folder` in `treeish` (e.g. HEAD), ignoring the working tree, as
+    they are rather than as git would quote them.
+
+    Only what the checkout already has is read. A partial clone that lacks a tree under `folder`
+    refuses the listing rather than download it, as it otherwise would.
+    """
+    listing = ["ls-tree", "-r", "-z", "--name-only", treeish, "--", folder]
+    try:
+        output = _run_binary(listing, cwd=path)
+    except GitError as exc:
+        raise GitError(
+            f"couldn't list {folder} at {treeish} in what the checkout already has: {exc}"
+        ) from None
+    return [name.decode("utf-8", "replace") for name in output.split(b"\0") if name]
 
 
 def _run(

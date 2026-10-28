@@ -163,10 +163,10 @@ A requirement is in the first stage that applies:
 | Delivered | archived within the past week by its archive stamp, in the checkout or on the default branch on `origin` as last fetched. One archived earlier, or without a stamp, isn't shown |
 | In review | a branch that belongs to it has an open pull request |
 | In progress | a branch that belongs to it has commits that default branch lacks, or a RepoCop task is active on it |
-| To do | anything else in the requirements folder; its card names what it waits on |
+| To do | anything else in the requirements folder that `origin` hasn't archived, however long ago; its card names what it waits on |
 
 - **Branches.** A branch belongs to a requirement by its name (`.claude/rules/specs.md` › A branch's requirement), whoever made it, local or on `origin` as last fetched. A card names each one, the commits the default branch lacks, and whether `origin` has them all. The local tip counts when there is one. They are read with a fixed number of git calls, whatever their number: one listing of every branch's tip, one walk of the commits the default branch lacks, and one of those `origin` lacks.
-- **No default branch from `origin`.** A repository whose checkout lacks it says to fetch first, and its cards show no branch state.
+- **No default branch from `origin`.** A repository whose checkout lacks it says to fetch first, and its cards show no branch state. A partial clone that lacks the archive on it is never made to download it: the board says it can't be read. An archive name shaped like a stamp that isn't a time counts as unstamped.
 - **Pull requests** come from one read-only `gh pr list` per repository, with a 15-second timeout, counting only those whose branch is in the registered repository rather than a fork. They are read side by side, after the page renders: htmx swaps in the board with them, so the page never waits for GitHub. Without JavaScript, a link reloads the page with them read. A repository whose pull requests can't be read says why (no `gh`, logged out, not on github.com, no answer in time), and its cards keep the stage they have without them.
 - **Nothing on the board acts.** Reviews and pull request actions stay on a requirement's page, for RepoCop's own branches.
 

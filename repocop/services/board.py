@@ -159,9 +159,22 @@ def _cards(
                     "its cards show no branch state.",
                 )
             )
-    archived_there = _archived_on(checkout, default, repository) if fetched else []
+    archived_there: list[str] = []
+    if fetched:
+        try:
+            archived_there = _archived_on(checkout, default, repository)
+        except git.GitError as exc:  # a partial clone lacks the folder: nothing is downloaded
+            notes.append(
+                Note(repository, f"its delivered changes on {default} can't be read: {exc}")
+            )
+    # A change origin archived is delivered, whatever age, even while the checkout, not yet
+    # brought up to date, still has it in its folder: that copy isn't a change still to do.
+    delivered_there = {backlog.name_of(file) for file in archived_there}
+    pending = {
+        file: text for file, text in todo.items() if backlog.name_of(file) not in delivered_there
+    }
     # a file archived in the checkout and on origin is one delivered change, not two
-    ordered = backlog.order(todo, sorted({*archived_here, *archived_there}))
+    ordered = backlog.order(pending, sorted({*archived_here, *archived_there}))
 
     cards: list[Card] = []
     delivered: set[str] = set()
@@ -243,7 +256,10 @@ def _delivered(archived_here: Iterable[str], archived_there: Iterable[str]) -> d
     for file in {*archived_here, *archived_there}:
         if (stamp := requirements.ARCHIVE_STAMP.match(file)) is None:
             continue
-        when = datetime.strptime(stamp[0], "%Y-%m-%dT%H%M%SZ-").replace(tzinfo=UTC)
+        try:
+            when = datetime.strptime(stamp[0], "%Y-%m-%dT%H%M%SZ-").replace(tzinfo=UTC)
+        except ValueError:  # shaped like a stamp, but not a time: as if it had none
+            continue
         name = backlog.name_of(file)
         if now - when <= DELIVERED_SHOWN and (name not in latest or latest[name][0] < when):
             latest[name] = (when, file)

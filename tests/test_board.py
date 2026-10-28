@@ -136,12 +136,37 @@ def test_board_shows_a_change_delivered_on_origin_and_only_this_week(
     add_requirement(pusher, f"{stamp(0.1)}landed.md", folder="specs/changes/archive")
     run_git("push", "-q", "origin", "main", cwd=pusher)
     client.post("/repositories/1/fetch")
-    assert columns(client.get("/").text) == {
+    html = client.get("/").text
+    assert columns(html) == {
         "to-do": [],
         "in-progress": [],
         "in-review": [],
         "delivered": ["landed"],
     }
+    page = "http://testserver/repositories/1/requirements/landed.md"  # by the checkout's copy
+    assert f'<a class="card-name" href="{page}">landed</a>' in card(html, "landed")
+
+
+def test_board_takes_a_change_origin_archived_as_delivered_whatever_the_checkout_still_has(
+    registered: Path, pusher: Path, client: TestClient
+) -> None:
+    add_requirement(registered, "landed-long-ago.md")
+    add_requirement(registered, "waits.md", needs("landed-long-ago"))
+    add_requirement(pusher, f"{stamp(30)}landed-long-ago.md", folder="specs/changes/archive")
+    run_git("push", "-q", "origin", "main", cwd=pusher)
+    client.post("/repositories/1/fetch")
+    html = client.get("/").text
+    assert columns(html)["to-do"] == ["waits"]  # landed-long-ago is delivered, though too old
+    assert "Waits on" not in card(html, "waits")
+
+
+def test_board_skips_an_archive_stamp_that_isnt_a_time(
+    registered: Path, client: TestClient
+) -> None:
+    add_requirement(registered, "2026-13-01T120000Z-odd.md", folder="specs/changes/archive")
+    response = client.get("/")
+    assert response.status_code == 200
+    assert columns(response.text)["delivered"] == []
 
 
 def test_board_counts_a_change_archived_in_the_checkout_and_on_origin_once(
