@@ -1,6 +1,8 @@
-"""Repository pages: the registry list, Add repository, each repository's page, fetch, and
-removing a completed template sync's branch."""
+"""Repository pages: the main page with the fleet's board and the registry, Add repository,
+fetching one repository or all of them, each repository's page, and removing a completed template
+sync's branch."""
 
+import contextlib
 import sqlite3
 from typing import Annotated, Any
 
@@ -13,6 +15,7 @@ from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RepositoryDep, SettingsDep
 from repocop.services import (
     backlog,
+    board,
     claude,
     pull_requests,
     repositories,
@@ -35,12 +38,26 @@ def list_repositories(
     settings: SettingsDep,
     registered: int | None = None,
     outcome: Outcome | None = None,
+    pull_requests: bool = False,
 ) -> HTMLResponse:
+    """The main page. Its board shows at once, and its pull requests are read after it, unless
+    `pull_requests` asks for them now, as a browser without JavaScript does."""
     registration = None
     if registered is not None and outcome is not None:
         repository = repositories.get(conn, registered)
         registration = Registration(repository, outcome) if repository else None
-    return _render_list(request, conn, settings, registration=registration)
+    return _render_list(
+        request, conn, settings, registration=registration, with_pull_requests=pull_requests
+    )
+
+
+@router.get("/board", response_class=HTMLResponse)
+def board_panel(request: Request, conn: ConnectionDep, settings: SettingsDep) -> HTMLResponse:
+    """The fleet's board, with each repository's open pull requests read from GitHub now."""
+    listed = repositories.list_all(conn)
+    context = {"board": board.read(conn, settings, listed, with_pull_requests=True)}
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(request, "partials/board.html", context)
 
 
 @router.post("/repositories", response_class=HTMLResponse)
@@ -60,6 +77,17 @@ def add_repository(
         registered=registration.repository.id, outcome=registration.outcome.value
     )
     return RedirectResponse(target, status_code=303)
+
+
+@router.post("/repositories/fetch-all", response_class=HTMLResponse)
+def fetch_all_repositories(
+    request: Request, conn: ConnectionDep, settings: SettingsDep
+) -> HTMLResponse:
+    """Fetch every repository whose checkout is there, each as its own Fetch does."""
+    listed = [r for r in repositories.list_all(conn) if repositories.checkout_present(r, settings)]
+    errors = repositories.fetch_each(listed, settings)
+    results = [(repository, errors[repository.id]) for repository in listed]
+    return _render_list(request, conn, settings, fetched_all=results)
 
 
 @router.get("/repositories/{repository_id}", response_class=HTMLResponse)
@@ -191,19 +219,29 @@ def _render_list(
     registration: Registration | None = None,
     error: str | None = None,
     form: dict[str, str] | None = None,
+    with_pull_requests: bool = False,
+    fetched_all: list[tuple[Repository, str | None]] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
     listed = []
+    offered: dict[int, int] = {}
     for repo in repositories.list_all(conn):
         status = repositories.status(repo, settings)
         waiting = _waiting(conn, settings, repo, status)
         checkout = _checkout(repo, settings, status)
         listed.append((repo, status, waiting, checkout, repositories.remote(repo, settings)))
+        if status is Status.BEHIND and waiting is None:
+            with contextlib.suppress(RepoCopError):  # a plan that can't be read offers nothing
+                offered[repo.id] = len(repositories.template_plan(repo, settings).offered)
+    registered = [repo for repo, *_ in listed]
     context = {
         "settings": settings,
         "claude_auth": claude.auth_status(settings),
         "repositories": listed,
+        "offered": offered,
+        "board": board.read(conn, settings, registered, with_pull_requests=with_pull_requests),
+        "fetched_all": fetched_all,
         "registration": registration,
         "error": error,
         "form": form or {"remote_url": "", "name": ""},

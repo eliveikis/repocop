@@ -27,7 +27,7 @@ They enforce the design pillars in `specs/product.md`. A change that weakens one
 - Never delete worktrees or branches automatically in v0.1. A completed sync's worktree and branch go only when the user clicks Remove on it: never forced, and refused while its worktree has uncommitted changes or is on another branch.
 
 ## Pushing
-- Push only on an explicit user action: no task, status change or page load pushes or calls GitHub (ADR-023).
+- Push only on an explicit user action: no task, status change or page load pushes or writes to GitHub (ADR-023). A page may read from GitHub, as the main page's board reads open pull requests (ADR-038).
 - Push only a branch RepoCop created for a worktree, from that worktree, to `origin` under the same name: never a tag or another branch.
 - Never force: no `--force`, `-f`, `--force-with-lease` or `+` refspec. Refuse when the remote branch has commits the local one lacks.
 - Refuse before pushing while a task is active on the branch's requirement, when a template sync didn't complete, and when the worktree is gone, on another branch or has uncommitted changes.

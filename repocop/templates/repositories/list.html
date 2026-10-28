@@ -4,6 +4,7 @@
 {% block title %}Repositories · RepoCop{% endblock %}
 
 {% block toasts %}
+{% if fetched_all is not none %}<p class="toast">Fetched {{ fetched_all | rejectattr(1) | list | length }} of {{ fetched_all | length }} repositories.</p>{% endif %}
 {% if registration %}{% set repo = registration.repository %}<p class="toast">{% if registration.outcome == "cloned" %}Cloned {{ repo.name }} into {{ repo.primary_path }}.{% elif registration.outcome == "found_on_disk" %}Registered the existing checkout at {{ repo.primary_path }}.{% else %}{{ repo.name }} is already registered.{% endif %}</p>{% endif %}
 {% endblock %}
 
@@ -16,6 +17,19 @@
 </p>
 
 {% if repositories %}
+{% include "partials/board.html" %}
+
+<section id="checkouts" aria-labelledby="checkouts-heading">
+<div class="section-head">
+  <h2 id="checkouts-heading">Checkouts</h2>
+  <form method="post" action="{{ url_for('fetch_all_repositories') }}"><button type="submit">Fetch all</button></form>
+</div>
+{% if fetched_all %}{% set failures = fetched_all | selectattr(1) | list %}{% if failures %}
+<ul class="fetch-failures" role="alert">
+  {% for repo, failure in failures %}<li>{{ repo.name }}: {{ failure }}</li>
+  {% endfor %}
+</ul>
+{% endif %}{% endif %}
 <div class="table-scroll">
 <table class="repositories">
   <thead>
@@ -25,7 +39,7 @@
     {% for repo, status, waiting, checkout, remote in repositories %}
     <tr>
       <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a></td>
-      <td>{% include "partials/repository_status.html" %}</td>
+      <td>{% include "partials/repository_status.html" %}{% set count = offered.get(repo.id) %}{% if count %} <a href="{{ url_for('template_sync_page', repository_id=repo.id) }}">{{ count }} file{{ "" if count == 1 else "s" }} to sync</a>{% endif %}</td>
       <td class="checkout">{% if checkout.error %}<span class="error-text">{{ checkout.error }}</span>{% elif checkout.state %}{% set state = checkout.state %}{% include "partials/checkout_state.html" %}{% else %}—{% endif %}</td>
       <td>{% include "partials/repository_remote.html" %}</td>
       <td class="paths">{% include "partials/repository_paths.html" %}</td>
@@ -35,8 +49,9 @@
 </table>
 </div>
 <details class="help"><summary>How this works</summary>
-  <p>Ahead and behind are as of each checkout's last fetch.</p>
+  <p>Ahead and behind are as of each checkout's last fetch. Fetch all fetches every checkout that's there, side by side, each as its own Fetch does: only <code>origin</code>'s remote-tracking branches change.</p>
 </details>
+</section>
 {% else %}
 <div class="empty-state">
   <p>No repositories registered yet. Add one by its remote URL, or by the name of a checkout already in <code>{{ settings.repos_root }}</code>.</p>

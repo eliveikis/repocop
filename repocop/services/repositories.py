@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -24,6 +25,7 @@ NAME_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,99}")
 
 # RepoCop is one process, so this serializes every registration (see `register`).
 _REGISTER_LOCK = threading.Lock()
+FETCHES_AT_ONCE = 8  # how many repositories fetch side by side
 
 
 class RepositoryError(RepoCopError):
@@ -178,7 +180,7 @@ def status(repository: Repository, settings: Settings) -> Status:
     a template file or is otherwise behind the template, or can't be compared with it, and ready
     otherwise.
     """
-    if not _checkout_present(repository, settings):
+    if not checkout_present(repository, settings):
         return Status.MISSING
     try:
         up_to_date = template_plan(repository, settings).up_to_date
@@ -230,9 +232,25 @@ def fetch(repository: Repository, settings: Settings) -> None:
     git.fetch(require_checkout(repository, settings))
 
 
+def fetch_each(listed: list[Repository], settings: Settings) -> dict[int, str | None]:
+    """Fetch each repository as `fetch` does, side by side, each with its own timeout. Returns
+    each one's error, or None when it fetched, by its id: one failing doesn't stop the others."""
+
+    def attempt(repository: Repository) -> str | None:
+        try:
+            fetch(repository, settings)
+        except RepoCopError as exc:
+            return str(exc)
+        return None
+
+    with ThreadPoolExecutor(max_workers=max(1, min(FETCHES_AT_ONCE, len(listed)))) as pool:
+        results = {repository.id: pool.submit(attempt, repository) for repository in listed}
+    return {repository_id: done.result() for repository_id, done in results.items()}
+
+
 def require_checkout(repository: Repository, settings: Settings) -> Path:
     """The primary checkout's path, refused unless it still holds this repository (see status)."""
-    if not _checkout_present(repository, settings):
+    if not checkout_present(repository, settings):
         raise RepositoryError(
             f"the checkout at {repository.primary_path} isn't there, no longer resolves inside "
             f"{settings.repos_root}, or isn't a checkout of {repository.remote_url}"
@@ -247,7 +265,8 @@ def remote(repository: Repository, settings: Settings) -> Remote:
     return Remote(_present_origin(repository, settings) or repository.remote_url)
 
 
-def _checkout_present(repository: Repository, settings: Settings) -> bool:
+def checkout_present(repository: Repository, settings: Settings) -> bool:
+    """Whether the repository's checkout is there: its status isn't `missing`."""
     return _present_origin(repository, settings) is not None
 
 

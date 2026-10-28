@@ -112,6 +112,11 @@ def todo_dir(repository: Repository) -> str:
     return str(PurePosixPath(repository.changes_dir) / TODO_FOLDER)
 
 
+def archive_dir(repository: Repository) -> str:
+    """The folder of the repository's delivered requirements, relative to its checkout."""
+    return str(PurePosixPath(repository.changes_dir) / ARCHIVE_FOLDER)
+
+
 def in_folder(
     conn: sqlite3.Connection, settings: Settings, repository: Repository
 ) -> list[Requirement]:

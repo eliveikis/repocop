@@ -492,6 +492,54 @@ def delete_branch(path: Path, branch: str) -> None:
     _run(["branch", "-D", "--", branch], cwd=path)
 
 
+def branch_tips(path: Path) -> dict[str, str]:
+    """The commit each local branch and each of `origin`'s branches as last fetched points to, by
+    full ref name: `refs/heads/<branch>` and `refs/remotes/origin/<branch>`. `origin/HEAD` is
+    left out, since it only names another of them."""
+    listing = _run(
+        ["for-each-ref", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes/origin"],
+        cwd=path,
+    )
+    tips: dict[str, str] = {}
+    for line in listing.splitlines():
+        sha, _, ref = line.partition(" ")
+        if ref != "refs/remotes/origin/HEAD":
+            tips[ref] = sha
+    return tips
+
+
+def commits_ahead(path: Path, tips: list[str], base: str) -> dict[str, int]:
+    """How many commits each of `tips` has that `base` lacks, by tip, from one walk of the
+    history whatever the number of tips."""
+    if not tips:
+        return {}
+    listing = _run(["rev-list", "--parents", *dict.fromkeys(tips), f"^{base}", "--"], cwd=path)
+    parents = {sha: rest for sha, *rest in (line.split() for line in listing.splitlines())}
+    counts: dict[str, int] = {}
+    for tip in tips:
+        seen: set[str] = set()
+        stack = [tip] if tip in parents else []
+        while stack:
+            commit = stack.pop()
+            if commit not in seen:
+                seen.add(commit)
+                stack.extend(parent for parent in parents[commit] if parent in parents)
+        counts[tip] = len(seen)
+    return counts
+
+
+def on_origin(path: Path, tips: list[str]) -> set[str]:
+    """Those of `tips` whose every commit is on one of `origin`'s branches as last fetched."""
+    if not tips:
+        return set()
+    missing = set(
+        _run(
+            ["rev-list", *dict.fromkeys(tips), "--not", "--remotes=origin", "--"], cwd=path
+        ).splitlines()
+    )
+    return {tip for tip in tips if tip not in missing}
+
+
 def files_at(path: Path, treeish: str, folder: str) -> list[str]:
     """Paths of the files under `folder` in `treeish` (e.g. HEAD), ignoring the working tree."""
     listing = _run(["ls-tree", "-r", "--name-only", treeish, "--", folder], cwd=path)

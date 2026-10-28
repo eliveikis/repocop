@@ -21,6 +21,7 @@ flowchart TD
 
     subgraph services["services/"]
         repos["repositories.py<br/>registry, onboarding, status"]
+        board["board.py<br/>each requirement's stage"]
         sync["template_sync.py<br/>plan, commit on a sync branch"]
         boot["bootstrap.py<br/>repo template: compare with a branch"]
         reqs["requirements.py<br/>read requirement Markdown"]
@@ -43,7 +44,8 @@ flowchart TD
     hub["GitHub<br/>pull requests"]
 
     browser -->|HTTP| routes
-    routes --> repos & reqs & tasksvc & runner & sync & prs & reviews
+    routes --> repos & board & reqs & tasksvc & runner & sync & prs & reviews
+    board --> repos & reqs & tasksvc & git & github
     reviews --> tasksvc & wts & git & codex
     prs --> tasksvc & wts & git & github
     sync --> boot & wts & tasksvc
@@ -56,7 +58,7 @@ flowchart TD
     repos & reqs & tasksvc & prs --> db
     git -->|"clone, fetch, status, read"| primary
     git -->|"worktree add, status, diff, push"| worktree
-    github -->|"gh pr create, edit"| hub
+    github -->|"gh pr create, edit, list"| hub
     claude -->|"spawn with cwd = worktree"| cc
     cc -->|"edits, commits"| worktree
     codex -->|"spawn with cwd = worktree"| cx
@@ -146,8 +148,26 @@ erDiagram
 - **Status** is read on each page load. It's `missing` unless the recorded path is a real folder inside `repos_root` holding a checkout of the registered remote, and git never runs in a path that fails this check. It's `no_commits` before the checkout's first commit, shown as needing one. It's `behind` the template, linking to [Template sync](#template-sync) or, while a finished sync waits to land, to that sync, when the default branch on `origin`, as last fetched, lacks a template file, has one that differs, a merged file that is behind or a marked file the template no longer ships, or can't be compared, and `ready` otherwise. It comes from the same comparison a sync plans with, which reads the branch with two git calls, so neither uncommitted files nor the checkout's own branches hide the need to sync or create one. It reads only what the checkout already has: a partial clone that lacks a file on that branch is never made to download it on a page load, and its Sync page says it couldn't be read.
 - **Adding writes nothing into the checkout.** A new repository gets the template's files through a sync, like any other. The template's own rules are in `templates/README.md`.
 - **Checkout state** is read from git on each page load, for every checkout that isn't `missing`: the branch or detached commit, an unfinished merge or rebase, the files with uncommitted changes, and the commits ahead of and behind the branch's upstream as last fetched. Nothing is stored, and reading it never rewrites the checkout's index. A git failure is shown for that repository alone.
-- **Fetch** happens only on a click. A button on the repository's page fetches `origin` in the primary checkout, which changes its remote-tracking branches and nothing else. No page load fetches, and nothing fetches in the background.
+- **Fetch** happens only on a click. A button on the repository's page fetches `origin` in the primary checkout, which changes its remote-tracking branches and nothing else. **Fetch all** on the main page does the same for every repository whose checkout is there, side by side, each with its own timeout, and shows each one's result: one failing doesn't stop the others. No page load fetches, and nothing fetches in the background.
 - **Git never prompts**, and every call has a timeout, so a missing credential or unknown host key fails fast instead of hanging.
+
+## Fleet board
+
+The main page answers the product's question across every repository at once: is each one in step with the repo template, and where does its work stand? Its board shows every requirement of every repository whose checkout is there by its stage, read from the repository itself and GitHub, however and by whomever the work was done. The table under it shows each checkout, and how many files a sync would offer a repository behind the template.
+
+A requirement is in the first stage that applies:
+
+| Stage | When |
+|-------|------|
+| Delivered | archived within the past week by its archive stamp, in the checkout or on the default branch on `origin` as last fetched. One archived earlier, or without a stamp, isn't shown |
+| In review | a branch that belongs to it has an open pull request |
+| In progress | a branch that belongs to it has commits that default branch lacks, or a RepoCop task is active on it |
+| To do | anything else in the requirements folder; its card names what it waits on |
+
+- **Branches.** A branch belongs to a requirement by its name (`.claude/rules/specs.md` › A branch's requirement), whoever made it, local or on `origin` as last fetched. A card names each one, the commits the default branch lacks, and whether `origin` has them all. The local tip counts when there is one. They are read with a fixed number of git calls, whatever their number: one listing of every branch's tip, one walk of the commits the default branch lacks, and one of those `origin` lacks.
+- **No default branch from `origin`.** A repository whose checkout lacks it says to fetch first, and its cards show no branch state.
+- **Pull requests** come from one read-only `gh pr list` per repository, with a 15-second timeout, counting only those whose branch is in the registered repository rather than a fork. They are read side by side, after the page renders: htmx swaps in the board with them, so the page never waits for GitHub. Without JavaScript, a link reloads the page with them read. A repository whose pull requests can't be read says why (no `gh`, logged out, not on github.com, no answer in time), and its cards keep the stage they have without them.
+- **Nothing on the board acts.** Reviews and pull request actions stay on a requirement's page, for RepoCop's own branches.
 
 ## Requirements, branches and worktrees
 
@@ -269,11 +289,11 @@ A requirement's page, and a completed template sync's page, act on the pull requ
 | Push | Sends the branch's new commits to the pull request |
 | Request Copilot review | Asks Copilot to review the pull request, again if it already has |
 
-- **Only on a click.** No task, status change or page load pushes or calls GitHub. Until its pull request is opened, a branch is only on RepoCop's host, and its page says so.
+- **Only on a click.** No task, status change or page load pushes or writes to GitHub. Until its pull request is opened, a branch is only on RepoCop's host, and its page says so.
 - **What the pull request says.** A requirement's is titled with the requirement's name and links its file as the branch has it. A template sync's is titled "Sync with the repo template" and lists the files it changed.
 - **Refused, with the reason on the page, before anything is pushed:** the cases in `.claude/rules/safety.md` › Pushing, and when `origin` isn't on github.com, when its push URLs (a `pushurl`, or a URL rewrite) send the branch to any repository but the registered remote, where the pull request is opened, or when `gh` is missing or logged out.
 - **No task starts meanwhile.** A task asked to start on the requirement while an action runs waits until it is over, so what was checked is what gets pushed.
-- **GitHub is asked at each click, never on a page load.** Every action first asks for the branch's open pull request and remembers it, whoever opened it. With one open, Open PR is refused and the page links to it instead of making a second. With none open, as after a merge, Push and Request Copilot review are refused and Open PR makes a new one. Between clicks the page shows the last one it knew of.
+- **GitHub is asked at each click.** Every action first asks for the branch's open pull request and remembers it, whoever opened it. A requirement's page reads nothing from GitHub when it loads; only the main page's board does, to show stages ([Fleet board](#fleet-board)). With one open, Open PR is refused and the page links to it instead of making a second. With none open, as after a merge, Push and Request Copilot review are refused and Open PR makes a new one. Between clicks the page shows the last one it knew of.
 - **GitHub is reached through `gh`**, which is optional: without it only these actions are refused. Merging stays on GitHub, and RepoCop doesn't delete a merged branch or its worktree.
 
 ## Branch review
