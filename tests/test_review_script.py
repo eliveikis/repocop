@@ -1,4 +1,4 @@
-"""The template's `.reviews/review.sh`: a review run by hand, the way RepoCop runs one
+"""The template's `.reviews/review.sh`: a branch's review by Codex, read-only, saved beside it
 (with Codex faked)."""
 
 import os
@@ -8,12 +8,20 @@ from pathlib import Path
 
 import pytest
 
-from repocop.config import PROJECT_ROOT, Settings
-from repocop.services import codex
+from repocop.config import PROJECT_ROOT
 from tests.conftest import run_git
 from tests.fakes.fake_codex import FakeCodex
 
 TEMPLATE_REVIEWS = PROJECT_ROOT / "templates" / "default-repo" / ".reviews"
+
+
+@pytest.fixture
+def fake_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeCodex:
+    """Stands in for the Codex CLI: its reviews find nothing (tests/fakes)."""
+    directory = tmp_path / "codex"
+    directory.mkdir()
+    monkeypatch.setenv("FAKE_CODEX_DIR", str(directory))
+    return FakeCodex(directory)
 
 
 @pytest.fixture
@@ -63,15 +71,21 @@ def test_review_saves_codexs_review_in_the_ignored_folder_and_prints_it(
     assert run_git("status", "--porcelain", cwd=checkout) == ""
 
 
-def test_review_runs_codex_as_repocop_does(checkout: Path, fake_codex: FakeCodex) -> None:
+def test_review_runs_codex_read_only_with_no_approvals(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
     review(checkout)
     (call,) = fake_codex.reviews
-    assert call["args"][:2] == ["review", "--base=origin/main"]
-    for option in codex.READ_ONLY:  # the read-only pin, kept in step with codex.py
-        assert option in call["args"]
-    effort = Settings().review_effort  # the same default effort as RepoCop
-    assert f'model_reasoning_effort="{effort}"' in call["args"]
-    assert not any("review_model" in arg for arg in call["args"])
+    assert call["args"] == [
+        "review",
+        "--base=origin/main",
+        "-c",
+        'sandbox_mode="read-only"',
+        "-c",
+        'approval_policy="never"',
+        "-c",
+        'model_reasoning_effort="high"',
+    ]
     assert call["cwd"] == str(checkout) and call["input_closed"] is True
 
 

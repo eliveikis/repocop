@@ -1,6 +1,6 @@
 # ADR-023: Pull requests through the GitHub CLI, on request
 
-**Status:** accepted, its rule that no page load calls GitHub superseded by ADR-038 · **Date:** 2026-10-05
+**Status:** accepted, its rule that no page load calls GitHub superseded by ADR-038 and its requirement branches by ADR-039 · **Date:** 2026-10-05
 
 ## Context
 

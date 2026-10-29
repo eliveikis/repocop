@@ -6,17 +6,17 @@ Root design file. It says what the product is for and who it serves. Every chang
 
 RepoCop is a fleet manager for agentic repositories. For a developer whose coding agents work across many unrelated Git repositories, it answers one question: is each repository in step with the repo template, and where does its work stand? The repo template gives every repository the same rules, skills and spec layout, and all durable project knowledge stays inside each repository.
 
-The developer writes requirements in their own editor and runs the repository's workflows from their own agent session, which has their search, their terminal and the context of the work so far. RepoCop shows each requirement with the line that runs each workflow on it. It does a few jobs itself, each as a task in a worktree of its own: syncing a repository with the template, reviewing a branch, opening its pull request, and running a workflow in a session it starts and the developer watches and steers. Many such tasks can work at once: in different repositories, and on different requirements in one repository.
+The developer writes requirements in their own editor and runs the repository's workflows in their own agent tool, such as Claude Code's agent view, a terminal or VS Code, where the agent has their sign-in, their permissions and the context of the work so far. RepoCop runs no coding agent. It shows each requirement with the line that runs each workflow on it and the branch to do it on, and its board shows where every requirement stands, however and by whomever the work was done. Its one job of its own is keeping each repository in step with the template: a sync, committed on a branch in a worktree of its own, which reaches the repository only through a pull request the developer merges. Many agents work at once: in different repositories, and on different requirements in one repository.
 
 ## Design pillars
 
 These are ordered. When two pillars conflict, the higher one wins.
 
-1. **Human keeps final control.** The agents RepoCop starts never touch the human's checkout, and RepoCop's only write there is a fetch. Nothing is pushed, merged, deleted, or overwritten without explicit human action, and intervening in a session RepoCop runs is cheap and normal.
-2. **Repository owns knowledge.** Requirements, specs, CLAUDE.md, rules, and skills live in the repo. RepoCop stores references and execution history, never authoritative copies.
-3. **Isolation by construction.** Each requirement RepoCop works on gets its own worktree and branch, and one of its tasks works in it at a time. That limit is per worktree, not per repository and not for RepoCop as a whole, so several requirements can be in flight in one repository at once. Instructions reach exactly one session.
-4. **Agent-agnostic.** RepoCop isn't tied to one vendor's coding agent, so its user doesn't depend on one vendor's pricing and terms. Today Claude Code runs the tasks and Codex reviews their branches, and what is specific to each stays in its own module.
-5. **Thin orchestration.** RepoCop orchestrates execution and adds no reasoning of its own. Repo-specific behaviour belongs to that repo's skills and rules.
+1. **Human keeps final control.** RepoCop's only write in the human's checkout is a fetch. Nothing is pushed, merged, deleted, or overwritten without explicit human action, and the developer runs and steers every agent in their own session.
+2. **Repository owns knowledge.** Requirements, specs, CLAUDE.md, rules, and skills live in the repo. RepoCop stores references and the record of its own syncs, never authoritative copies.
+3. **Isolation by construction.** What RepoCop writes, a template sync, it writes on a branch in a worktree of its own, never in the human's checkout. It sets no limit on how many agents work at once, in a repository or across the fleet, and assumes none.
+4. **Agent-agnostic.** RepoCop runs no coding agent and isn't tied to one vendor's, so its user doesn't depend on one vendor's pricing and terms. The repo template ships rules and skills for Claude Code and Codex, and what in RepoCop is specific to one agent is kept to a few known places.
+5. **Thin orchestration.** RepoCop shows where work stands and keeps repositories in step, and adds no reasoning of its own. Repo-specific behaviour belongs to that repo's skills and rules, run by the developer's own agent.
 6. **Simple and inspectable.** Server-rendered HTML, SQLite, plain files, and the Git CLI. No frontend build step, no job infrastructure.
 
 ## Target audience
@@ -45,9 +45,9 @@ High-level themes. Each is delivered through one or more changes under `changes/
 | Release | Theme | Change |
 |-----------|-------|--------|
 | v0.1 | RepoCop proven end-to-end on one machine: onboard → requirement → review → implement in a worktree → observe and steer → inspect diff | delivered |
-| Next | The fleet view: the developer's own agent does the work, and RepoCop shows where each repository and requirement stands, however the work was done | `no-requirement-editor`, `fleet-dashboard` |
+| Next | The fleet view: the developer's own agent does the work, and RepoCop shows where each repository and requirement stands, however the work was done | `no-requirement-editor`, `fleet-dashboard`, `no-agent-runs` |
 | Later | Run on an always-on Linux host; authentication | _not yet specified_ |
 
 ## Non-goals (for now)
 
-Multi-user auth, public deployment, distributed workers or job queues, SPA frontends, webhooks, auto-merge, a single agent working across several repos, a plugin framework, an editor for repository files, and extending the workflow sessions RepoCop runs itself, such as a chat interface beyond today's task page, permission prompts or sandboxing.
+Multi-user auth, public deployment, distributed workers or job queues, SPA frontends, webhooks, auto-merge, a single agent working across several repos, a plugin framework, an editor for repository files, and running or hosting coding agents itself: the developer's own agent tool does that.

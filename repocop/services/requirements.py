@@ -3,20 +3,17 @@
 Every Markdown file in the `todo/` folder of the repository's `changes_dir` (default
 `specs/changes`) is a requirement. Its developer writes and commits it in their own editor, and
 RepoCop only reads it. Its file name, without `.md`, is its name, and it has no id. The file is
-its text, with no title heading. The database records a requirement only when its first task
-needs a row for it, and a row holds a key of the database's own and the path (invariant 4).
-Details: "Requirement storage" in `specs/architecture.md`.
+its text, with no title heading. The database holds nothing of it (invariant 4). Details:
+"Requirement storage" in `specs/architecture.md`.
 """
 
 from __future__ import annotations
 
 import re
-import sqlite3
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
-from repocop import db
 from repocop.config import Settings
 from repocop.errors import RepoCopError
 from repocop.services import git, repositories
@@ -42,7 +39,6 @@ class Location(StrEnum):
 class Requirement:
     repository_id: int
     path: str  # relative to the checkout
-    id: int | None = None  # the key of its database row; None until something records it
 
     @property
     def name(self) -> str:
@@ -52,10 +48,6 @@ class Requirement:
     @property
     def file_name(self) -> str:
         return PurePosixPath(self.path).name
-
-    @classmethod
-    def from_row(cls, row: sqlite3.Row) -> Requirement:
-        return cls(row["repository_id"], row["path"], row["id"])
 
 
 @dataclass(frozen=True)
@@ -117,34 +109,26 @@ def archive_dir(repository: Repository) -> str:
     return str(PurePosixPath(repository.changes_dir) / ARCHIVE_FOLDER)
 
 
-def in_folder(
-    conn: sqlite3.Connection, settings: Settings, repository: Repository
-) -> list[Requirement]:
+def in_folder(settings: Settings, repository: Repository) -> list[Requirement]:
     """Every Markdown file in the repository's requirements folder, by file name, as a
-    requirement: as recorded, or not recorded yet. A link is listed without being read."""
+    requirement. A link is listed without being read."""
     checkout = _checkout(repository, settings)
     folder = PurePosixPath(todo_dir(repository))
-    recorded = {requirement.path: requirement for requirement in list_for(conn, repository)}
-    found = []
-    for entry in _markdown_files(checkout, folder):
-        path = str(folder / entry.name)
-        found.append(recorded.get(path) or Requirement(repository.id, path))
-    return found
+    return [
+        Requirement(repository.id, str(folder / entry.name))
+        for entry in _markdown_files(checkout, folder)
+    ]
 
 
-def find(
-    conn: sqlite3.Connection, settings: Settings, repository: Repository, file_name: str
-) -> Requirement | None:
+def find(settings: Settings, repository: Repository, file_name: str) -> Requirement | None:
     """The requirement whose file is `file_name` in the repository's requirements folder, or was
-    before it was archived, whether recorded or not. None for any other name."""
+    before it was archived. None for any other name."""
     stem = file_name.removesuffix(".md")
     if not stem or stem == file_name or PurePosixPath(file_name).name != file_name:
         return None
     if stem in (".", "..") or "\\" in file_name:
         return None
     path = str(PurePosixPath(todo_dir(repository)) / file_name)
-    if (recorded := _recorded(conn, repository, path)) is not None:
-        return recorded
     try:
         checkout = _checkout(repository, settings)
         entry = _inside(checkout, todo_dir(repository)) / file_name
@@ -153,24 +137,6 @@ def find(
     except RequirementError:
         pass  # a missing checkout, or a folder that leads outside it, holds no requirements
     return None
-
-
-def record(conn: sqlite3.Connection, requirement: Requirement) -> Requirement:
-    """The requirement as the database records it, recording it first if it isn't yet."""
-    if requirement.id is not None:
-        return requirement
-    now = db.timestamp()
-    with db.transaction(conn):
-        conn.execute(
-            "INSERT INTO requirements (repository_id, path, created_at, updated_at)"
-            " VALUES (?, ?, ?, ?) ON CONFLICT (repository_id, path) DO NOTHING",
-            (requirement.repository_id, requirement.path, now, now),
-        )
-        row = conn.execute(
-            "SELECT * FROM requirements WHERE repository_id = ? AND path = ?",
-            (requirement.repository_id, requirement.path),
-        ).fetchone()
-    return Requirement.from_row(row)
 
 
 def change_files(
@@ -198,18 +164,6 @@ def detail(settings: Settings, repository: Repository, requirement: Requirement)
     content = None if where is Location.MISSING else read(settings, repository, requirement)
     uncommitted = where is Location.ACTIVE and is_uncommitted(settings, repository, requirement)
     return Detail(requirement, where, content, uncommitted)
-
-
-def get(conn: sqlite3.Connection, requirement_id: int) -> Requirement | None:
-    row = conn.execute("SELECT * FROM requirements WHERE id = ?", (requirement_id,)).fetchone()
-    return Requirement.from_row(row) if row else None
-
-
-def list_for(conn: sqlite3.Connection, repository: Repository) -> list[Requirement]:
-    rows = conn.execute(
-        "SELECT * FROM requirements WHERE repository_id = ? ORDER BY id", (repository.id,)
-    )
-    return [Requirement.from_row(row) for row in rows]
 
 
 def archived_path(checkout: Path, path: str) -> str | None:
@@ -249,13 +203,6 @@ def _inside(checkout: Path, path: str) -> Path:
     if not target.resolve().is_relative_to(checkout.resolve()):
         raise RequirementError(f"{path} resolves outside {checkout}")
     return target
-
-
-def _recorded(conn: sqlite3.Connection, repository: Repository, path: str) -> Requirement | None:
-    row = conn.execute(
-        "SELECT * FROM requirements WHERE repository_id = ? AND path = ?", (repository.id, path)
-    ).fetchone()
-    return Requirement.from_row(row) if row else None
 
 
 def _markdown_files(checkout: Path, folder: PurePosixPath) -> list[Path]:

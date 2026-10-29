@@ -1,40 +1,26 @@
-"""Pull requests: push a RepoCop branch and open its pull request on GitHub (ADR-023).
+"""Pull requests: push a completed template sync's branch and open its pull request on GitHub.
 
-A requirement's branch can have one, and so can a completed template sync's. Each action runs
-once, when asked, and nothing else pushes or asks GitHub: what a pull request has become since
-is learnt at the next action. An action is refused, before anything is pushed or
-asked of GitHub, while a task is active on the requirement, when the template sync didn't
-complete, when the worktree is gone, on another branch or has uncommitted changes, when `origin`
-isn't on github.com or pushes to any repository but the registered remote, and when the GitHub
-CLI is missing or logged out. A push is never forced.
+Each action runs once, when asked, and nothing else pushes or asks GitHub: what a pull request
+has become since is learnt at the next action. An action is refused, before anything is pushed
+or asked of GitHub, when the sync didn't complete, when its worktree is gone, on another branch
+or has uncommitted changes, when `origin` isn't on github.com or pushes to any repository but
+the registered remote, and when the GitHub CLI is missing or logged out. A push is never forced.
 
 The database keeps only the address of the pull request a branch last had open (invariant 4).
 """
 
 from __future__ import annotations
 
-import contextlib
 import sqlite3
-from collections.abc import Iterator
 from dataclasses import dataclass
 from enum import StrEnum
 from pathlib import Path
-from urllib.parse import quote
 
 from repocop import db
 from repocop.config import Settings
 from repocop.errors import RepoCopError
-from repocop.services import (
-    git,
-    github,
-    repositories,
-    requirements,
-    tasks,
-    template_sync,
-    worktrees,
-)
+from repocop.services import git, github, repositories, template_sync, worktrees
 from repocop.services.repositories import Repository
-from repocop.services.requirements import Requirement
 from repocop.services.tasks import Status, Task
 
 SYNC_TITLE = "Sync with the repo template"
@@ -60,27 +46,12 @@ class PullRequest:
 
 @dataclass(frozen=True)
 class Source:
-    """A RepoCop branch a pull request is opened from, and what that pull request says."""
+    """A completed sync's branch, which a pull request is opened from."""
 
     repository: Repository
     branch: str
     worktree: Path
     base_commit: str
-    title: str
-    # Its tasks work on the branch, and the pull request links its file. None for a branch no
-    # task works on again, whose pull request lists the changed files.
-    requirement: Requirement | None
-
-
-def of_requirement(
-    conn: sqlite3.Connection, settings: Settings, requirement: Requirement
-) -> Source:
-    """The requirement's branch. Refused before its first task."""
-    repository = _repository(conn, requirement.repository_id)
-    latest = tasks.last_with_worktree(conn, requirement)
-    if latest is None:
-        raise PullRequestError(f"{requirement.name} has no branch yet: its first task creates one")
-    return _source(repository, latest, requirement.name, requirement)
 
 
 def has_own(task: Task) -> bool:
@@ -88,17 +59,20 @@ def has_own(task: Task) -> bool:
     return task.workflow == template_sync.WORKFLOW and task.status is Status.COMPLETED
 
 
-def of_sync(conn: sqlite3.Connection, settings: Settings, task: Task) -> Source:
+def of_sync(conn: sqlite3.Connection, task: Task) -> Source:
     """The template sync's branch. Refused unless the sync completed."""
     if task.workflow != template_sync.WORKFLOW:
-        raise PullRequestError(
-            f"task #{task.id} isn't a template sync: its pull request is its requirement's"
-        )
+        raise PullRequestError(f"task #{task.id} isn't a template sync")
     if not has_own(task):
         raise PullRequestError(
             f"template sync #{task.id} is {task.status}: only a completed one has a pull request"
         )
-    return _source(_repository(conn, task.repository_id), task, SYNC_TITLE, None)
+    if task.branch is None or task.worktree_path is None or task.base_commit is None:
+        raise PullRequestError(f"task #{task.id} has no worktree, so no branch to push")
+    repository = repositories.get(conn, task.repository_id)
+    if repository is None:
+        raise PullRequestError("the repository is no longer registered")
+    return Source(repository, task.branch, task.worktree_path, task.base_commit)
 
 
 def perform(
@@ -109,40 +83,38 @@ def perform(
     GitHub is asked first for the branch's open pull request, and that one is remembered,
     whoever opened it. Opening pushes the branch first, and is refused when one is open already.
     Pushing and asking for a review are refused when none is open, as after a merge: opening
-    then makes a new one. The module docstring lists what refuses every action. No task starts
-    on the branch's requirement until the action is over.
+    then makes a new one. The module docstring lists what refuses every action.
     """
-    with _no_task(conn, source):
-        repository = _check(settings, source)
-        remembered = get(conn, source.repository.id, source.branch)
-        found = github.pull_request_of(source.worktree, repository, source.branch)
-        if found and (remembered is None or remembered.url != found):
-            remembered = _store(conn, source, found)
-        if action is Action.OPEN:
-            if found:
-                raise PullRequestError(f"{source.branch} already has an open pull request: {found}")
-            git.push(source.worktree, source.branch)
-            url = github.create_pull_request(
-                source.worktree,
-                repository,
-                head=source.branch,
-                base=source.repository.default_branch,
-                title=source.title,
-                body=_body(source, repository),
-            )
-            return _store(conn, source, url)
-        if remembered is None:
-            raise PullRequestError(f"{source.branch} has no open pull request. Open one first.")
-        if not found:
-            raise PullRequestError(
-                f"{remembered.url} is no longer open on GitHub. Open a new pull request for "
-                f"{source.branch} to carry on."
-            )
-        if action is Action.PUSH:
-            git.push(source.worktree, source.branch)
-        else:
-            github.request_copilot_review(source.worktree, remembered.url)
-        return remembered
+    repository = _check(settings, source)
+    remembered = get(conn, source.repository.id, source.branch)
+    found = github.pull_request_of(source.worktree, repository, source.branch)
+    if found and (remembered is None or remembered.url != found):
+        remembered = _store(conn, source, found)
+    if action is Action.OPEN:
+        if found:
+            raise PullRequestError(f"{source.branch} already has an open pull request: {found}")
+        git.push(source.worktree, source.branch)
+        url = github.create_pull_request(
+            source.worktree,
+            repository,
+            head=source.branch,
+            base=source.repository.default_branch,
+            title=SYNC_TITLE,
+            body=_body(source),
+        )
+        return _store(conn, source, url)
+    if remembered is None:
+        raise PullRequestError(f"{source.branch} has no open pull request. Open one first.")
+    if not found:
+        raise PullRequestError(
+            f"{remembered.url} is no longer open on GitHub. Open a new pull request for "
+            f"{source.branch} to carry on."
+        )
+    if action is Action.PUSH:
+        git.push(source.worktree, source.branch)
+    else:
+        github.request_copilot_review(source.worktree, remembered.url)
+    return remembered
 
 
 def get(conn: sqlite3.Connection, repository_id: int, branch: str) -> PullRequest | None:
@@ -152,22 +124,6 @@ def get(conn: sqlite3.Connection, repository_id: int, branch: str) -> PullReques
         (repository_id, branch),
     ).fetchone()
     return _from_row(row) if row else None
-
-
-@contextlib.contextmanager
-def _no_task(conn: sqlite3.Connection, source: Source) -> Iterator[None]:
-    """Refuse while a task is active on the branch's requirement, and keep one from starting
-    for the length of the block."""
-    if source.requirement is None:
-        yield
-        return
-    with tasks.hold_starts(source.requirement):
-        if active := tasks.active_task(conn, source.requirement):
-            raise PullRequestError(
-                f"task #{active.id} ({active.workflow}) is still {active.status} on "
-                f"{source.requirement.name}. Finish or cancel it first."
-            )
-        yield
 
 
 def _check(settings: Settings, source: Source) -> str:
@@ -197,33 +153,10 @@ def _check(settings: Settings, source: Source) -> str:
     return repository
 
 
-def _body(source: Source, repository: str) -> str:
-    """The pull request's text: a link to the requirement as the branch has it now, or else the
-    files the branch changed."""
-    if source.requirement is None:
-        files = git.files_changed_since(source.worktree, source.base_commit)
-        return "Files changed:\n\n" + "".join(f"- `{file}`\n" for file in files)
-    commit, path = git.head_commit(source.worktree), source.requirement.path
-    archived = requirements.archived_path(source.worktree, path)
-    if not (source.worktree / path).is_file() and archived is not None:
-        path = archived  # the branch has completed the change
-    link = f"https://{github.HOST}/{repository}/blob/{commit}/{quote(path)}"
-    return f"Requirement: [{path}]({link})"
-
-
-def _source(
-    repository: Repository, task: Task, title: str, requirement: Requirement | None
-) -> Source:
-    if task.branch is None or task.worktree_path is None or task.base_commit is None:
-        raise PullRequestError(f"task #{task.id} has no worktree, so no branch to push")
-    return Source(repository, task.branch, task.worktree_path, task.base_commit, title, requirement)
-
-
-def _repository(conn: sqlite3.Connection, repository_id: int) -> Repository:
-    repository = repositories.get(conn, repository_id)
-    if repository is None:
-        raise PullRequestError("the repository is no longer registered")
-    return repository
+def _body(source: Source) -> str:
+    """The pull request's text: the files the branch changed."""
+    files = git.files_changed_since(source.worktree, source.base_commit)
+    return "Files changed:\n\n" + "".join(f"- `{file}`\n" for file in files)
 
 
 def _store(conn: sqlite3.Connection, source: Source, url: str) -> PullRequest:

@@ -1,9 +1,0 @@
-<li class="event event-{{ event.kind }}">
-  {% if event.kind == "user_instruction" %}<span class="who">You</span><pre>{{ event.payload.text }}</pre>
-  {% elif event.kind == "assistant_text" %}<span class="who">{{ event.payload.who or "Claude" }}</span><pre>{{ event.payload.text }}</pre>
-  {% elif event.kind == "tool_use" %}<span class="who">Tool · {{ event.payload.name }}</span><pre>{{ event.payload.input | tojson(indent=2) }}</pre>
-  {% elif event.kind == "tool_result" %}<span class="who">Result{% if event.payload.is_error %} (error){% endif %}</span><pre>{{ event.payload.content }}</pre>
-  {% elif event.kind == "status_change" %}<span class="who">Status</span> {{ event.payload.status }}{% if event.payload.error %}: {{ event.payload.error }}{% endif %}
-  {% elif event.kind == "error" %}<span class="who">Error</span><pre>{{ event.payload.error }}</pre>
-  {% else %}<pre>{{ event.payload.text or event.payload }}</pre>{% endif %}
-</li>

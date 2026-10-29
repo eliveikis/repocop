@@ -104,7 +104,6 @@
     {% for level in listing.levels %}{% if loop.first or not ready %}{% set entries = level %}{% include "partials/requirement_rows.html" %}{% endif %}{% endfor %}
     {% if not ready %}
     {% set entries, held_up = listing.apart, true %}{% include "partials/requirement_rows.html" %}
-    {% set entries, held_up = listing.delivered + listing.missing, false %}{% include "partials/requirement_rows.html" %}
     {% endif %}
     </tbody>
   </table>
@@ -128,7 +127,7 @@
   <div class="table-scroll">
   <table class="tasks">
     <thead>
-      <tr><th>Task</th><th>Branch</th><th>State</th><th>Created</th><th></th></tr>
+      <tr><th>Sync</th><th>Branch</th><th>State</th><th>Created</th><th></th></tr>
     </thead>
     <tbody>
       {% for task in syncs %}

@@ -3,7 +3,6 @@ from the repository and GitHub however the work was done, and Fetch all."""
 
 import re
 import shutil
-import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -178,28 +177,6 @@ def test_board_counts_a_change_archived_in_the_checkout_and_on_origin_once(
     html = client.get("/").text
     assert columns(html)["delivered"] == ["shipped"]
     assert "Waits on" not in card(html, "waits")
-
-
-def test_board_links_a_requirement_with_an_active_task_to_it(
-    registered: Path, client: TestClient
-) -> None:
-    folder = registered / ".claude" / "skills" / "implement"
-    folder.mkdir(parents=True)
-    (folder / "SKILL.md").write_text("# implement\n")
-    run_git("add", ".claude", cwd=registered)
-    run_git("commit", "-qm", "Add skills", cwd=registered)
-    add_requirement(registered, "bulk-user-import.md")
-    response = client.post(
-        "/repositories/1/requirements/bulk-user-import.md/tasks", data={"workflow": "implement"}
-    )
-    assert response.status_code == 200, response.text
-    deadline = time.monotonic() + 5
-    while "status-waiting_for_user" not in client.get("/tasks/1/header").text:
-        assert time.monotonic() < deadline, "the task never waited for the user"
-        time.sleep(0.02)
-    html = client.get("/").text
-    assert columns(html)["in-progress"] == ["bulk-user-import"]
-    assert 'href="http://testserver/tasks/1"' in card(html, "bulk-user-import")
 
 
 def test_board_says_to_fetch_first_and_shows_no_branch_state_without_origins_default_branch(

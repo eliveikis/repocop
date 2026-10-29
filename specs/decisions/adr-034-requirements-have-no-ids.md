@@ -1,6 +1,6 @@
 # ADR-034: Requirements have no ids
 
-**Status:** accepted, its creation in the UI and its kind superseded by ADR-037 · **Date:** 2026-10-23
+**Status:** accepted, its creation in the UI and its kind superseded by ADR-037, and its database row by ADR-039 · **Date:** 2026-10-23
 
 ## Context
 

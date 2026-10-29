@@ -11,11 +11,6 @@
 {% block content %}
 <h1>Repositories</h1>
 
-{% set auth = claude_auth %}
-<p class="claude-auth claude-auth-{{ 'problem' if auth.problem else auth.kind }}"{% if auth.problem %} role="alert"{% endif %}>
-  {% if auth.problem %}Claude: {{ auth.problem }}{% elif auth.kind == "subscription" %}Claude: your Claude subscription ({{ auth.plan | capitalize if auth.plan else "plan unknown" }}{% if auth.account %}, {{ auth.account }}{% endif %}){% else %}Claude: an API key from RepoCop's configuration{% endif %}
-</p>
-
 {% if repositories %}
 {% include "partials/board.html" %}
 

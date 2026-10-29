@@ -123,7 +123,7 @@ def test_every_route_that_changes_state_refuses_another_site(client: TestClient)
         for method in operations
         if method not in ("get", "head", "options")
     ]
-    assert ("POST", "/repositories/1/requirements/1/pull-request/1") in changing
+    assert ("POST", "/tasks/1/pull-request/1") in changing
     for method, path in changing:
         response = client.request(method, path, headers={"Sec-Fetch-Site": "cross-site"})
         assert response.status_code == 403, f"{method} {path}"

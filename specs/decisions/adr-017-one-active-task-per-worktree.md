@@ -1,6 +1,6 @@
 # ADR-017: One active task per worktree
 
-**Status:** accepted · **Date:** 2026-09-25
+**Status:** superseded by ADR-039 · **Date:** 2026-09-25
 
 ## Context
 

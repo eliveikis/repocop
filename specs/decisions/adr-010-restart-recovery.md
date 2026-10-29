@@ -1,6 +1,6 @@
 # ADR-010: Restart recovery stops leftovers and restarts nothing
 
-**Status:** accepted · **Date:** 2026-09-24
+**Status:** superseded by ADR-039, but for failing a task left unfinished at startup · **Date:** 2026-09-24
 
 ## Context
 

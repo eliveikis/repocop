@@ -1,7 +1,6 @@
 """Requirement pages: the repository page's list, and each requirement's read-only page."""
 
 import re
-import time
 from pathlib import Path
 from typing import cast
 
@@ -9,10 +8,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from repocop import db
 from repocop.config import Settings
 from tests.conftest import add_requirement, run_git
-from tests.fakes.fake_claude import FakeClaudeFactory
 
 REQ_1 = "specs/changes/todo/bulk-user-import.md"
 PAGE = "/repositories/1/requirements/bulk-user-import.md"
@@ -139,9 +136,7 @@ def test_repository_page_lists_requirements_by_file_name(
 
 
 @pytest.mark.usefixtures("registered")
-def test_requirement_page_shows_its_text_read_only_and_records_nothing(
-    client: TestClient, settings: Settings
-) -> None:
+def test_requirement_page_shows_its_text_read_only(client: TestClient, settings: Settings) -> None:
     hand_made(settings, text="# An older heading\n\nImport users <from> CSV.\n")
     html = client.get(PAGE).text
     assert "<h1>bulk-user-import</h1>" in html
@@ -150,8 +145,6 @@ def test_requirement_page_shows_its_text_read_only_and_records_nothing(
     for editing in ("<textarea", 'name="body"', 'name="kind"', ">Save<", "/commit", "Commit "):
         assert editing not in html, editing
     assert "feature" not in html.partition("<main")[2]
-    with db.connect(settings.database_path) as conn:
-        assert conn.execute("SELECT count(*) FROM requirements").fetchone()[0] == 0
 
 
 @pytest.mark.usefixtures("registered")
@@ -183,28 +176,13 @@ def test_archived_requirement_is_shown_with_a_link_to_its_archived_file(
 
 
 @pytest.mark.usefixtures("registered")
-def test_missing_requirement_file_is_reported(client: TestClient, settings: Settings) -> None:
-    hand_made(settings)
-    run_git("rm", "-q", REQ_1, cwd=checkout(settings))
-    with db.connect(settings.database_path) as conn:  # recorded, as its first task records it
-        conn.execute(
-            "INSERT INTO requirements (repository_id, path, created_at, updated_at)"
-            " VALUES (1, ?, '', '')",
-            (REQ_1,),
-        )
-    html = client.get(PAGE).text
-    assert "The file is missing" in html
-    assert "requirement-text" not in html
-
-
-@pytest.mark.usefixtures("registered")
 def test_requirement_page_says_to_commit_a_file_with_uncommitted_changes(
     client: TestClient, settings: Settings
 ) -> None:
     hand_made(settings)
     (checkout(settings) / REQ_1).write_text("Edited by hand.\n")
     html = client.get(PAGE).text
-    assert "This file has uncommitted changes. Commit it before starting a task" in html
+    assert "This file has uncommitted changes, which an agent working in another worktree" in html
     assert '<pre class="requirement-text">Edited by hand.</pre>' in html
     assert "<button" not in html.partition('class="notice"')[2].partition("</p>")[0]
 
@@ -215,30 +193,24 @@ def test_requirement_page_gives_the_line_that_runs_each_workflow_in_your_own_age
 ) -> None:
     hand_made(settings)
     commit_skills(settings, "implement", "review-requirement")
-    agent = section(client.get(PAGE).text, "your-agent")
+    html = client.get(PAGE).text
+    agent = section(html, "your-agent")
     assert "a branch named <code>bulk-user-import</code>" in agent
-    assert re.findall(r"<pre><code>([^<]*)</code></pre>", agent) == [
-        f"/implement {REQ_1}",
-        f"/review-requirement {REQ_1}",
-    ]
+    lines = [f"/implement {REQ_1}", f"/review-requirement {REQ_1}"]
+    assert re.findall(r"<pre><code>([^<]*)</code></pre>", agent) == lines
+    assert "<form" not in html.partition("<main")[2].partition("</main>")[0]
 
 
 @pytest.mark.usefixtures("registered")
-def test_requirement_pages_line_is_what_a_task_on_it_is_started_with(
-    client: TestClient, settings: Settings, fake_claude: FakeClaudeFactory
+def test_each_line_has_a_copy_button_that_shows_only_with_the_shells_script(
+    client: TestClient, settings: Settings
 ) -> None:
     hand_made(settings)
     commit_skills(settings, "implement")
-    [line] = re.findall(
-        r"<pre><code>([^<]*)</code></pre>", section(client.get(PAGE).text, "your-agent")
-    )
-    response = client.post(f"{PAGE}/tasks", data={"workflow": "implement"}, follow_redirects=False)
-    assert response.status_code == 303, response.text
-    deadline = time.monotonic() + 5.0
-    while not (fake_claude.clients and fake_claude.clients[0].prompts):
-        assert time.monotonic() < deadline, "the task's session was never prompted"
-        time.sleep(0.02)
-    assert fake_claude.clients[0].prompts == [line]
+    agent = section(client.get(PAGE).text, "your-agent")
+    line = f"/implement {REQ_1}"
+    button = f'<button type="button" class="copy" data-copy="{line}" hidden>Copy</button>'
+    assert f"<li><pre><code>{line}</code></pre> {button}</li>" in agent
 
 
 @pytest.mark.usefixtures("registered")
@@ -249,9 +221,13 @@ def test_requirement_pages_line_is_what_a_task_on_it_is_started_with(
         ("POST", "/repositories/1/requirements"),
         ("POST", PAGE),
         ("POST", f"{PAGE}/commit"),
+        ("POST", f"{PAGE}/tasks"),
+        ("POST", f"{PAGE}/review"),
+        ("POST", f"{PAGE}/review/address"),
+        ("POST", f"{PAGE}/pull-request/open"),
     ],
 )
-def test_nothing_creates_edits_or_commits_a_requirement(
+def test_nothing_creates_edits_or_commits_a_requirement_or_starts_work_on_it(
     client: TestClient, settings: Settings, method: str, url: str
 ) -> None:
     hand_made(settings)
@@ -263,11 +239,12 @@ def test_nothing_creates_edits_or_commits_a_requirement(
     assert (checkout(settings) / REQ_1).read_text() == "Edited by hand.\n"
     assert run_git("rev-parse", "HEAD", cwd=checkout(settings)) == head
     assert not (checkout(settings) / "specs/changes/todo/other.md").exists()
+    assert list(settings.worktrees_root.iterdir()) == []
 
 
 @pytest.mark.parametrize(
     "url",
-    ["/repositories/999", "/requirements/999", "/repositories/999/requirements/x.md"],
+    ["/repositories/999", "/repositories/999/requirements/x.md"],
 )
 def test_pages_for_unknown_repositories_and_requirements_are_not_found(
     client: TestClient, url: str
@@ -282,21 +259,6 @@ def test_pages_for_files_that_are_not_requirements_are_not_found(
 ) -> None:
     hand_made(settings)
     assert client.get(f"/repositories/1/requirements/{file_name}").status_code == 404
-
-
-@pytest.mark.usefixtures("registered")
-def test_a_requirements_page_recorded_under_a_number_is_found_by_it(
-    client: TestClient, settings: Settings
-) -> None:
-    hand_made(settings)
-    with db.connect(settings.database_path) as conn:
-        conn.execute(
-            "INSERT INTO requirements (id, repository_id, path, created_at, updated_at)"
-            " VALUES (1, 1, ?, '', '')",
-            (REQ_1,),
-        )
-    response = client.get("/requirements/1", follow_redirects=False)
-    assert response.headers["location"] == f"http://testserver{PAGE}"
 
 
 @pytest.mark.usefixtures("registered")
@@ -349,13 +311,8 @@ def test_repository_page_lists_requirements_in_the_order_they_can_start(
     hand_made(settings, "audit.md", needs("bulk-user-import", "search-notes"))
     (checkout(settings) / "specs/changes/archive").mkdir()
     run_git("mv", "specs/changes/todo/export.md", "specs/changes/archive/", cwd=checkout(settings))
-    with db.connect(settings.database_path) as conn:  # export's first task recorded it
-        conn.execute(
-            "INSERT INTO requirements (repository_id, path, created_at, updated_at)"
-            " VALUES (1, 'specs/changes/todo/export.md', '', '')"
-        )
     table = requirements_table(client)
-    assert row_names(table) == ["search-notes", "bulk-user-import", "audit", "export"]
+    assert row_names(table) == ["search-notes", "bulk-user-import", "audit"]
     assert "rowgroup" not in table
     audit = table[table.index("audit.md") :]
     blocked_by = re.search(r"<td class=\"blocked-by\">(.*?)</td>", audit, re.DOTALL)
@@ -386,12 +343,7 @@ def test_repository_page_offers_the_way_out_of_the_filter_once_nothing_is_blocke
     hand_made(settings, "search-notes.md")
     (checkout(settings) / "specs/changes/archive").mkdir()
     run_git("mv", "specs/changes/todo/export.md", "specs/changes/archive/", cwd=checkout(settings))
-    with db.connect(settings.database_path) as conn:  # export's first task recorded it
-        conn.execute(
-            "INSERT INTO requirements (repository_id, path, created_at, updated_at)"
-            " VALUES (1, 'specs/changes/todo/export.md', '', '')"
-        )
-    html = client.get("/repositories/1?ready=true").text  # it still hides the delivered export
+    html = client.get("/repositories/1?ready=true").text
     assert 'href="http://testserver/repositories/1">all</a> · <strong>unblocked</strong>' in html
 
 

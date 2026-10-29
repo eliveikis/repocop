@@ -318,11 +318,6 @@ def has_changes(path: Path, file: str) -> bool:
     return bool(_run(["status", "--porcelain", "--untracked-files=all", "--", file], cwd=path))
 
 
-def commits_since(path: Path, base: str) -> int:
-    """How many commits HEAD has that `base` doesn't."""
-    return int(_run(["rev-list", "--count", f"{base}..HEAD"], cwd=path))
-
-
 def files_changed_since(path: Path, base: str) -> list[str]:
     """Paths whose committed content differs between `base` and HEAD, sorted."""
     listing = _run(["diff", "--name-only", "-z", base, "HEAD", "--"], cwd=path, strip=False)
@@ -397,19 +392,6 @@ def resolve(path: Path, ref: str) -> str:
         return _run(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=path)
     except GitError:
         raise GitError(f"{ref} isn't a commit in {path}") from None
-
-
-def read_file(path: Path, ref: str, file: str) -> bytes | None:
-    """The bytes of `file` as committed at `ref`, or None if it isn't there."""
-    entry = _run(["ls-tree", ref, "--", file], cwd=path)
-    if not entry:
-        return None
-    if entry.split()[1] != "blob":
-        raise GitError(f"{file} is a folder at {ref}, not a file")
-    data = _run(
-        ["cat-file", "blob", f"{ref}:{file}"], cwd=path, strip=False, errors="surrogateescape"
-    )
-    return data.encode("utf-8", "surrogateescape")
 
 
 def read_files(path: Path, ref: str, files: list[str]) -> dict[str, bytes | None]:
@@ -488,19 +470,6 @@ def commit_files(path: Path, files: list[str], message: str) -> None:
 def commit_paths(path: Path, files: list[str], message: str) -> None:
     """Commit the staged state of `files` alone; anything else staged stays staged, uncommitted."""
     _run(["commit", "--quiet", "--message", message, "--only", "--", *files], cwd=path)
-
-
-def move(path: Path, old: str, new: str) -> None:
-    """Rename a tracked file (`git mv`), staging the rename."""
-    _run(["mv", "--", old, new], cwd=path)
-
-
-def is_tracked(path: Path, file: str) -> bool:
-    try:
-        _run(["ls-files", "--error-unmatch", "--", file], cwd=path)
-    except GitError:
-        return False
-    return True
 
 
 def branch_exists(path: Path, branch: str) -> bool:

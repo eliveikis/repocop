@@ -1,6 +1,6 @@
 # ADR-018: Sessions use the Claude Code subscription by default
 
-**Status:** accepted · **Date:** 2026-09-26
+**Status:** superseded by ADR-039 · **Date:** 2026-09-26
 
 ## Context
 

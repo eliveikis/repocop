@@ -6,8 +6,7 @@ A requirement is in the first stage that applies:
 - Delivered: archived within the past week by its archive stamp, in the checkout or on the
   default branch on `origin` as last fetched.
 - In review: a branch that belongs to it has an open pull request.
-- In progress: a branch that belongs to it has commits that default branch lacks, or a RepoCop
-  task is active on it.
+- In progress: a branch that belongs to it has commits that default branch lacks.
 - To do: anything else in the requirements folder.
 
 A branch belongs to a requirement by its name (the branch rule in `.claude/rules/specs.md`),
@@ -17,7 +16,6 @@ whatever their number. Nothing here fetches, or writes on disk or on GitHub.
 
 from __future__ import annotations
 
-import sqlite3
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -27,9 +25,8 @@ from pathlib import Path, PurePosixPath
 
 from repocop.config import Settings
 from repocop.errors import RepoCopError
-from repocop.services import backlog, git, github, repositories, requirements, tasks
+from repocop.services import backlog, git, github, repositories, requirements
 from repocop.services.repositories import Repository
-from repocop.services.tasks import Task
 
 DELIVERED_SHOWN = timedelta(days=7)  # how long a delivered change stays on the board
 PULL_REQUEST_TIMEOUT_S = 15.0  # how long the board waits for GitHub, for each repository
@@ -67,7 +64,6 @@ class Card:
     stage: Stage
     branches: tuple[Branch, ...] = ()
     waits_on: tuple[tuple[str, str | None], ...] = ()  # undelivered needs: name, page file
-    task: Task | None = None  # RepoCop's active task on it
     delivered_at: datetime | None = None
 
 
@@ -103,7 +99,6 @@ _EPOCH = datetime.fromtimestamp(0, UTC)
 
 
 def read(
-    conn: sqlite3.Connection,
     settings: Settings,
     listed: Iterable[Repository],
     *,
@@ -117,11 +112,10 @@ def read(
     if with_pull_requests:
         pulls, unread = _open_pull_requests(settings, shown)
         notes += unread
-    active = _active_tasks(conn)
     cards: list[Card] = []
     for repository in shown:
         try:
-            found, more = _cards(settings, repository, active, pulls.get(repository.id, {}))
+            found, more = _cards(settings, repository, pulls.get(repository.id, {}))
         except RepoCopError as exc:
             notes.append(Note(repository, str(exc)))
             continue
@@ -139,7 +133,6 @@ def belongs(branch: str, names: Iterable[str]) -> bool:
 def _cards(
     settings: Settings,
     repository: Repository,
-    active: Mapping[tuple[int, str], Task],
     pulls: Mapping[str, str],
 ) -> tuple[list[Card], list[Note]]:
     checkout = repositories.require_checkout(repository, settings)
@@ -203,15 +196,14 @@ def _cards(
             _branch(name, local, there, ahead, pushed, pulls)
             for name, local, there in belonging[change.file]
         )
-        task = active.get((repository.id, change.file))
         if any(branch.pull_request for branch in branches):
             stage = Stage.IN_REVIEW
-        elif task is not None or any(branch.ahead for branch in branches):
+        elif any(branch.ahead for branch in branches):
             stage = Stage.IN_PROGRESS
         else:
             stage = Stage.TO_DO
         waits_on = tuple((need.name, ordered.pages.get(need.name)) for need in change.waits_on)
-        cards.append(Card(repository, change.name, change.file, stage, branches, waits_on, task))
+        cards.append(Card(repository, change.name, change.file, stage, branches, waits_on))
     return cards, notes
 
 
@@ -274,16 +266,6 @@ def _archived_on(checkout: Path, ref: str, repository: Repository) -> list[str]:
         for path in map(PurePosixPath, git.files_at(checkout, ref, str(folder)))
         if path.parent == folder and path.suffix == ".md"
     ]
-
-
-def _active_tasks(conn: sqlite3.Connection) -> dict[tuple[int, str], Task]:
-    """RepoCop's active task on each requirement, by repository and file name: the newest."""
-    found: dict[tuple[int, str], Task] = {}
-    for task in tasks.list_active(conn):
-        requirement = requirements.get(conn, task.requirement_id) if task.requirement_id else None
-        if requirement is not None:
-            found.setdefault((task.repository_id, requirement.file_name), task)
-    return found
 
 
 def _open_pull_requests(

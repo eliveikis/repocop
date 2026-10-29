@@ -1,2 +1,0 @@
-{% for event in events %}{% include "partials/task_event.html" %}{% endfor %}
-{% if active %}<li class="poll" hx-get="{{ url_for('task_events', task_id=task.id).include_query_params(after=last_seq) }}" hx-trigger="every 2s" hx-swap="outerHTML"></li>{% endif %}

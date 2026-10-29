@@ -1,6 +1,6 @@
-"""The template environment every page renders with: the sidebar the shell shows, read only when
-a page shows it, and the `ago` filter, which shows a time relative to now, with the exact time on
-hover."""
+"""The template environment every page renders with: the repositories the shell's sidebar
+lists, read only when a page shows them, and the `ago` filter, which shows a time relative to
+now, with the exact time on hover."""
 
 from contextlib import closing
 from datetime import UTC, datetime
@@ -15,6 +15,7 @@ from markupsafe import Markup
 from repocop import db
 from repocop.config import Settings
 from repocop.services import navigation
+from repocop.services.repositories import Repository
 
 
 def templates(directory: Path) -> Jinja2Templates:
@@ -25,14 +26,14 @@ def templates(directory: Path) -> Jinja2Templates:
 
 
 class LazySidebar:
-    """The sidebar's contents, read from the database the first time a page shows them, so a
-    fragment, which doesn't, reads nothing for it."""
+    """The repositories the sidebar lists, read from the database the first time a page shows
+    them, so a fragment, which doesn't, reads nothing for it."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
     @cached_property
-    def contents(self) -> navigation.Sidebar:
+    def repositories(self) -> list[Repository]:
         with closing(db.connect(self._settings.database_path)) as conn:
             return navigation.sidebar(conn)
 

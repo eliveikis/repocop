@@ -1,8 +1,8 @@
 """SQLite persistence: connections, explicit transactions, and forward-only migrations.
 
-The database holds execution state and references only (invariant 4): repo paths, requirement
-paths, task state, the event log, and pull request addresses. Requirement names and text, and
-repo config, are read from the repos themselves.
+The database holds execution state and references only (invariant 4): repo paths, the state and
+event log of template syncs, and pull request addresses. Requirements, and repo config, are read
+from the repos themselves.
 
 Migrations are numbered by `PRAGMA user_version`. Never edit a released migration; append a
 new one.
@@ -141,6 +141,71 @@ MIGRATIONS: tuple[str, ...] = (
     # RepoCop, and every branch it names starts agent/ whatever the kind.
     """
     ALTER TABLE requirements DROP COLUMN kind;
+    """,
+    # 9: RepoCop runs no coding agents (ADR-039), so what only its runs used goes: past workflow
+    # runs and reviews with their events, the record of requirements they worked on, their
+    # sessions' columns, and their branches' pull requests. Template syncs stay. The tables are
+    # rebuilt, as a column a foreign key uses can't be dropped, and the task counter carries
+    # over, so no id is used twice (ADR-007).
+    """
+    DELETE FROM task_events WHERE task_id IN (
+        SELECT id FROM tasks WHERE workflow != 'template-sync'
+    );
+    DELETE FROM tasks WHERE workflow != 'template-sync';
+    DELETE FROM pull_requests WHERE NOT EXISTS (
+        SELECT 1 FROM tasks
+        WHERE tasks.repository_id = pull_requests.repository_id
+            AND tasks.branch = pull_requests.branch
+    );
+    UPDATE tasks SET status = 'failed'
+        WHERE status NOT IN ('queued', 'running', 'completed', 'failed');
+
+    CREATE TABLE tasks_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        repository_id INTEGER NOT NULL REFERENCES repositories (id),
+        workflow TEXT NOT NULL,
+        branch TEXT,
+        worktree_path TEXT,
+        base_commit TEXT,
+        status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN (
+            'queued', 'running', 'completed', 'failed'
+        )),
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    INSERT INTO tasks_new (
+        id, repository_id, workflow, branch, worktree_path, base_commit, status, error,
+        created_at, updated_at
+    )
+    SELECT id, repository_id, workflow, branch, worktree_path, base_commit, status, error,
+        created_at, updated_at
+    FROM tasks;
+    INSERT INTO sqlite_sequence (name, seq)
+        SELECT 'tasks_new', 0
+        WHERE NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'tasks_new');
+    UPDATE sqlite_sequence SET seq = max(
+        seq, coalesce((SELECT seq FROM sqlite_sequence WHERE name = 'tasks'), 0)
+    ) WHERE name = 'tasks_new';
+
+    CREATE TABLE task_events_new (
+        id INTEGER PRIMARY KEY,
+        task_id INTEGER NOT NULL REFERENCES tasks_new (id),
+        seq INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('status_change', 'error', 'raw')),
+        payload_json TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        UNIQUE (task_id, seq)
+    );
+    INSERT INTO task_events_new SELECT id, task_id, seq, kind, payload_json, created_at
+        FROM task_events;
+
+    DROP TABLE task_events;
+    DROP TABLE tasks;
+    DROP TABLE requirements;
+    ALTER TABLE tasks_new RENAME TO tasks;
+    ALTER TABLE task_events_new RENAME TO task_events;
+    CREATE INDEX tasks_repository_id ON tasks (repository_id);
     """,
 )
 

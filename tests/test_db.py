@@ -15,17 +15,8 @@ from repocop.errors import DatabaseError
 from repocop.main import create_app
 
 NOW = "2026-09-25T12:00:00+00:00"
-TASK_STATUSES = ("queued", "running", "waiting_for_user", "completed", "failed", "cancelled")
-EVENT_KINDS = (
-    "user_instruction",
-    "assistant_text",
-    "tool_use",
-    "tool_result",
-    "command_output",
-    "status_change",
-    "error",
-    "raw",
-)
+TASK_STATUSES = ("queued", "running", "completed", "failed")
+EVENT_KINDS = ("status_change", "error", "raw")
 
 
 def user_version(connection: sqlite3.Connection) -> int:
@@ -61,25 +52,11 @@ def add_repository(connection: sqlite3.Connection, name: str = "sample") -> int:
     return cursor.lastrowid
 
 
-def add_requirement(connection: sqlite3.Connection, repository_id: int, req_id: int = 1) -> int:
-    connection.execute(
-        "INSERT INTO requirements (id, repository_id, path, created_at, updated_at)"
-        " VALUES (?, ?, ?, ?, ?)",
-        (req_id, repository_id, f"specs/changes/todo/req-{req_id}-x.md", NOW, NOW),
-    )
-    return req_id
-
-
-def add_task(
-    connection: sqlite3.Connection,
-    repository_id: int,
-    requirement_id: int | None = None,
-    status: str = "queued",
-) -> int:
+def add_task(connection: sqlite3.Connection, repository_id: int, status: str = "queued") -> int:
     cursor = connection.execute(
-        "INSERT INTO tasks (repository_id, requirement_id, workflow, status, created_at,"
-        " updated_at) VALUES (?, ?, 'implement', ?, ?, ?)",
-        (repository_id, requirement_id, status, NOW, NOW),
+        "INSERT INTO tasks (repository_id, workflow, status, created_at, updated_at)"
+        " VALUES (?, 'template-sync', ?, ?, ?)",
+        (repository_id, status, NOW, NOW),
     )
     assert cursor.lastrowid is not None
     return cursor.lastrowid
@@ -148,7 +125,7 @@ def test_transaction_rolls_back_on_error(conn: sqlite3.Connection) -> None:
 
 
 def test_migrate_creates_schema_at_latest_version(conn: sqlite3.Connection) -> None:
-    expected = {"repositories", "requirements", "tasks", "task_events", "pull_requests"}
+    expected = {"repositories", "tasks", "task_events", "pull_requests"}
     assert table_names(conn) == expected
     assert user_version(conn) == len(db.MIGRATIONS)
 
@@ -249,7 +226,9 @@ def test_migrate_gives_tasks_a_restart_stopped_the_reason_that_names_no_product(
         " VALUES (?, 1, 'status_change', ?, ?)",
         (stopped, json.dumps({"to": "failed", "error": former}), NOW),
     )
-    db.migrate(before)
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:7])
+        db.migrate(before)
     errors = dict(before.execute("SELECT id, error FROM tasks").fetchall())
     assert errors == {stopped: "app_restarted", failed: "git failed"}
     payload = before.execute("SELECT payload_json FROM task_events").fetchone()[0]
@@ -269,13 +248,71 @@ def test_migrate_drops_the_requirements_kind_and_keeps_their_rows(
         " VALUES (7, ?, 'specs/changes/todo/login-crash.md', 'fix', ?, ?)",
         (repository, NOW, NOW),
     )
-    task = add_task(before, repository, requirement_id=7)
-    db.migrate(before)
+    task = before.execute(
+        "INSERT INTO tasks (repository_id, requirement_id, workflow, status, created_at,"
+        " updated_at) VALUES (?, 7, 'implement', 'queued', ?, ?) RETURNING id",
+        (repository, NOW, NOW),
+    ).fetchone()[0]
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:8])
+        db.migrate(before)
     assert "kind" not in columns(before, "requirements")
     row = before.execute("SELECT id, path FROM requirements").fetchone()
     assert tuple(row) == (7, "specs/changes/todo/login-crash.md")
     linked = before.execute("SELECT requirement_id FROM tasks WHERE id = ?", (task,)).fetchone()
     assert linked[0] == 7
+
+
+def test_migrate_clears_what_only_agent_runs_used_and_keeps_template_syncs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    before = db.connect(tmp_path / "before.db")
+    with monkeypatch.context() as patch:
+        patch.setattr(db, "MIGRATIONS", db.MIGRATIONS[:8])
+        db.migrate(before)
+    repository = add_repository(before)
+    before.execute(
+        "INSERT INTO requirements (id, repository_id, path, created_at, updated_at)"
+        " VALUES (1, ?, 'specs/changes/todo/bulk-import.md', ?, ?)",
+        (repository, NOW, NOW),
+    )
+
+    def task(workflow: str, branch: str, status: str, requirement: int | None = None) -> int:
+        cursor = before.execute(
+            "INSERT INTO tasks (repository_id, requirement_id, workflow, branch, status,"
+            " claude_session_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (repository, requirement, workflow, branch, status, "session", NOW, NOW),
+        )
+        assert cursor.lastrowid is not None
+        return cursor.lastrowid
+
+    sync = task("template-sync", "agent/template-sync-1", "completed")
+    run = task("implement", "agent/bulk-import", "waiting_for_user", requirement=1)
+    review = task("Codex review", "agent/bulk-import", "completed", requirement=1)
+    for each in (sync, run, review):
+        add_event(before, each, 1)
+    for branch in ("agent/template-sync-1", "agent/bulk-import"):
+        before.execute(
+            "INSERT INTO pull_requests (repository_id, branch, url, created_at)"
+            " VALUES (?, ?, 'https://github.com/o/r/pull/1', ?)",
+            (repository, branch, NOW),
+        )
+    db.migrate(before)
+    assert "requirements" not in table_names(before)
+    assert not {"requirement_id", "claude_session_id", "session_pid", "session_pid_start"} & (
+        columns(before, "tasks")
+    )
+    assert [row[0] for row in before.execute("SELECT id FROM tasks")] == [sync]
+    assert [row[0] for row in before.execute("SELECT task_id FROM task_events")] == [sync]
+    pulls = [row[0] for row in before.execute("SELECT branch FROM pull_requests")]
+    assert pulls == ["agent/template-sync-1"]
+    assert before.execute("PRAGMA foreign_key_check").fetchall() == []
+    cursor = before.execute(
+        "INSERT INTO tasks (repository_id, workflow, status, created_at, updated_at)"
+        " VALUES (?, 'template-sync', 'queued', ?, ?)",
+        (repository, NOW, NOW),
+    )
+    assert cursor.lastrowid == review + 1  # the counter never reuses an id (ADR-007)
 
 
 def test_migrate_refuses_database_from_newer_repocop(conn: sqlite3.Connection) -> None:
@@ -313,27 +350,23 @@ def test_schema_state_survives_reopening(tmp_path: Path) -> None:
 
 
 def test_schema_task_records_required_fields(conn: sqlite3.Connection) -> None:
-    repository_id = add_repository(conn)
-    requirement_id = add_requirement(conn, repository_id)
-    task_id = add_task(conn, repository_id, requirement_id)
+    task_id = add_task(conn, add_repository(conn))
     conn.execute(
         "UPDATE tasks SET branch = ?, worktree_path = ?, base_commit = ? WHERE id = ?",
-        ("feature/req-1-x", "/agent-worktrees/sample/req-1-x", "abc123", task_id),
+        ("agent/template-sync-1", "/agent-worktrees/sample/template-sync-1", "abc123", task_id),
     )
     row = conn.execute(
-        "SELECT t.id, r.name AS repository, q.path AS requirement_path, t.workflow, t.branch,"
-        " t.worktree_path, t.status, t.created_at, t.updated_at FROM tasks t"
-        " JOIN repositories r ON r.id = t.repository_id"
-        " LEFT JOIN requirements q ON q.id = t.requirement_id WHERE t.id = ?",
+        "SELECT t.id, r.name AS repository, t.workflow, t.branch, t.worktree_path, t.status,"
+        " t.created_at, t.updated_at FROM tasks t"
+        " JOIN repositories r ON r.id = t.repository_id WHERE t.id = ?",
         (task_id,),
     ).fetchone()
     assert dict(row) == {
         "id": task_id,
         "repository": "sample",
-        "requirement_path": "specs/changes/todo/req-1-x.md",
-        "workflow": "implement",
-        "branch": "feature/req-1-x",
-        "worktree_path": "/agent-worktrees/sample/req-1-x",
+        "workflow": "template-sync",
+        "branch": "agent/template-sync-1",
+        "worktree_path": "/agent-worktrees/sample/template-sync-1",
         "status": "queued",
         "created_at": NOW,
         "updated_at": NOW,
@@ -393,48 +426,12 @@ def test_schema_rejects_task_for_unknown_repository(conn: sqlite3.Connection) ->
         add_task(conn, repository_id=999)
 
 
-def test_schema_allows_one_active_task_per_worktree(conn: sqlite3.Connection) -> None:
-    repository_id = add_repository(conn)
-    first = add_task(conn, repository_id, status="waiting_for_user")
-    second = add_task(conn, repository_id, status="completed")
-    conn.execute(
-        "UPDATE tasks SET worktree_path = '/wt/sample/req-1-x' WHERE id IN (?, ?)", (first, second)
-    )
-    third = add_task(conn, repository_id, status="running")
-    with pytest.raises(sqlite3.IntegrityError, match="UNIQUE"):
-        conn.execute("UPDATE tasks SET worktree_path = '/wt/sample/req-1-x' WHERE id = ?", (third,))
-
-
-def test_schema_allows_a_new_active_task_once_the_last_one_ended(conn: sqlite3.Connection) -> None:
-    repository_id = add_repository(conn)
-    first = add_task(conn, repository_id, status="cancelled")
-    second = add_task(conn, repository_id, status="queued")
-    conn.execute(
-        "UPDATE tasks SET worktree_path = '/wt/sample/req-1-x' WHERE id IN (?, ?)", (first, second)
-    )
-    assert (
-        conn.execute("SELECT count(*) FROM tasks WHERE worktree_path IS NOT NULL").fetchone()[0]
-        == 2
-    )
-
-
 def test_schema_never_reuses_task_ids(conn: sqlite3.Connection) -> None:
     repository_id = add_repository(conn)
     add_task(conn, repository_id)
     last = add_task(conn, repository_id)
     conn.execute("DELETE FROM tasks WHERE id = ?", (last,))
     assert add_task(conn, repository_id) == last + 1
-
-
-def test_schema_stores_only_references_for_requirements(conn: sqlite3.Connection) -> None:
-    # Invariant 4: names and text live in the repo's Markdown file, never in the DB.
-    assert columns(conn, "requirements") == {
-        "id",
-        "repository_id",
-        "path",
-        "created_at",
-        "updated_at",
-    }
 
 
 # ---------------------------------------------------------------- app startup
@@ -448,7 +445,3 @@ def test_app_startup_migrates_the_database(settings: Settings) -> None:
         assert user_version(connection) == len(db.MIGRATIONS)
     finally:
         connection.close()
-
-
-def test_migration_3_records_a_tasks_session_process(conn: sqlite3.Connection) -> None:
-    assert {"session_pid", "session_pid_start"} <= columns(conn, "tasks")

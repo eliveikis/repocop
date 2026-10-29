@@ -1,6 +1,6 @@
 #!/bin/sh
 # managed by template
-# Review this branch with Codex's own review, the way RepoCop runs one, and save it here.
+# Review this branch with Codex's own review, read-only, and save it here.
 #
 #   .reviews/review.sh [base]
 #

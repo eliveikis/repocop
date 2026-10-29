@@ -8,19 +8,17 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
 
 from repocop.config import Settings
 from repocop.main import create_app
 from tests.conftest import push_commit, run_git, write_template
-from tests.fakes.fake_claude import FakeClaudeFactory
 
 
 @pytest.fixture
-def linked(settings: Settings, fake_claude: FakeClaudeFactory) -> Iterator[TestClient]:
+def linked(settings: Settings) -> Iterator[TestClient]:
     """The app with an editor configured."""
     with_editor = settings.model_copy(update={"editor_url": "editor://open{path}/"})
-    with TestClient(create_app(with_editor, claude_client=fake_claude)) as test_client:
+    with TestClient(create_app(with_editor)) as test_client:
         yield test_client
 
 
@@ -242,28 +240,10 @@ def test_repository_list_ignores_an_unknown_registered_id(client: TestClient) ->
     assert "Cloned" not in response.text
 
 
-def test_main_page_shows_claude_is_using_the_subscription(client: TestClient) -> None:
+def test_main_page_has_no_coding_agent_sign_in(client: TestClient) -> None:
     html = client.get("/").text
-    assert "Claude: your Claude subscription (Max, you@example.invalid)" in html
-
-
-def test_main_page_shows_claude_is_using_an_api_key(
-    settings: Settings, fake_claude: FakeClaudeFactory
-) -> None:
-    keyed = settings.model_copy(update={"anthropic_api_key": SecretStr("sk-ant-configured")})
-    with TestClient(create_app(keyed, claude_client=fake_claude)) as client:
-        html = client.get("/").text
-    assert "Claude: an API key from RepoCop's configuration" in html
-    assert "sk-ant-configured" not in html
-
-
-def test_main_page_warns_when_claude_is_not_logged_in(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("FAKE_CLAUDE_LOGGED_OUT", "1")
-    html = client.get("/").text
-    assert 'class="claude-auth claude-auth-problem"' in html
-    assert "claude auth login" in html
+    assert "Claude" not in html
+    assert "auth login" not in html
 
 
 # ---------------------------------------------------------------- checkout state

@@ -16,7 +16,6 @@ from repocop.routes.dependencies import ConnectionDep, RepositoryDep, SettingsDe
 from repocop.services import (
     backlog,
     board,
-    claude,
     pull_requests,
     repositories,
     requirements,
@@ -55,7 +54,7 @@ def list_repositories(
 def board_panel(request: Request, conn: ConnectionDep, settings: SettingsDep) -> HTMLResponse:
     """The fleet's board, with each repository's open pull requests read from GitHub now."""
     listed = repositories.list_all(conn)
-    context = {"board": board.read(conn, settings, listed, with_pull_requests=True)}
+    context = {"board": board.read(settings, listed, with_pull_requests=True)}
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(request, "partials/board.html", context)
 
@@ -213,7 +212,7 @@ def _render_repository(
     templates: Jinja2Templates = request.app.state.templates
     listing = None
     try:
-        listing = backlog.listing(conn, settings, repository)
+        listing = backlog.listing(settings, repository)
     except RepoCopError as exc:
         error = error or str(exc)
     status = repositories.status(repository, settings)
@@ -307,10 +306,9 @@ def _render_list(
     registered = [repo for repo, *_ in listed]
     context = {
         "settings": settings,
-        "claude_auth": claude.auth_status(settings),
         "repositories": listed,
         "offered": offered,
-        "board": board.read(conn, settings, registered, with_pull_requests=with_pull_requests),
+        "board": board.read(settings, registered, with_pull_requests=with_pull_requests),
         "fetched_all": fetched_all,
         "registration": registration,
         "error": error,

@@ -1,12 +1,5 @@
 <div id="jump-listbox" role="listbox" aria-label="Matches">
-{% if matches is none %}
-  {% if active_tasks %}
-  <div role="group" aria-labelledby="match-group-active">
-    <div id="match-group-active" class="match-group" role="presentation">Active tasks</div>
-    {% for entry in active_tasks %}{% include "partials/task_match.html" %}{% endfor %}
-  </div>
-  {% endif %}
-{% else %}
+{% if matches %}
   {% if matches.repositories %}
   <div role="group" aria-labelledby="match-group-repositories">
     <div id="match-group-repositories" class="match-group" role="presentation">Repositories</div>
@@ -23,16 +16,18 @@
     {% endfor %}
   </div>
   {% endif %}
-  {% if matches.tasks %}
-  <div role="group" aria-labelledby="match-group-tasks">
-    <div id="match-group-tasks" class="match-group" role="presentation">Tasks</div>
-    {% for entry in matches.tasks %}{% include "partials/task_match.html" %}{% endfor %}
+  {% if matches.syncs %}
+  <div role="group" aria-labelledby="match-group-syncs">
+    <div id="match-group-syncs" class="match-group" role="presentation">Template syncs</div>
+    {% for entry in matches.syncs %}
+    <a role="option" id="match-sync-{{ entry.task.id }}" tabindex="-1" aria-selected="false" href="{{ url_for('task_page', task_id=entry.task.id) }}"><span class="match-name">Sync #{{ entry.task.id }}</span> <span class="match-meta"><span class="status status-{{ entry.task.status }}">{{ entry.task.status }}</span> {{ entry.repository }}{% if entry.task.branch %} · {{ entry.task.branch }}{% endif %}</span></a>
+    {% endfor %}
   </div>
   {% endif %}
 {% endif %}
 </div>
-{% if matches is none and not active_tasks %}
-<p class="match-empty">Nothing is running. Type to find a repository, requirement or task by name, id or branch.</p>
-{% elif matches is not none and not matches %}
+{% if matches is none %}
+<p class="match-empty">Type to find a repository or requirement by name, or a template sync by number or branch.</p>
+{% elif not matches %}
 <p class="match-empty">Nothing matches “{{ query }}”.</p>
 {% endif %}

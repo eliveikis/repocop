@@ -13,7 +13,7 @@ With no path, implement the branch's requirement: the change in `specs/changes/t
 
 ## Preconditions (stop and report if any fail)
 
-- You are **not** on `main`/`master`. Don't create or switch branches yourself: work on the branch you're on, which the human or RepoCop chose.
+- You are **not** on `main`/`master`. Don't create or switch branches yourself: work on the branch you're on, which the human chose.
 - The requirement file exists.
 - `git status` is clean apart from the requirement file itself.
 

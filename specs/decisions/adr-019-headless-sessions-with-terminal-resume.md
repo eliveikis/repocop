@@ -1,6 +1,6 @@
 # ADR-019: Headless sessions, continued in a terminal with `--resume`
 
-**Status:** accepted · **Date:** 2026-09-28
+**Status:** superseded by ADR-039 · **Date:** 2026-09-28
 
 ## Context
 

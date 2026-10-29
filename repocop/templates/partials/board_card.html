@@ -10,6 +10,5 @@
     {% endfor %}
   </ul>
   {% endif %}
-  {% if card.task %}<p class="card-detail"><a href="{{ url_for('task_page', task_id=card.task.id) }}">#{{ card.task.id }} · {{ card.task.workflow }}</a> <span class="status status-{{ card.task.status }}">{{ card.task.status }}</span></p>{% endif %}
   {% if card.delivered_at %}<p class="card-detail">Delivered {{ card.delivered_at | ago }}</p>{% endif %}
 </article>

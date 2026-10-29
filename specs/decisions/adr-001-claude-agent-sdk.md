@@ -1,6 +1,6 @@
 # ADR-001: Claude Code through the Python Agent SDK
 
-**Status:** accepted · **Date:** 2026-09-24
+**Status:** superseded by ADR-039 · **Date:** 2026-09-24
 
 ## Context
 

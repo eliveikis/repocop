@@ -16,7 +16,6 @@ problems, so the two change together (`.claude/rules/specs.md`).
 from __future__ import annotations
 
 import re
-import sqlite3
 from collections import Counter
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
@@ -24,7 +23,7 @@ from dataclasses import dataclass
 from repocop.config import Settings
 from repocop.services import requirements
 from repocop.services.repositories import Repository
-from repocop.services.requirements import Detail, Location, Requirement, RequirementError
+from repocop.services.requirements import Detail, Requirement, RequirementError
 
 ID_PREFIX = re.compile(r"req-[0-9]+-")
 LIST_START = re.compile(r"depends-on:[ \t]*")
@@ -135,19 +134,12 @@ class Listing:
 
     levels: tuple[tuple[Entry, ...], ...]  # can start now, then one more away, ...
     apart: tuple[Entry, ...]  # held up by a problem
-    delivered: tuple[Entry, ...]
-    missing: tuple[Entry, ...]
     problems: tuple[Problem, ...]
     pages: Mapping[str, str]  # the file name each change's page is found by, by change name
 
     @property
     def entries(self) -> tuple[Entry, ...]:
-        return (
-            *(e for level in self.levels for e in level),
-            *self.apart,
-            *self.delivered,
-            *self.missing,
-        )
+        return (*(e for level in self.levels for e in level), *self.apart)
 
 
 def name_of(file_name: str) -> str:
@@ -268,10 +260,10 @@ def of(settings: Settings, repository: Repository) -> Backlog:
     return order(todo, archived)
 
 
-def listing(conn: sqlite3.Connection, settings: Settings, repository: Repository) -> Listing:
-    """Every requirement in the repository's requirements folder, grouped by what it waits on,
-    then the recorded requirements that are delivered or missing. Each group is by file name."""
-    in_folder = {r.file_name: r for r in requirements.in_folder(conn, settings, repository)}
+def listing(settings: Settings, repository: Repository) -> Listing:
+    """Every requirement in the repository's requirements folder, grouped by what it waits on.
+    Each group is by file name."""
+    in_folder = {r.file_name: r for r in requirements.in_folder(settings, repository)}
     ordered = of(settings, repository)
 
     def entries(changes: Iterable[Change]) -> tuple[Entry, ...]:
@@ -281,22 +273,9 @@ def listing(conn: sqlite3.Connection, settings: Settings, repository: Repository
                 found.append(_entry(settings, repository, requirement, change.waits_on))
         return tuple(found)
 
-    gone = [
-        _entry(settings, repository, requirement)
-        for requirement in sorted(
-            requirements.list_for(conn, repository), key=lambda r: r.file_name
-        )
-        if requirement.file_name not in in_folder
-    ]
-
-    def located(where: Location) -> tuple[Entry, ...]:
-        return tuple(e for e in gone if e.detail is not None and e.detail.location is where)
-
     return Listing(
         tuple(entries(level) for level in ordered.levels),
         entries(ordered.apart),
-        located(Location.ARCHIVED),
-        located(Location.MISSING),
         ordered.problems,
         ordered.pages,
     )

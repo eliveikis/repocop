@@ -6,15 +6,12 @@ Everything lives under pytest's tmp_path, and git identity is pinned so commits 
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import shlex
 import shutil
-import signal
 import sqlite3
 import subprocess
-import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,14 +22,9 @@ from fastapi.testclient import TestClient
 from repocop import db
 from repocop.config import FORMER_NAME, Settings
 from repocop.main import create_app
-from repocop.services import bootstrap, claude, requirements
-from repocop.services.repositories import Repository
-from repocop.services.requirements import Requirement
-from tests.fakes.fake_claude import FakeClaudeFactory
-from tests.fakes.fake_codex import FakeCodex
+from repocop.services import bootstrap
 from tests.fakes.fake_gh import FakeGh
 
-FAKE_CLAUDE_CLI = Path(__file__).parent / "fakes" / "claude-cli"
 # First on PATH in every test: holds `gh` and `codex`.
 FAKE_BIN = Path(__file__).parent / "fakes" / "bin"
 
@@ -68,42 +60,6 @@ def add_requirement(
         run_git("add", "--", str(path), cwd=checkout)
         run_git("commit", "-qm", f"Add {path.stem}", cwd=checkout)
     return str(path)
-
-
-def recorded_requirement(
-    conn: sqlite3.Connection,
-    settings: Settings,
-    repository: Repository,
-    file_name: str = "bulk-user-import.md",
-    text: str = "Import users.\n",
-) -> Requirement:
-    """A requirement its developer wrote and committed in the repository's todo folder, recorded
-    as its first task records it."""
-    add_requirement(repository.primary_path, file_name, text)
-    found = requirements.find(conn, settings, repository, file_name)
-    assert found is not None
-    return requirements.record(conn, found)
-
-
-def process_gone(pid: int | None, timeout: float = 5.0) -> bool:
-    """Whether the process has ended within `timeout` (a zombie waiting to be reaped counts)."""
-    assert pid is not None
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-        except FileNotFoundError:
-            return True
-        if state == "Z":
-            return True
-        time.sleep(0.05)
-    return False
-
-
-def kill_process(pid: int | None) -> None:
-    if pid is not None:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
 
 
 def push_commit(remote: Path, workdir: Path, name: str = "upstream.txt") -> str:
@@ -142,7 +98,7 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Test")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.invalid")
     for key in list(os.environ):
-        if key.startswith(("REPOCOP_", f"{FORMER_NAME.upper()}_", "ANTHROPIC_")):
+        if key.startswith(("REPOCOP_", f"{FORMER_NAME.upper()}_")):
             monkeypatch.delenv(key)
 
 
@@ -213,28 +169,7 @@ def settings(host: HostLayout, template_dir: Path) -> Settings:
         database_path=host.database_path,
         logs_dir=host.data_dir / "logs",
         template_dir=template_dir,
-        claude_bin=str(FAKE_CLAUDE_CLI),
     )
-
-
-@pytest.fixture(autouse=True)
-def _no_real_claude(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make any use of the real SDK client fail, except in tests marked `claude`."""
-    if "claude" in request.keywords:
-        return
-
-    def refuse(*args: object, **kwargs: object) -> None:
-        raise AssertionError(
-            "the default test suite never calls Claude; use the fake_claude fixture"
-        )
-
-    monkeypatch.setattr(claude, "ClaudeSDKClient", refuse)
-
-
-@pytest.fixture
-def fake_claude() -> FakeClaudeFactory:
-    """Stands in for the Claude SDK client; keeps every session it made (tests/fakes)."""
-    return FakeClaudeFactory()
 
 
 @pytest.fixture
@@ -244,15 +179,6 @@ def fake_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeGh:
     directory.mkdir()
     monkeypatch.setenv("FAKE_GH_DIR", str(directory))
     return FakeGh(directory)
-
-
-@pytest.fixture
-def fake_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeCodex:
-    """Stands in for the Codex CLI: signed in, and its reviews find nothing (tests/fakes)."""
-    directory = tmp_path / "codex"
-    directory.mkdir()
-    monkeypatch.setenv("FAKE_CODEX_DIR", str(directory))
-    return FakeCodex(directory)
 
 
 @pytest.fixture
@@ -271,9 +197,9 @@ def git_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[], l
 
 
 @pytest.fixture
-def client(settings: Settings, fake_claude: FakeClaudeFactory) -> Iterator[TestClient]:
-    """The app on the throwaway host, started (database migrated), with Claude faked."""
-    with TestClient(create_app(settings, claude_client=fake_claude)) as test_client:
+def client(settings: Settings) -> Iterator[TestClient]:
+    """The app on the throwaway host, started (database migrated)."""
+    with TestClient(create_app(settings)) as test_client:
         yield test_client
 
 
@@ -332,13 +258,3 @@ def github_checkout(
     monkeypatch.setenv("GIT_SSH_COMMAND", str(ssh))
     run_git("remote", "set-url", "origin", GITHUB_REMOTE, cwd=primary_checkout)
     return primary_checkout
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip tests marked `claude` unless REPOCOP_TEST_REAL_CLAUDE=1."""
-    if os.environ.get("REPOCOP_TEST_REAL_CLAUDE") == "1":
-        return
-    skip = pytest.mark.skip(reason="set REPOCOP_TEST_REAL_CLAUDE=1 to run real-CLI tests")
-    for item in items:
-        if "claude" in item.keywords:
-            item.add_marker(skip)

@@ -1,10 +1,9 @@
-"""Worktrees: RepoCop-owned git worktrees, one per requirement (ADR-012).
+"""Worktrees: RepoCop-owned git worktrees, one per template sync.
 
-A requirement's worktree is `<worktrees_root>/<repo>/<name>` on branch `agent/<name>`, where
-`<name>` is its file name without `.md`, created from the primary checkout's HEAD. Every branch
-RepoCop names starts `agent/`, so it is told apart from a person's at a glance. Worktrees
-always sit in their repository's RepoCop-owned folder, never in a human-owned checkout, and
-are never deleted automatically.
+A sync's worktree is `<worktrees_root>/<repo>/<name>` on branch `agent/<name>`, where `<name>`
+is `template-sync-<task id>`. Every branch RepoCop names starts `agent/`, so it is told apart
+from a person's at a glance. Worktrees always sit in their repository's RepoCop-owned folder,
+never in a human-owned checkout, and are never deleted automatically.
 """
 
 from __future__ import annotations
@@ -42,21 +41,8 @@ class Changes:
     clipped: bool  # part of the diff was left out (see `git.diff_since`)
 
 
-@dataclass(frozen=True)
-class Snapshot:
-    """Where a worktree stands: work committed since its base, and work not yet committed."""
-
-    commits: int
-    uncommitted: tuple[str, ...]
-
-
-def requirement_names(name: str) -> tuple[str, str]:
-    """(folder name, branch) for the worktree of the requirement called `name`."""
-    return name, f"{BRANCH_PREFIX}{name}"
-
-
 def task_names(workflow: str, task_id: int) -> tuple[str, str]:
-    """(folder name, branch) for a task that has no requirement, such as a template sync."""
+    """(folder name, branch) for the worktree of the task `task_id`, running `workflow`."""
     name = f"{workflow}-{task_id}"
     return name, f"{BRANCH_PREFIX}{name}"
 
@@ -81,7 +67,7 @@ def create(
     if git.branch_exists(checkout, branch):
         raise WorktreeError(
             f"branch {branch} already exists in {checkout} and RepoCop didn't create "
-            "it for this requirement, so it won't reuse it"
+            "it for this task, so it won't reuse it"
         )
     base = git.resolve(checkout, start) if start else git.head_commit(checkout)
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -134,13 +120,6 @@ def changes(repository: Repository, settings: Settings, path: Path, base: str) -
         return None
     diff = git.diff_since(path, base, limit=MAX_DIFF_TEXT)
     return Changes(git.short_status(path), diff.text, diff.clipped)
-
-
-def snapshot(repository: Repository, settings: Settings, path: Path, base: str) -> Snapshot | None:
-    """Commits since `base` and uncommitted files in one of the repo's worktrees; None if gone."""
-    if not is_worktree(repository, settings, path):
-        return None
-    return Snapshot(git.commits_since(path, base), tuple(git.changed_files(path)))
 
 
 def _path_for(repository: Repository, settings: Settings, name: str) -> Path:

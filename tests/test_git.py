@@ -310,16 +310,10 @@ def test_files_at_is_empty_for_a_missing_folder(primary_checkout: Path) -> None:
     assert git.files_at(primary_checkout, "HEAD", ".claude/skills") == []
 
 
-def test_is_tracked_distinguishes_committed_and_new_files(primary_checkout: Path) -> None:
-    (primary_checkout / "new.md").write_text("new\n")
-    assert git.is_tracked(primary_checkout, "README.md")
-    assert not git.is_tracked(primary_checkout, "new.md")
-
-
-def test_move_and_commit_paths_commit_only_the_rename(primary_checkout: Path) -> None:
+def test_commit_paths_commits_only_the_paths_given(primary_checkout: Path) -> None:
     (primary_checkout / "staged.txt").write_text("the human's\n")
     run_git("add", "staged.txt", cwd=primary_checkout)
-    git.move(primary_checkout, "README.md", "INTRO.md")
+    run_git("mv", "README.md", "INTRO.md", cwd=primary_checkout)
     git.commit_paths(primary_checkout, ["README.md", "INTRO.md"], "Rename")
     changed = run_git("show", "--name-status", "--format=", "-M", "HEAD", cwd=primary_checkout)
     assert changed.split() == ["R100", "README.md", "INTRO.md"]
@@ -333,16 +327,6 @@ def test_common_dir_is_shared_by_a_checkout_and_its_worktrees(
     git.add_worktree(primary_checkout, worktree, "feature/x", git.head_commit(primary_checkout))
     assert git.common_dir(worktree) == git.common_dir(primary_checkout)
     assert git.common_dir(primary_checkout) == (primary_checkout / ".git").resolve()
-
-
-def test_commits_since_counts_commits_after_a_base(primary_checkout: Path) -> None:
-    base = git.head_commit(primary_checkout)
-    for name in ("a.txt", "b.txt"):
-        (primary_checkout / name).write_text(f"{name}\n")
-        run_git("add", name, cwd=primary_checkout)
-        run_git("commit", "-qm", name, cwd=primary_checkout)
-    assert git.commits_since(primary_checkout, base) == 2
-    assert git.commits_since(primary_checkout, git.head_commit(primary_checkout)) == 0
 
 
 def test_changed_files_lists_uncommitted_and_untracked_paths(primary_checkout: Path) -> None:
@@ -407,27 +391,6 @@ def test_diff_since_counts_new_files_it_leaves_out_as_clipped(
     assert diff.clipped
     assert "b/b.txt" in diff.text and "b/c.txt" not in diff.text
     assert diff.text.endswith("… and 1 more new file not shown")
-
-
-def test_read_file_returns_a_files_bytes_at_a_ref(primary_checkout: Path) -> None:
-    (primary_checkout / "data.bin").write_bytes(b"\x89\xff\x00caf\xc3\xa9")
-    run_git("add", "data.bin", cwd=primary_checkout)
-    run_git("commit", "-qm", "data", cwd=primary_checkout)
-    (primary_checkout / "data.bin").write_bytes(b"changed in the working tree")
-    assert git.read_file(primary_checkout, "main", "data.bin") == b"\x89\xff\x00caf\xc3\xa9"
-
-
-def test_read_file_is_none_for_a_path_missing_at_the_ref(primary_checkout: Path) -> None:
-    assert git.read_file(primary_checkout, "main", "nope/missing.md") is None
-
-
-def test_read_file_refuses_a_folder(primary_checkout: Path) -> None:
-    (primary_checkout / "docs").mkdir()
-    (primary_checkout / "docs" / "a.md").write_text("a\n")
-    run_git("add", "docs", cwd=primary_checkout)
-    run_git("commit", "-qm", "docs", cwd=primary_checkout)
-    with pytest.raises(git.GitError, match="folder"):
-        git.read_file(primary_checkout, "main", "docs")
 
 
 def test_read_files_returns_each_files_bytes_at_a_ref_exactly(primary_checkout: Path) -> None:

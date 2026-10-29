@@ -1,8 +1,8 @@
 """Module boundaries, checked from source so a violation fails `make check`.
 
-Backs `.claude/rules/safety.md` (only the process wrappers launch processes),
-`.claude/rules/python.md` (dependencies point one way; only config reads the environment) and
-`.claude/rules/agents.md` (what is specific to one agent stays in that agent's module).
+Backs `.claude/rules/safety.md` (only the process wrappers launch processes, and no coding agent
+runs), `.claude/rules/python.md` (dependencies point one way; only config reads the environment)
+and `.claude/rules/agents.md` (nothing names what is specific to one agent, but the known places).
 """
 
 import ast
@@ -12,14 +12,7 @@ from pathlib import Path
 import repocop
 
 PACKAGE_DIR = Path(repocop.__file__).resolve().parent
-PROCESS_WRAPPERS = frozenset(
-    {
-        "repocop.services.git",
-        "repocop.services.claude",
-        "repocop.services.codex",
-        "repocop.services.github",
-    }
-)
+PROCESS_WRAPPERS = frozenset({"repocop.services.git", "repocop.services.github"})
 ENV_READERS = PROCESS_WRAPPERS | {"repocop.config"}  # wrappers pass env to child processes
 LOWER_LAYERS = (
     "repocop.services",
@@ -28,42 +21,37 @@ LOWER_LAYERS = (
     "repocop.errors",
 )
 WEB_LAYER = ("fastapi", "starlette", "repocop.main", "repocop.routes")
-PROCESS_MODULES = ("subprocess", "pty", "claude_agent_sdk")
+PROCESS_MODULES = ("subprocess", "pty")
 ASYNC_PROCESS_CALLS = frozenset({"create_subprocess_exec", "create_subprocess_shell"})
 OS_PROCESS_CALLS = ("system", "popen", "exec", "spawn", "fork")
 OS_ENV_NAMES = frozenset({"environ", "environb", "getenv", "getenvb", "putenv", "unsetenv"})
-CLAUDE_MODULE = "repocop.services.claude"
-CLAUDE_SDK = "claude_agent_sdk"
-# Each agent's module, and what is that agent's own: its SDK, folder and file names, credential
-# variables, settings, the options RepoCop relies on or forbids, and its permission modes.
-AGENT_NAMES = {
-    CLAUDE_MODULE: (
-        CLAUDE_SDK,
-        ".claude",
-        "CLAUDE.md",
-        "CLAUDE_",
-        "ANTHROPIC_",
-        "--resume",
-        "--output-format",
-        "--permission-mode",
-        "--dangerously-skip-permissions",
-        "acceptEdits",
-        "bypassPermissions",
-    ),
-    "repocop.services.codex": (
-        ".codex",
-        "CODEX_",
-        "sandbox_mode",
-        "approval_policy",
-        "model_reasoning_effort",
-        "--dangerously-bypass-approvals-and-sandbox",
-        "--skip-git-repo-check",
-    ),
-}
-# Outside its agent's module today (`.claude/rules/agents.md`). Not precedent: delete an entry
-# when its code moves into the module, and add none without a change that calls for it.
+AGENT_SDKS = ("claude_agent_sdk",)
+# What is specific to one coding agent: its SDK, folder and file names, credential variables,
+# settings, and the options and permission modes it runs with.
+AGENT_NAMES = (
+    *AGENT_SDKS,
+    ".claude",
+    "CLAUDE.md",
+    "CLAUDE_",
+    "ANTHROPIC_",
+    "--resume",
+    "--output-format",
+    "--permission-mode",
+    "--dangerously-skip-permissions",
+    "acceptEdits",
+    "bypassPermissions",
+    ".codex",
+    "CODEX_",
+    "sandbox_mode",
+    "approval_policy",
+    "model_reasoning_effort",
+    "--dangerously-bypass-approvals-and-sandbox",
+    "--skip-git-repo-check",
+)
+# What names an agent's own today (`.claude/rules/agents.md`). Not precedent: delete an entry when
+# its code no longer does, and add none without a change that calls for it.
 KNOWN_AGENT_COUPLING = [
-    "repocop.services.runner: builds a slash command",
+    "repocop.services.tasks: builds a slash command",
     "repocop.services.tasks: names .claude",
     "repocop/templates/requirements/show.html: names .claude",
 ]
@@ -168,25 +156,25 @@ def builds_slash_command(tree: ast.Module) -> bool:
     )
 
 
-def agents_names(texts: list[str], module: str = "") -> list[str]:
-    """Which agents' own names the texts hold, but for the agent whose module `module` is. A
-    name inside a longer word doesn't count."""
-    names = [name for owner, own in AGENT_NAMES.items() if owner != module for name in own]
+def agents_names(texts: list[str]) -> list[str]:
+    """Which agents' own names the texts hold. A name inside a longer word doesn't count."""
     return [
         f"names {name}"
-        for name in names
+        for name in AGENT_NAMES
         if any(re.search(r"(?<!\w)" + re.escape(name), text) for text in texts)
     ]
 
 
-def agent_coupling(tree: ast.Module, module: str = "") -> list[str]:
-    """What a file takes from an agent itself, rather than asking that agent's module."""
-    found = agents_names(code_strings(tree), module)
-    if module != CLAUDE_MODULE:
-        if any(within(name, (CLAUDE_SDK,)) for name in imported_names(tree)):
-            found.append(f"imports {CLAUDE_SDK}")
-        if builds_slash_command(tree):
-            found.append("builds a slash command")
+def agent_sdks(tree: ast.Module) -> list[str]:
+    imported = imported_names(tree)
+    return [f"imports {sdk}" for sdk in AGENT_SDKS if any(within(i, (sdk,)) for i in imported)]
+
+
+def agent_coupling(tree: ast.Module) -> list[str]:
+    """What a file takes from a coding agent itself."""
+    found = agents_names(code_strings(tree)) + agent_sdks(tree)
+    if builds_slash_command(tree):
+        found.append("builds a slash command")
     return sorted(found)
 
 
@@ -211,7 +199,9 @@ def violations(check: str) -> list[str]:
         elif check == "relative":
             found += [f"{name}: relative import at {v}" for v in relative_imports(tree)]
         elif check == "agent":
-            found += [f"{name}: {v}" for v in agent_coupling(tree, name)]
+            found += [f"{name}: {v}" for v in agent_coupling(tree)]
+        elif check == "sdk":
+            found += [f"{name}: {v}" for v in agent_sdks(tree)]
     if check == "agent":
         for path, text in page_templates().items():
             found += [f"{path}: {v}" for v in agents_names([text])]
@@ -234,10 +224,14 @@ def test_architecture_imports_are_absolute_so_these_checks_see_them() -> None:
     assert violations("relative") == []
 
 
-def test_architecture_only_an_agents_module_and_the_known_places_name_what_is_its_own() -> None:
+def test_architecture_nothing_imports_a_coding_agents_sdk() -> None:
+    assert violations("sdk") == []
+
+
+def test_architecture_only_the_known_places_name_what_is_an_agents_own() -> None:
     assert violations("agent") == KNOWN_AGENT_COUPLING, (
-        "What is specific to one agent belongs in that agent's module, and "
-        "KNOWN_AGENT_COUPLING lists exactly what is outside one: .claude/rules/agents.md"
+        "KNOWN_AGENT_COUPLING lists exactly what names a coding agent's own: "
+        ".claude/rules/agents.md"
     )
 
 
@@ -263,19 +257,6 @@ def test_architecture_agent_check_catches_known_violations() -> None:
         "names ANTHROPIC_",
     ]
     assert agents_names(["{{ task.claude_session_id }}", "REPOCOP_CLAUDE_BIN"]) == []
-
-
-def test_architecture_an_agents_module_may_name_its_own_agent_but_no_other() -> None:
-    tree = ast.parse(
-        "from claude_agent_sdk import query\n"
-        "SETTINGS = '.claude/settings.json'\n"
-        "HOME = '.codex/config.toml'\n"
-    )
-    assert agent_coupling(tree, CLAUDE_MODULE) == ["names .codex"]
-    assert agent_coupling(tree, "repocop.services.codex") == [
-        "imports claude_agent_sdk",
-        "names .claude",
-    ]
 
 
 def test_architecture_checks_catch_known_violations() -> None:

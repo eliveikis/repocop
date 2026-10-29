@@ -1,6 +1,7 @@
 // The shell's behaviour on every page: the quick switcher (Ctrl+K, or ⌘K on macOS), the single-key
-// shortcuts, marking the section on screen in a page's section links, and having screen readers
-// announce a toast. Every page reads and works without it, but for the switcher and shortcuts.
+// shortcuts, marking the section on screen in a page's section links, having screen readers
+// announce a toast, and copy buttons. Every page reads and works without it, but for the switcher,
+// shortcuts and copy buttons.
 (() => {
   "use strict";
 
@@ -205,5 +206,32 @@
     const toasts = Array.from(region.children);
     region.replaceChildren();
     setTimeout(() => region.append(...toasts), 250);
+  }
+
+  // ------------------------------------------------------------- copy buttons
+
+  // A button with `data-copy` puts that text on the clipboard, and a toast says so. Where the
+  // clipboard can't be written, as on a page served neither from this machine nor over HTTPS,
+  // the line beside the button is selected instead, to copy by hand.
+  let copyToast = null;
+  function showCopyResult(text) {
+    if (copyToast) copyToast.remove(); // one at a time, so hidden ones don't stack up
+    copyToast = document.createElement("p");
+    copyToast.className = "toast";
+    copyToast.textContent = text;
+    region.append(copyToast);
+  }
+  for (const button of document.querySelectorAll("[data-copy]")) {
+    button.hidden = false;
+    button.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(button.dataset.copy);
+        showCopyResult(`Copied ${button.dataset.copy}`);
+      } catch {
+        const line = button.parentElement.querySelector("code");
+        if (line) window.getSelection().selectAllChildren(line);
+        showCopyResult(`The clipboard can't be reached from here: the line is selected, so press ${mac ? "⌘C" : "Ctrl+C"}.`);
+      }
+    });
   }
 })();

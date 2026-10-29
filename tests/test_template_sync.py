@@ -121,11 +121,7 @@ def test_apply_commits_the_picked_files_on_a_sync_branch(
         conn, settings, repo, create=["CLAUDE.md", ".claude/skills/demo/run.sh"], overwrite=[]
     )
     assert task is not None
-    assert (task.workflow, task.status, task.requirement_id) == (
-        "template-sync",
-        Status.COMPLETED,
-        None,
-    )
+    assert (task.workflow, task.status) == ("template-sync", Status.COMPLETED)
     assert task.branch == f"agent/template-sync-{task.id}"
     assert task.worktree_path == settings.worktrees_root / "sample" / f"template-sync-{task.id}"
     assert committed_files(task.worktree_path) == [".claude/skills/demo/run.sh", "CLAUDE.md"]
