@@ -33,6 +33,12 @@
 <p class="error" role="alert">The file is missing from <code>{{ requirement.path }}</code> and from the archive folder beside it.</p>
 {% endif %}
 
+<section id="sessions" aria-labelledby="sessions-heading">
+<h2 id="sessions-heading">Sessions</h2>
+<p class="hint">The agent sessions working on {{ requirement.name }} with an event in the past day, as they report it.</p>
+{% set key, shown = "r:%d:%s" % (repository.id, card_name), sessions %}{% include "partials/sessions.html" %}
+</section>
+
 {% if active %}
 <section id="your-agent" aria-labelledby="your-agent-heading">
 <h2 id="your-agent-heading">In your own agent</h2>

@@ -2,7 +2,7 @@
 
 A small, local **fleet manager for agentic repositories**: keep many unrelated Git repositories in step with one repo template (the same rules, skills and spec layout), and see where each one's work stands. Your own coding agent does the work, in your own agent tool; RepoCop runs none.
 
-Write a requirement in your own editor and commit it, then run the repository's workflows in your agent, such as Claude Code: each requirement's page gives the line that runs each one on it, with a Copy button, and the branch to do the work on. The main page's board shows every requirement of every repository by its stage, read from its branches and its pull requests on GitHub, however the work was done.
+Write a requirement in your own editor and commit it, then run the repository's workflows in your agent, such as Claude Code: each requirement's page gives the line that runs each one on it, with a Copy button, and the branch to do the work on. The main page's board shows every requirement of every repository by its stage, read from its branches and its pull requests on GitHub, however the work was done, with the agent sessions working on it as they report themselves: working, needing your input, or waiting for your next instruction.
 
 ## How it works
 

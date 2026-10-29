@@ -10,7 +10,7 @@ They enforce the design pillars in `specs/product.md`. A change that weakens one
 - User-supplied strings (remote URLs, branch names) are separate argv elements, after `--` when they follow positional args and could start with `-`.
 
 ## Paths
-- `Path.resolve()` and **containment-check** every path built from user input or DB data before touching disk: requirement paths stay under the repo root, worktrees under `worktrees_root/<repo>/`.
+- `Path.resolve()` and **containment-check** every path built from user input or DB data before touching disk: requirement paths stay under the repo root, worktrees under `worktrees_root/<repo>/`, session logs in their repository's git common folder, read only as regular files, never through a link.
 - Reject `..`, absolute paths and symlink escapes in user-provided relative paths.
 - At config load, refuse a `worktrees_root` inside `repos_root` or any primary checkout.
 

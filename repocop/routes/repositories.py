@@ -19,6 +19,7 @@ from repocop.services import (
     pull_requests,
     repositories,
     requirements,
+    sessions,
     tasks,
     template_sync,
 )
@@ -247,6 +248,12 @@ def _render_repository(
         "fetched": fetched,
         "fetch_error": fetch_error,
         "listing": listing,
+        "sessions": sessions.of(repository, settings),
+        "recorded": (
+            sessions.recorder_on_origin(repository, settings)
+            if status is not Status.MISSING
+            else None
+        ),
         "todo_dir": requirements.todo_dir(repository),
         "ready": ready,
         "syncs": tasks.list_for_repository(conn, repository, workflow=template_sync.WORKFLOW),

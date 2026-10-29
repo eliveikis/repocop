@@ -1,0 +1,4 @@
+{% set oob = true %}
+{% for list in lists %}{% set key, shown = list.key, list.sessions %}{% include "partials/sessions.html" %}
+{% endfor %}
+{% include "partials/nav_sessions.html" %}

@@ -49,7 +49,7 @@ def options(html: str) -> list[str]:
 
 
 def row_names(html: str) -> list[str]:
-    return re.findall(r'<td class="name"><a [^>]*>([^<]*)</a></td>', html)
+    return re.findall(r'<td class="name"><a [^>]*>([^<]*)</a>', html)
 
 
 def test_repository_list_shows_empty_state_and_add_form(client: TestClient) -> None:

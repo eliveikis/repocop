@@ -10,5 +10,6 @@
     {% endfor %}
   </ul>
   {% endif %}
+  {% set key, shown = "r:%d:%s" % (card.repository.id, card.name), card.sessions %}{% include "partials/sessions.html" %}
   {% if card.delivered_at %}<p class="card-detail">Delivered {{ card.delivered_at | ago }}</p>{% endif %}
 </article>

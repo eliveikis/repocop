@@ -13,8 +13,6 @@ from repocop.config import PROJECT_ROOT
 from repocop.services import backlog
 
 SCRIPT = PROJECT_ROOT / "templates" / "default-repo" / "specs" / "changes" / "backlog.sh"
-# The awks the script must work with: Debian's default, and GNU awk held to POSIX.
-AWKS = {"mawk": ["mawk"], "posix-awk": ["gawk", "--posix"]}
 DONE = "2026-10-14T150616Z-"  # before an archived change's file name
 
 Changes = dict[str, str]
@@ -120,20 +118,6 @@ REFUSED: dict[str, tuple[Changes, list[str], list[str]]] = {
         ],
     ),
 }
-
-
-@pytest.fixture(params=sorted(AWKS))
-def awk(request: pytest.FixtureRequest, tmp_path: Path) -> Path:
-    """A folder to put first on PATH, whose `awk` is one of AWKS."""
-    command = AWKS[request.param]
-    if shutil.which(command[0]) is None:
-        pytest.skip(f"{command[0]} isn't installed")
-    folder = tmp_path / "bin"
-    folder.mkdir()
-    shim = folder / "awk"
-    shim.write_text(f'#!/bin/sh\nexec {" ".join(command)} "$@"\n')
-    shim.chmod(0o755)
-    return folder
 
 
 def lay_out(root: Path, todo: Changes, archived: list[str]) -> Path:

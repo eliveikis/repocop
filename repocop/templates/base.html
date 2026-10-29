@@ -12,7 +12,7 @@
 <a class="skip-link" href="#content">Skip to content</a>
 {% set here = repository.id if repository is defined and repository else none %}
 <div class="shell">
-  <nav id="sidebar" class="sidebar" aria-label="Repositories" popover>
+  <nav id="sidebar" class="sidebar" aria-label="Repositories and sessions that need input" popover>
     <a class="brand" href="{{ url_for('list_repositories') }}">RepoCop</a>
     <h2 class="nav-heading" id="nav-repositories">Repositories</h2>
     {% if sidebar.repositories %}
@@ -24,6 +24,7 @@
     {% else %}
     <p class="nav-empty">None yet. <a href="{{ url_for('list_repositories') }}#add">Add one</a></p>
     {% endif %}
+    {% set needs_input = sidebar.needs_input %}{% include "partials/nav_sessions.html" %}
     <p class="nav-foot"><button type="button" class="quiet" data-opens="shortcuts" hidden>Keyboard shortcuts</button></p>
   </nav>
   <div class="page">
@@ -42,6 +43,7 @@
   </div>
 </div>
 <div class="toasts" role="status">{% block toasts %}{% endblock %}</div>
+<div hidden hx-get="{{ url_for('session_lists') }}" hx-trigger="every 2s" hx-swap="none" hx-include="[name='shown']"></div>
 <dialog id="jump" class="jump" aria-label="Jump to a repository, requirement or sync">
   <input id="jump-input" class="jump-input" name="q" type="text" autocomplete="off" spellcheck="false"
     role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-listbox"

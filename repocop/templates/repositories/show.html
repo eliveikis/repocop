@@ -24,6 +24,7 @@
   <a href="#overview">Overview</a>
   {% if status != "missing" %}<a href="#checkout">Checkout</a>{% endif %}
   <a href="#requirements">Requirements</a>
+  <a href="#sessions">Sessions</a>
   {% if syncs %}<a href="#syncs">Template syncs</a>{% endif %}
 </nav>
 
@@ -118,6 +119,13 @@
     {% if checkout.editor_link %}<a class="button primary" href="{{ checkout.editor_link }}">Open in editor</a>{% endif %}
   </div>
   {% endif %}
+</section>
+
+<section id="sessions" aria-labelledby="sessions-heading">
+  <h2 id="sessions-heading">Sessions</h2>
+  <p class="hint">The agent sessions in {{ repository.name }} with an event in the past day, as they report it, wherever they run.</p>
+  {% if recorded is false %}<p class="notice"><code>{{ waiting_ref }}</code> lacks the hook that records agent sessions, so they aren't shown here. A template sync brings it, and sessions on branches made before that sync record nothing.</p>{% endif %}
+  {% set key, shown = "a:%d" % repository.id, sessions %}{% include "partials/sessions.html" %}
 </section>
 
 {% if syncs %}

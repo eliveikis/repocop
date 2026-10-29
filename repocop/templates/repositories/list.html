@@ -39,7 +39,7 @@
   <tbody>
     {% for repo, status, waiting, checkout, remote in repositories %}
     <tr>
-      <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a></td>
+      <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a>{% set key, shown = "o:%d" % repo.id, board.others.get(repo.id, ()) %}{% include "partials/sessions.html" %}</td>
       <td>{% include "partials/repository_status.html" %}{% set count = offered.get(repo.id) %}{% if count %} <a href="{{ url_for('template_sync_page', repository_id=repo.id) }}">{{ count }} file{{ "" if count == 1 else "s" }} to sync</a>{% endif %}</td>
       <td class="checkout">{% if checkout.error %}<span class="error-text">{{ checkout.error }}</span>{% elif checkout.state %}{% set state = checkout.state %}{% include "partials/checkout_state.html" %}{% else %}—{% endif %}</td>
       <td>{% include "partials/repository_remote.html" %}</td>

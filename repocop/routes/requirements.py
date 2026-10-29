@@ -9,7 +9,7 @@ from fastapi.templating import Jinja2Templates
 
 from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RequirementDep, SettingsDep
-from repocop.services import backlog, repositories, requirements, tasks
+from repocop.services import backlog, repositories, requirements, sessions, tasks
 from repocop.services.requirements import Location
 
 router = APIRouter()
@@ -52,6 +52,10 @@ def requirement_page(
             tasks.workflow_line(workflow, requirement.path) for workflow in workflows
         ],
         "error": error,
+        "card_name": backlog.name_of(requirement.file_name),
+        "sessions": sessions.for_requirement(
+            sessions.of(repository, settings), backlog.name_of(requirement.file_name)
+        ),
         "change": change,
         "blocks": ordered.blocks(change) if ordered and change else (),
         "change_problems": ordered.problems_of(change) if ordered and change else (),

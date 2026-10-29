@@ -16,7 +16,8 @@ RepoCop runs no coding agent and isn't tied to one vendor's (`specs/product.md` 
 - These name one today. Leave them until a change calls for moving them, and don't treat them as precedent:
   - where a repository's workflows are found: `.claude/skills`, in `services/tasks.py` and the hint on a requirement's page
   - the line that runs a workflow: `/<workflow> <path>`, in `services/tasks.py`
-  - the repo template, which ships `CLAUDE.md` and `.claude/` for Claude Code, `AGENTS.md` for Codex, and `.reviews/review.sh`, which runs Codex
+  - where the repo template keeps the hook that records sessions, and the settings that run it: `.claude/hooks` and `.claude/settings.json`, in `services/sessions.py`
+  - the repo template, which ships `CLAUDE.md` and `.claude/` for Claude Code, its hook that records sessions among them, `AGENTS.md` for Codex, and `.reviews/review.sh`, which runs Codex
 - A change that needs a feature only one agent has says so.
 
 ## No limit on agents

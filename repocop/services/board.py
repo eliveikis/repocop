@@ -6,27 +6,31 @@ A requirement is in the first stage that applies:
 - Delivered: archived within the past week by its archive stamp, in the checkout or on the
   default branch on `origin` as last fetched.
 - In review: a branch that belongs to it has an open pull request.
-- In progress: a branch that belongs to it has commits that default branch lacks.
+- In progress: a branch that belongs to it has commits that default branch lacks, or a session
+  working on it is working, needs input or waits for an instruction.
 - To do: anything else in the requirements folder.
 
 A branch belongs to a requirement by its name (the branch rule in `.claude/rules/specs.md`),
 whoever made it, local or on `origin`. Branches are read with a fixed number of git calls,
-whatever their number. Nothing here fetches, or writes on disk or on GitHub.
+whatever their number. A card shows the sessions that work on its requirement, and a repository's
+other sessions show apart, so none goes unseen. Nothing here fetches, or writes on disk or on
+GitHub.
 """
 
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 
 from repocop.config import Settings
 from repocop.errors import RepoCopError
-from repocop.services import backlog, git, github, repositories, requirements
+from repocop.services import backlog, git, github, repositories, requirements, sessions
 from repocop.services.repositories import Repository
+from repocop.services.sessions import Session
 
 DELIVERED_SHOWN = timedelta(days=7)  # how long a delivered change stays on the board
 PULL_REQUEST_TIMEOUT_S = 15.0  # how long the board waits for GitHub, for each repository
@@ -64,6 +68,7 @@ class Card:
     stage: Stage
     branches: tuple[Branch, ...] = ()
     waits_on: tuple[tuple[str, str | None], ...] = ()  # undelivered needs: name, page file
+    sessions: tuple[Session, ...] = ()  # those working on it, the latest first
     delivered_at: datetime | None = None
 
 
@@ -80,6 +85,8 @@ class Board:
     cards: tuple[Card, ...]
     notes: tuple[Note, ...]
     with_pull_requests: bool  # whether GitHub was asked for pull requests
+    # Each repository's sessions that work on no requirement with a card, by repository id.
+    others: Mapping[int, tuple[Session, ...]] = field(default_factory=dict)
 
     @property
     def columns(self) -> tuple[tuple[Stage, tuple[Card, ...]], ...]:
@@ -113,15 +120,19 @@ def read(
         pulls, unread = _open_pull_requests(settings, shown)
         notes += unread
     cards: list[Card] = []
+    others: dict[int, tuple[Session, ...]] = {}
     for repository in shown:
+        working = sessions.of(repository, settings)
         try:
-            found, more = _cards(settings, repository, pulls.get(repository.id, {}))
+            found, more = _cards(settings, repository, pulls.get(repository.id, {}), working)
         except RepoCopError as exc:
             notes.append(Note(repository, str(exc)))
-            continue
+            found, more = [], []
         cards += found
         notes += more
-    return Board(tuple(cards), tuple(notes), with_pull_requests)
+        shown_on = {card.name for card in found}
+        others[repository.id] = tuple(s for s in working if s.requirement not in shown_on)
+    return Board(tuple(cards), tuple(notes), with_pull_requests, others)
 
 
 def belongs(branch: str, names: Iterable[str]) -> bool:
@@ -134,6 +145,7 @@ def _cards(
     settings: Settings,
     repository: Repository,
     pulls: Mapping[str, str],
+    working: Iterable[Session],
 ) -> tuple[list[Card], list[Note]]:
     checkout = repositories.require_checkout(repository, settings)
     todo, archived_here = requirements.change_files(settings, repository)
@@ -152,6 +164,15 @@ def _cards(
                     "its cards show no branch state.",
                 )
             )
+    if fetched and sessions.recorder_on_origin(repository, settings) is False:
+        notes.append(
+            Note(
+                repository,
+                f"{default} lacks the hook that records agent sessions, so its sessions aren't "
+                "shown. A template sync brings it, and sessions on branches made before that "
+                "sync record nothing.",
+            )
+        )
     archived_there: list[str] = []
     if fetched:
         try:
@@ -177,7 +198,14 @@ def _cards(
         page = file[stamp.end() :] if (stamp := requirements.ARCHIVE_STAMP.match(file)) else file
         linked = file in archived_here or page in todo
         cards.append(
-            Card(repository, name, page if linked else None, Stage.DELIVERED, delivered_at=when)
+            Card(
+                repository,
+                name,
+                page if linked else None,
+                Stage.DELIVERED,
+                sessions=sessions.for_requirement(working, name),
+                delivered_at=when,
+            )
         )
 
     changes = [
@@ -196,14 +224,15 @@ def _cards(
             _branch(name, local, there, ahead, pushed, pulls)
             for name, local, there in belonging[change.file]
         )
+        on_it = sessions.for_requirement(working, change.name)
         if any(branch.pull_request for branch in branches):
             stage = Stage.IN_REVIEW
-        elif any(branch.ahead for branch in branches):
+        elif any(branch.ahead for branch in branches) or any(s.live for s in on_it):
             stage = Stage.IN_PROGRESS
         else:
             stage = Stage.TO_DO
         waits_on = tuple((need.name, ordered.pages.get(need.name)) for need in change.waits_on)
-        cards.append(Card(repository, change.name, change.file, stage, branches, waits_on))
+        cards.append(Card(repository, change.name, change.file, stage, branches, waits_on, on_it))
     return cards, notes
 
 

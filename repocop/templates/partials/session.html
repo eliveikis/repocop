@@ -1,0 +1,7 @@
+<span class="status status-{{ session.state.slug }}">{{ session.state }}</span>
+{%- if session.state == "Needs input" %}: {% if session.waiting_for == "answer" %}an answer to its question{% elif session.tool %}permission to use <code>{{ session.tool }}</code>{% else %}permission to use a tool{% endif %}
+{%- elif session.closed %}: it {{ session.closed }}{% endif %}
+<span class="session-meta">since {{ session.since | ago }}
+{%- if with_requirement and session.requirement %} · {% if session.page %}<a href="{{ url_for('requirement_page', repository_id=session.repository_id, file_name=session.page) }}">{{ session.requirement }}</a>{% else %}{{ session.requirement }}{% endif %}{% endif %}
+{%- if session.workflow %} · <code>{{ session.workflow }}</code>{% endif %}
+{%- if session.branch %} · <code>{{ session.branch }}</code>{% endif %}</span>

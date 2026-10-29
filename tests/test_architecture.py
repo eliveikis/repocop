@@ -51,6 +51,7 @@ AGENT_NAMES = (
 # What names an agent's own today (`.claude/rules/agents.md`). Not precedent: delete an entry when
 # its code no longer does, and add none without a change that calls for it.
 KNOWN_AGENT_COUPLING = [
+    "repocop.services.sessions: names .claude",
     "repocop.services.tasks: builds a slash command",
     "repocop.services.tasks: names .claude",
     "repocop/templates/requirements/show.html: names .claude",

@@ -7,6 +7,7 @@ Root design file. It covers *how* the system works; *why* is in [product.md](pro
 ```text
 repository owns knowledge         → CLAUDE.md, .claude/, specs/ live in each repo
 the developer's agent does work   → in their own agent tool; RepoCop runs no coding agent
+sessions report themselves        → each repo's hook logs events in <git common dir>/repocop/sessions/
 RepoCop shows and syncs           → the board from each repo and GitHub; SQLite: registry, template syncs
 worktree owns isolated changes    → 1 template sync ↔ 1 branch ↔ 1 worktree under <worktrees_root>/<repo>/
 human keeps final control         → RepoCop's only write in a primary checkout is a fetch; no auto-push/merge/delete
@@ -29,6 +30,8 @@ flowchart TD
         git["git.py<br/>ONLY place that runs git"]
         tasksvc["tasks.py<br/>sync records, status + events, workflows"]
         prs["pull_requests.py<br/>push a sync's branch, open its PR"]
+        sess["sessions.py<br/>read session logs: state, requirement"]
+        nav["navigation.py<br/>sidebar, session lists, switcher"]
         github["github.py<br/>ONLY place that runs gh"]
     end
 
@@ -36,10 +39,16 @@ flowchart TD
     primary[/"Primary checkout<br/>human-owned"/]
     worktree[/"Sync worktree<br/>RepoCop-owned"/]
     hub["GitHub<br/>pull requests"]
+    logs[/"Session logs<br/>written by the repo's hook"/]
+    agent["Developer's agent session"]
 
-    browser -->|HTTP| routes
-    routes --> repos & board & reqs & tasksvc & sync & prs
-    board --> repos & reqs & git & github
+    browser -->|"HTTP; session lists every 2 s"| routes
+    routes --> repos & board & reqs & tasksvc & sync & prs & sess & nav
+    board --> repos & reqs & git & github & sess
+    nav --> sess
+    sess --> reqs
+    sess -->|"read the tail, no git"| logs
+    agent -->|"hook appends a line per event"| logs
     prs --> tasksvc & wts & git & github
     sync --> boot & wts & tasksvc
     tasksvc --> wts
@@ -53,7 +62,7 @@ flowchart TD
     github -->|"gh pr create, edit, list"| hub
 ```
 
-- **One process.** FastAPI + Uvicorn on `127.0.0.1`. RepoCop runs no coding agent and nothing in the background: each git or `gh` call runs in the request that asks for it, with a timeout, and a template sync is committed within the request that applies it.
+- **One process.** FastAPI + Uvicorn on `127.0.0.1`. RepoCop runs no coding agent and nothing in the background: each git or `gh` call runs in the request that asks for it, with a timeout, and a template sync is committed within the request that applies it. It learns what agents do from the logs their sessions write ([Session events](#session-events)).
 - **No duplicated knowledge.** The DB stores references, metadata and the record of template syncs, never requirement names, text, or repo config: those are read from the repo. Git facts (current branch, status, diff) are queried live.
 - **Only RepoCop's own pages change state.** Every request but a `GET`, `HEAD` or `OPTIONS` is refused with 403 when the browser says a page on another origin sent it: by `Sec-Fetch-Site`, or else by an `Origin` that isn't the host the request went to. A request with neither header isn't a browser's, and is served. The check takes the browser's word for which host it asked, so it doesn't stop DNS rebinding, where another site's name is made to resolve to RepoCop: that takes a list of the host names RepoCop answers to, which it doesn't have.
 - **Safety** rules for processes, paths and the primary checkout are in `.claude/rules/safety.md`.
@@ -134,12 +143,13 @@ A requirement is in the first stage that applies:
 |-------|------|
 | Delivered | archived within the past week by its archive stamp, in the checkout or on the default branch on `origin` as last fetched. One archived earlier, or without a stamp, isn't shown |
 | In review | a branch that belongs to it has an open pull request |
-| In progress | a branch that belongs to it has commits that default branch lacks |
+| In progress | a branch that belongs to it has commits that default branch lacks, or a session working on it is working, needs input or waits for an instruction |
 | To do | anything else in the requirements folder that `origin` hasn't archived, however long ago; its card names what it waits on |
 
 - **Branches.** A branch belongs to a requirement by its name (`.claude/rules/specs.md` › A branch's requirement), whoever made it, local or on `origin` as last fetched. A card names each one, the commits the default branch lacks, and whether `origin` has them all. The local tip counts when there is one. They are read with a fixed number of git calls, whatever their number: one listing of every branch's tip, one walk of the commits the default branch lacks, and one of those `origin` lacks.
 - **No default branch from `origin`.** A repository whose checkout lacks it says to fetch first, and its cards show no branch state. A partial clone that lacks the archive on it is never made to download it: the board says it can't be read. An archive name shaped like a stamp that isn't a time counts as unstamped.
 - **Pull requests** come from one read-only `gh pr list` per repository, with a 15-second timeout, counting only those whose branch is in the registered repository rather than a fork. They are read side by side, after the page renders: htmx swaps in the board with them, so the page never waits for GitHub. Without JavaScript, a link reloads the page with them read. A repository whose pull requests can't be read says why (no `gh`, logged out, not on github.com, no answer in time), and its cards keep the stage they have without them.
+- **Sessions.** A card shows the sessions working on its requirement ([Session events](#session-events)). A repository's sessions that work on no requirement with a card show in its row of the table, as other sessions, so no running work goes unseen. A repository whose default branch on `origin` lacks the hook that records sessions gets a note saying a template sync brings it.
 - **Nothing on the board acts.** It only shows: the work is done in the developer's own agent.
 
 ## Requirements and the developer's agent
@@ -172,17 +182,66 @@ sequenceDiagram
 - **Dependencies** come from each change's `depends-on` front matter (`.claude/rules/specs.md`), read from disk on each page load like the rest. The requirements list orders the folder's changes by level: those no undelivered change holds up, then those one undelivered change away, and so on, by their longest chain. Once some change waits on another, each row says what it is blocked by, and a filter shows only the unblocked; until then neither is shown, so a repository that declares no dependencies sees a plain list. Each requirement's page shows what it's blocked by and what it blocks. A problem (a name that matches no change or several, a change that needs itself, a cycle, a list that can't be read) is shown above the list, and the changes it holds up come after the others, marked as unable to be ordered. A name is only compared with the folder's file names, never used to build a path.
 - **The template's `specs/changes/backlog.sh` orders the same backlog** outside RepoCop, by the same rules and with the same problems, and draws it as a git-ignored Mermaid graph. RepoCop never runs a repository's scripts, so it applies the rules itself, and `tests/test_backlog.py` holds the two to the same results.
 
+## Session events
+
+RepoCop shows the developer's agent sessions as they work, however and wherever they were started, without launching anything: each session reports itself. The repo template's hook, `.claude/hooks/session-events.sh`, runs in every Claude Code session that runs the repository's project hooks, in the primary checkout or any worktree, from a terminal, VS Code or agent view. It is registered `async` in the template's merged settings, so it never delays or fails a session, and it needs only `sh`, `awk` and `git`. It appends one line per event to `<git common dir>/repocop/sessions/<session id>.jsonl`: a folder every worktree of the repository shares, on the developer's machine, out of every commit. When a session starts, it removes the logs that have gone a week without an event; RepoCop never deletes one.
+
+**The format** is RepoCop's own, so another agent's hook can write it. One JSON object per line:
+
+| Field | Holds |
+|-------|-------|
+| `v` | the format's version, `1` |
+| `at` | when, in UTC: `2026-10-29T16:50:01Z` |
+| `session` | the session's id, also the log's name |
+| `event` | `started`, `moved`, `workflow`, `waiting`, `working`, `turn-finished` or `closed` |
+| `cwd`, `branch` | the folder the session is in, and its branch there (`null` off a branch) |
+| `pid`, `pid_start` | the agent's process and its start time as `/proc` shows it (`null` where there is none) |
+| `workflow`, `argument` | for `workflow`: the skill, and the first line of its argument, at most 200 characters |
+| `waiting_for`, `tool` | for `waiting`: `permission` or `answer`, and the tool a permission is for when known |
+| `reason` | for `closed`: why, as the agent says (`exit`, `clear`, `logout`, …) |
+
+Nothing else the session said or did is recorded. Claude Code's events map to them as follows:
+
+| Event | From |
+|-------|------|
+| `started` | `SessionStart`, but for a compaction, which carries on the same session |
+| `moved` | `CwdChanged` |
+| `workflow` | `UserPromptExpansion` of one of the repository's skills, or `PreToolUse` on `Skill` naming one: typed or chosen by the agent |
+| `waiting` | `PermissionRequest`, a `Notification` of a permission prompt or a question, and `PreToolUse` on `AskUserQuestion` |
+| `working` | `UserPromptSubmit`, and `PostToolUse` after a `waiting`, `turn-finished` or `started` |
+| `turn-finished` | `Stop` |
+| `closed` | `SessionEnd` |
+
+These were verified on Claude Code 2.1.312, the oldest version the hook supports. Background sessions run project hooks only in a workspace the developer trusted, which Claude Code looks up by the primary checkout's path.
+
+**What a session shows.** A session shows while it has an event in the past day. Its state comes from its events, and from whether its process still runs:
+
+| State | When |
+|-------|------|
+| Working | its last event put it to work, and its process runs |
+| Needs input | it waits for permission to use a tool, named when known, or for an answer to its question, and its process runs |
+| Waiting for instruction | it started, or finished its turn, whether its process still runs or agent view has put it to sleep, which a reply wakes |
+| Stopped mid-turn | its process ended while it was working or needed input: it crashed, was killed, or the machine shut down |
+| Closed | it ended: it exited, was cleared, or was logged out |
+
+Each shows how long it has been in its state, the workflow it last started, and its branch. Its requirement is the one whose path in the requirements folder its latest workflow's argument holds, as `/implement specs/changes/todo/bulk-import.md` does, or else the one its latest event's branch belongs to (`.claude/rules/specs.md` › A branch's requirement), from the requirements folder or its archive. A requirement's page shows its sessions, a repository's page all of its own, and the sidebar those that need input, in every repository. The process check reads `/proc`, so elsewhere Stopped mid-turn isn't told, and a session shows its last state until a day passes without an event.
+
+**Reading costs little.** Each repository's git common folder is asked of git once, and kept in memory. From then on, a page or a refresh lists the folder, skips logs not written in the past day, and reads the last 64 KiB of at most 200 logs, the latest first, from the end back only as far as it needs, skipping any line it can't read. What a log says is kept in memory until the log is written to again, so an unchanged log costs only a look at its size and time; its process is looked at each time, since it can end without a word. A log is read only as a regular file inside the folder, never through a link. Any local process can write one, so what it says is shown escaped.
+
+**Refreshing.** The shell asks for the session lists every page shows every 2 s, with one request naming each list on the page, and swaps each into place, the sidebar's included: no git call, and no read of GitHub, whose pull requests the board reads once per page load. A card's stage is as of the page load.
+
 ## Coding agents
 
-RepoCop runs none, and isn't tied to one vendor's. What in it is specific to one agent is kept to a few places, which `.claude/rules/agents.md` lists and `tests/test_architecture.py` holds the code to: where a repository's workflows are found, `.claude/skills`, and the line that runs one, `/<workflow> <path>`, both Claude Code's. The repo template ships `CLAUDE.md` and `.claude/` for Claude Code, and `AGENTS.md` for Codex.
+RepoCop runs none, and isn't tied to one vendor's. What in it is specific to one agent is kept to a few places, which `.claude/rules/agents.md` lists and `tests/test_architecture.py` holds the code to: where a repository's workflows are found, `.claude/skills`, the line that runs one, `/<workflow> <path>`, and where the template's hook that records sessions lives, all Claude Code's. The session log's format is RepoCop's own, so reading it needs no agent's module. The repo template ships `CLAUDE.md` and `.claude/` for Claude Code, and `AGENTS.md` for Codex.
 
 ## UI approach
 
-Server-rendered Jinja, with HTMX for the quick switcher and the board's pull requests, one shared script for the shell, and optional page-specific plain JavaScript or vendored libraries where a page needs more. No SPA framework, npm, bundler, or CDN dependency at runtime. Route handlers stay thin, with logic in `services/`. HTMX is vendored in `repocop/static/vendor/`, and it and the shell's script load on every page.
+Server-rendered Jinja, with HTMX for the quick switcher, the board's pull requests and the session lists, one shared script for the shell, and optional page-specific plain JavaScript or vendored libraries where a page needs more. No SPA framework, npm, bundler, or CDN dependency at runtime. Route handlers stay thin, with logic in `services/`. HTMX is vendored in `repocop/static/vendor/`, and it and the shell's script load on every page.
 
-**The shell.** Every page shares one frame, so an operator gets to any repository, requirement or template sync quickly:
+**The shell.** Every page shares one frame, so an operator sees which session needs them and gets to any repository, requirement or template sync quickly:
 
-- **Sidebar:** the repositories. It reads only the database, so it adds no git call to a page. In a narrow window it is a native popover behind a Menu button, which needs no script.
+- **Sidebar:** the repositories, and the sessions that need input in any of them, each linked to its requirement's page, or else its repository's. In a narrow window it is a native popover behind a Menu button, which needs no script.
+- **What the shell shows costs each page little**, whatever the number of repositories and sessions, since it is on every page and refreshes every 2 s: it reads the database and the session logs as files, and once each repository's log folder is known, starts no process. Starting one per repository on each page or refresh is what breaks it.
 - **Breadcrumbs** on every page but the repository list, such as Repositories › crm-api › bulk-import, each part a link.
 - **Quick switcher:** Ctrl+K (⌘K on macOS), or Jump to…, opens a native `<dialog>` holding a WAI-ARIA combobox. Its options are a server-rendered fragment that HTMX fetches as you type: the repositories and requirements whose name holds what was typed, and the template syncs by number or branch. Requirements are those in each checkout's requirements folder, read as a requirement's page reads them. The script only moves the selection and opens the pick.
 - **Shortcuts:** `?` lists them, `g r` goes to the repository list and `g u` one level up, by the breadcrumbs. Single-key shortcuts never fire in a field, and a switch in the list turns them off, remembered in that browser's `localStorage`.

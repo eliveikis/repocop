@@ -1,5 +1,7 @@
-"""What the navigation every page shares shows: the registered repositories, read from the
-database alone, and the repositories, requirements and template syncs that a search finds."""
+"""What the navigation every page shares shows: the registered repositories, the sessions that
+need input, the session lists a page shows as they are now, and the repositories, requirements
+and template syncs that a search finds. Sessions are read from their logs, without git once each
+repository's log folder is known, so the shell costs every page little."""
 
 from __future__ import annotations
 
@@ -7,9 +9,10 @@ import sqlite3
 from dataclasses import dataclass
 
 from repocop.config import Settings
-from repocop.services import repositories, requirements, tasks
+from repocop.services import repositories, requirements, sessions, tasks
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Requirement, RequirementError
+from repocop.services.sessions import Session, State
 from repocop.services.tasks import Task
 
 SEARCH_LIMIT = 8  # the matches of each kind a search returns
@@ -39,9 +42,79 @@ class Matches:
         return bool(self.repositories or self.requirements or self.syncs)
 
 
+@dataclass(frozen=True)
+class SessionEntry:
+    """A session, with the name of its repository."""
+
+    session: Session
+    repository: str
+
+
+@dataclass(frozen=True)
+class SessionList:
+    """The sessions a page shows in one place, by its key: `r:<repository id>:<requirement>`
+    for those working on a requirement, `a:<repository id>` for all of a repository's, and
+    `o:<repository id>` for those working on none of the requirements the page shows."""
+
+    key: str
+    sessions: tuple[Session, ...]
+
+
 def sidebar(conn: sqlite3.Connection) -> list[Repository]:
     """The repositories, by name. No git, no files."""
     return repositories.list_all(conn)
+
+
+def needs_input(conn: sqlite3.Connection, settings: Settings) -> list[SessionEntry]:
+    """The sessions waiting for the developer, in every repository, the latest first."""
+    return _needing_input(_sessions(conn, settings))
+
+
+def session_lists(
+    conn: sqlite3.Connection, settings: Settings, keys: list[str]
+) -> tuple[list[SessionList], list[SessionEntry]]:
+    """The session lists named by `keys`, as they are now, and the sessions that need input.
+    A key that names nothing known is left out."""
+    found = _sessions(conn, settings)
+    by_id = {repo.id: shown for repo, shown in found}
+    shown_names: dict[int, set[str]] = {}
+    parsed = []
+    for key in dict.fromkeys(keys):
+        kind, _, rest = key.partition(":")
+        number, _, name = rest.partition(":")
+        if not number.isdigit() or int(number) not in by_id or kind not in ("r", "a", "o"):
+            continue
+        if kind == "r":
+            shown_names.setdefault(int(number), set()).add(name)
+        parsed.append((key, kind, int(number), name))
+    lists = []
+    for key, kind, repo_id, name in parsed:
+        everyone = by_id[repo_id]
+        if kind == "r":
+            picked = sessions.for_requirement(everyone, name)
+        elif kind == "o":
+            names = shown_names.get(repo_id, set())
+            picked = tuple(s for s in everyone if s.requirement not in names)
+        else:
+            picked = tuple(everyone)
+        lists.append(SessionList(key, picked))
+    return lists, _needing_input(found)
+
+
+def _sessions(
+    conn: sqlite3.Connection, settings: Settings
+) -> list[tuple[Repository, list[Session]]]:
+    return [(repo, sessions.of(repo, settings)) for repo in repositories.list_all(conn)]
+
+
+def _needing_input(found: list[tuple[Repository, list[Session]]]) -> list[SessionEntry]:
+    entries = [
+        SessionEntry(session, repo.name)
+        for repo, shown in found
+        for session in shown
+        if session.state is State.NEEDS_INPUT
+    ]
+    return sorted(entries, key=lambda entry: entry.session.since, reverse=True)
 
 
 def search(conn: sqlite3.Connection, settings: Settings, text: str) -> Matches:

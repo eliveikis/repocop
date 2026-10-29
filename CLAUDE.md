@@ -27,7 +27,7 @@ Python 3.12+, FastAPI, Jinja2 server-rendered HTML, HTMX (vendored in `repocop/s
 ```text
 repocop/            app package
   main.py config.py db.py
-  services/             repositories, board, bootstrap, template_sync, requirements, backlog, worktrees, tasks, pull_requests, navigation, git, github
+  services/             repositories, board, bootstrap, template_sync, requirements, backlog, worktrees, tasks, pull_requests, sessions, navigation, git, github
   routes/  templates/   thin handlers + Jinja
   static/               css, the shell's script, vendored htmx
 templates/default-repo/ the repo template, synced into onboarded repos (NOT Jinja app templates)

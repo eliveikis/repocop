@@ -158,6 +158,20 @@ def change_files(
     return texts, archived
 
 
+def files_on_disk(repository: Repository) -> tuple[list[str], list[str]]:
+    """The Markdown file names in the repository's requirements folder, and in the archive beside
+    it, read from disk alone, without git: none for a folder that isn't there or that leads
+    outside the checkout."""
+    found: list[list[str]] = []
+    for folder in (todo_dir(repository), archive_dir(repository)):
+        try:
+            entries = _markdown_files(repository.primary_path, PurePosixPath(folder))
+        except (RequirementError, OSError):
+            entries = []
+        found.append([entry.name for entry in entries])
+    return found[0], found[1]
+
+
 def detail(settings: Settings, repository: Repository, requirement: Requirement) -> Detail:
     """Where the requirement's file is, what it says, and whether it has uncommitted changes."""
     where = location(settings, repository, requirement)

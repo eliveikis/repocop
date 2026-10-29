@@ -14,7 +14,9 @@ import sqlite3
 import subprocess
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -27,6 +29,8 @@ from tests.fakes.fake_gh import FakeGh
 
 # First on PATH in every test: holds `gh` and `codex`.
 FAKE_BIN = Path(__file__).parent / "fakes" / "bin"
+# The awks the template's scripts must work with: Debian's default, and GNU awk held to POSIX.
+AWKS = {"mawk": ["mawk"], "posix-awk": ["gawk", "--posix"]}
 
 
 def run_git(*args: str, cwd: Path) -> str:
@@ -60,6 +64,41 @@ def add_requirement(
         run_git("add", "--", str(path), cwd=checkout)
         run_git("commit", "-qm", f"Add {path.stem}", cwd=checkout)
     return str(path)
+
+
+SESSION = "5f0c2a1e-7d3b-4c9a-9e21-0b6f4d8a2c11"
+NOW = datetime.now(UTC).replace(microsecond=0)
+# This process's start time, as /proc shows it: a session recorded with it is still running.
+OWN_START = (
+    Path("/proc/self/stat").read_text().rpartition(") ")[2].split()[19]
+    if Path("/proc/self/stat").exists()
+    else None
+)
+
+
+def record_session(checkout: Path, *events: dict[str, Any], session: str = SESSION) -> Path:
+    """Append events to a session's log in `checkout`'s git folder, as its hook does: each
+    event's `ago` is how many minutes before NOW it happened, and by default it was in the
+    checkout, on `main`, by this still running process. Returns the log."""
+    folder = checkout / ".git" / "repocop" / "sessions"
+    folder.mkdir(parents=True, exist_ok=True)
+    log = folder / f"{session}.jsonl"
+    with log.open("a") as file:
+        for event in events:
+            fields = dict(event)
+            at = NOW - timedelta(minutes=fields.pop("ago", 0))
+            line = {
+                "v": 1,
+                "at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "session": session,
+                "cwd": str(checkout),
+                "branch": "main",
+                "pid": os.getpid(),
+                "pid_start": OWN_START,
+                **fields,
+            }
+            file.write(json.dumps(line) + "\n")
+    return log
 
 
 def push_commit(remote: Path, workdir: Path, name: str = "upstream.txt") -> str:
@@ -179,6 +218,20 @@ def fake_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeGh:
     directory.mkdir()
     monkeypatch.setenv("FAKE_GH_DIR", str(directory))
     return FakeGh(directory)
+
+
+@pytest.fixture(params=sorted(AWKS))
+def awk(request: pytest.FixtureRequest, tmp_path: Path) -> Path:
+    """A folder to put first on PATH, whose `awk` is one of AWKS."""
+    command = AWKS[request.param]
+    if shutil.which(command[0]) is None:
+        pytest.skip(f"{command[0]} isn't installed")
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    shim = folder / "awk"
+    shim.write_text(f'#!/bin/sh\nexec {" ".join(command)} "$@"\n')
+    shim.chmod(0o755)
+    return folder
 
 
 @pytest.fixture
