@@ -191,7 +191,7 @@ RepoCop shows the developer's agent sessions as they work, however and wherever 
 | Field | Holds |
 |-------|-------|
 | `v` | the format's version, `1` |
-| `at` | when, in UTC: `2026-10-29T16:50:01Z` |
+| `at` | when its hook started, in UTC, to the nanosecond where the host's `date` says: `2026-10-29T16:50:01.123456789Z`. Hooks finish in any order, so this, not a line's place in the log, orders events |
 | `session` | the session's id, also the log's name |
 | `event` | `started`, `moved`, `workflow`, `waiting`, `working`, `turn-finished` or `closed` |
 | `cwd`, `branch` | the folder the session is in, and its branch there (`null` off a branch) |
@@ -208,7 +208,7 @@ Nothing else the session said or did is recorded. Claude Code's events map to th
 | `moved` | `CwdChanged` |
 | `workflow` | `UserPromptExpansion` of one of the repository's skills, or `PreToolUse` on `Skill` naming one: typed or chosen by the agent |
 | `waiting` | `PermissionRequest`, a `Notification` of a permission prompt or a question, and `PreToolUse` on `AskUserQuestion` |
-| `working` | `UserPromptSubmit`, and `PostToolUse` after a `waiting`, `turn-finished` or `started` |
+| `working` | `UserPromptSubmit`, and every `PostToolUse` |
 | `turn-finished` | `Stop` |
 | `closed` | `SessionEnd` |
 
@@ -224,9 +224,9 @@ These were verified on Claude Code 2.1.312, the oldest version the hook supports
 | Stopped mid-turn | its process ended while it was working or needed input: it crashed, was killed, or the machine shut down |
 | Closed | it ended: it exited, was cleared, or was logged out |
 
-Each shows how long it has been in its state, the workflow it last started, and its branch. Its requirement is the one whose path in the requirements folder its latest workflow's argument holds, as `/implement specs/changes/todo/bulk-import.md` does, or else the one its latest event's branch belongs to (`.claude/rules/specs.md` › A branch's requirement), from the requirements folder or its archive. A requirement's page shows its sessions, a repository's page all of its own, and the sidebar those that need input, in every repository. The process check reads `/proc`, so elsewhere Stopped mid-turn isn't told, and a session shows its last state until a day passes without an event.
+Each shows how long it has been in its state, the workflow it last started, and its branch. Its requirement is the one in the requirements folder, or its archive, whose path in that folder its latest workflow's argument holds, as `/implement specs/changes/todo/bulk-import.md` does, the longest if several and whatever its file is called, or else the one its latest event's branch belongs to (`.claude/rules/specs.md` › A branch's requirement), from the requirements folder or its archive. A requirement's page shows its sessions, a repository's page all of its own, and the sidebar those that need input, in every repository. The process check reads `/proc`, so elsewhere Stopped mid-turn isn't told, and a session shows its last state until a day passes without an event.
 
-**Reading costs little.** Each repository's git common folder is asked of git once, and kept in memory. From then on, a page or a refresh lists the folder, skips logs not written in the past day, and reads the last 64 KiB of at most 200 logs, the latest first, from the end back only as far as it needs, skipping any line it can't read. What a log says is kept in memory until the log is written to again, so an unchanged log costs only a look at its size and time; its process is looked at each time, since it can end without a word. A log is read only as a regular file inside the folder, never through a link. Any local process can write one, so what it says is shown escaped.
+**Reading costs little.** Each repository's git common folder is asked of git once, and kept in memory. From then on, a page or a refresh lists the folder and skips logs not written in the past day. It reads at most 200 logs, the latest first: each the first time from its end back to its latest workflow, at most 1 MiB, and from then on only what is appended to it, so an unchanged log costs only a look at its size and time. A log that is another file at its path, told by its first bytes, is read anew. Events are taken in by their time, and one older than the event that last set the state, or the workflow, leaves it as it is. A line that can't be read is skipped. Its process is looked at each time, since it can end without a word. A log is read only as a regular file inside the folder, never through a link. Any local process can write one, so what it says is shown escaped.
 
 **Refreshing.** The shell asks for the session lists every page shows every 2 s, with one request naming each list on the page, and swaps each into place, the sidebar's included: no git call, and no read of GitHub, whose pull requests the board reads once per page load. A card's stage is as of the page load.
 

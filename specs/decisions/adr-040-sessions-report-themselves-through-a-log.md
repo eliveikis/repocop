@@ -12,7 +12,8 @@ The developer runs the workflows in their own agent sessions, in a terminal, in 
 - **The log's format is RepoCop's own**, versioned and agent-neutral (`specs/architecture.md` › Session events): another agent's hook can write it, and RepoCop's reader needs no agent's module.
 - **A line holds only what showing a session needs:** the session, the time, its folder, branch and process, and a workflow's name and the first line of its argument, the tool a permission wait is for, or why it closed. Never a prompt, a command or what the agent said.
 - **The logs stay on the developer's machine**, in the git folder every worktree shares, out of every commit. The hook removes a log a week after its last event; RepoCop never deletes one.
-- **Reading is cheap and wary.** RepoCop asks git for each repository's git common folder once, then reads the logs as files: only their last part, only regular files inside the folder, skipping lines it can't read. Any local process can write a log, so what it says is shown escaped.
+- **Events are ordered by when their hook started.** Hooks run async and finish in any order, so each line carries the time its hook started, and RepoCop orders events by it, not by where they land in the log. Every tool use is recorded as working, so a wait that lands late can't outlast the work that followed it.
+- **Reading is cheap and wary.** RepoCop asks git for each repository's git common folder once, then reads the logs as files: each from its end back to its latest workflow the first time, then only what is appended, only regular files inside the folder, skipping lines it can't read. Any local process can write a log, so what it says is shown escaped.
 - **The shell refreshes the session lists every 2 s** on every page, in one request that starts no process and doesn't read GitHub. What the shell shows must cost each page little, rather than read only the database.
 
 ## Consequences

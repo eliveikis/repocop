@@ -5,6 +5,7 @@ import json
 import os
 import subprocess
 import time
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -124,7 +125,7 @@ def test_hook_records_a_session_from_start_to_close_and_nothing_it_said(
         assert set(event) >= ALWAYS
         assert (event["v"], event["session"], event["cwd"]) == (1, SESSION, str(checkout))
         assert event["branch"] == "main"
-        assert time.time() - time.mktime(time.strptime(event["at"], "%Y-%m-%dT%H:%M:%SZ")) < 86400
+        assert abs(datetime.now(UTC) - datetime.fromisoformat(event["at"])) < timedelta(minutes=1)
     assert SECRET not in log_of(checkout).read_text()
 
 
@@ -161,7 +162,6 @@ def test_hook_records_a_skill_the_agent_chose_with_its_argument_cut_to_one_line(
         {"hook_event_name": "PreToolUse", "tool_name": "Skill", "tool_input": {"skill": "x:y"}},
         {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "ls"}},
         {"hook_event_name": "Notification", "notification_type": "idle_prompt"},
-        {"hook_event_name": "PostToolUse", "tool_name": "Bash"},
         {"hook_event_name": "SessionStart", "source": "compact"},
         {"hook_event_name": "SubagentStop"},
     ],
@@ -189,6 +189,23 @@ def test_hook_records_a_question_as_waiting_for_an_answer(
     record(checkout, awk, payload(checkout, "", **asked))
     [event] = events(checkout)
     assert (event["event"], extras(event)) == ("waiting", {"waiting_for": "answer"})
+
+
+def test_hook_records_each_tool_use_as_working_and_dates_each_line_when_it_started(
+    checkout: Path, awk: Path
+) -> None:
+    before = datetime.now(UTC)
+    record(
+        checkout,
+        awk,
+        payload(checkout, "PostToolUse", tool_name="Read", tool_response={"file": SECRET}),
+        payload(checkout, "PostToolUse", tool_name="Bash", tool_response={"stdout": SECRET}),
+    )
+    first, second = events(checkout)
+    assert [first["event"], second["event"]] == ["working", "working"]
+    started = [datetime.fromisoformat(event["at"]) for event in (first, second)]
+    assert before - timedelta(seconds=1) <= started[0] <= started[1] <= datetime.now(UTC)
+    assert SECRET not in log_of(checkout).read_text()
 
 
 def test_hook_records_a_move_with_the_folder_and_branch_moved_to(

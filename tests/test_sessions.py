@@ -129,6 +129,20 @@ def test_a_session_whose_process_ended_mid_turn_is_stopped_mid_turn(
         assert found.since == NOW - timedelta(minutes=2)
 
 
+def test_a_workflow_names_its_requirement_whatever_its_file_is_called(
+    settings: Settings, repo: Repository
+) -> None:
+    add_requirement(repo.primary_path, "fix.md")
+    add_requirement(repo.primary_path, "fix #42 at 50%?.md")
+    for argument, named in (
+        ('"specs/changes/todo/fix #42 at 50%?.md" and more', "fix #42 at 50%?"),
+        ("specs/changes/todo/fix.md", "fix"),
+        ("specs/changes/todo/gone.md", None),  # named no requirement there is: its branch's
+    ):
+        write(repo, {"event": "workflow", "workflow": "implement", "argument": argument})
+        assert only(settings, repo).requirement == named, argument
+
+
 def test_a_sessions_requirement_is_the_one_its_latest_workflow_named(
     settings: Settings, repo: Repository
 ) -> None:
@@ -188,11 +202,13 @@ def test_only_sessions_with_an_event_in_the_past_day_show_the_latest_first(
 def test_lines_that_cant_be_read_are_skipped(settings: Settings, repo: Repository) -> None:
     log = write(repo, {"event": "started", "ago": 9})
     with log.open("a") as file:
-        file.write("not json\n[1, 2]\n")
+        file.write("not json\n[1, 2]\n" + "[" * 100_000 + "\n")
         for broken in (
             {"v": 2, "event": "working"},
             {"session": "someone-else", "event": "working"},
             {"event": "thinking"},
+            {"event": ["working"]},
+            {"event": {"working": 1}},
             {"event": "working", "at": "yesterday"},
             {"event": "working", "cwd": 7},
         ):
@@ -202,12 +218,42 @@ def test_lines_that_cant_be_read_are_skipped(settings: Settings, repo: Repositor
     assert only(settings, repo).state is State.WAITING
 
 
-def test_only_the_end_of_a_long_log_is_read(settings: Settings, repo: Repository) -> None:
+def test_a_log_is_first_read_back_to_its_latest_workflow_and_no_further_than_read_back(
+    settings: Settings, repo: Repository, monkeypatch: pytest.MonkeyPatch
+) -> None:
     filler = {"event": "moved", "ago": 30, "cwd": "/x" * 500}
     write(repo, {"event": "workflow", "ago": 40, "workflow": "implement"}, *[filler] * 200)
     write(repo, {"event": "waiting", "ago": 1, "waiting_for": "answer"})
     found = only(settings, repo)
-    assert (found.state, found.workflow) == (State.NEEDS_INPUT, None)
+    assert (found.state, found.workflow) == (State.NEEDS_INPUT, "implement")
+    monkeypatch.setattr(sessions, "READ_BACK", 64 * 1024)
+    write(repo, *[filler] * 200, session="other")
+    write(repo, {"event": "waiting", "ago": 1, "waiting_for": "answer"}, session="other")
+    [other] = [found for found in sessions.of(repo, settings, now=NOW) if found.id == "other"]
+    assert (other.state, other.workflow) == (State.NEEDS_INPUT, None)
+
+
+def test_events_take_their_place_by_their_time_not_where_they_land_in_the_log(
+    settings: Settings, repo: Repository
+) -> None:
+    write(repo, {"event": "working", "ago": 1}, {"event": "waiting", "ago": 2, "tool": "Bash"})
+    assert only(settings, repo).state is State.WORKING
+    write(repo, {"event": "waiting", "ago": 3, "waiting_for": "permission"})  # read on from here
+    assert (only(settings, repo).state, only(settings, repo).since) == (
+        State.WORKING,
+        NOW - timedelta(minutes=1),
+    )
+    write(repo, {"event": "turn-finished", "ago": 0.5}, {"event": "workflow", "ago": 4})
+    found = only(settings, repo)
+    assert (found.state, found.since) == (State.WAITING, NOW - timedelta(minutes=0.5))
+
+
+def test_a_log_written_anew_is_read_anew(settings: Settings, repo: Repository) -> None:
+    log = write(repo, {"event": "working", "ago": 2})
+    assert only(settings, repo).state is State.WORKING
+    log.unlink()
+    write(repo, {"event": "started", "ago": 9})
+    assert only(settings, repo).state is State.WAITING
 
 
 def test_a_log_that_leads_outside_the_folder_is_never_read(

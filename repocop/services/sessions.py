@@ -2,11 +2,14 @@
 ("Session events" in `specs/architecture.md`).
 
 Each session appends one JSON line per event to `<git common dir>/repocop/sessions/<id>.jsonl`.
-A session shows while it has an event in the past day. Its state comes from its events and from
-whether its process still runs, and its requirement from the workflow it last started or else its
-branch. Once a repository's git common folder is known, reading costs no git call: only each log's
-last part is read, and a line that can't be read is skipped. Any local process can write a log, so
-its path must stay in the folder, and what it says is shown escaped.
+Hooks finish in any order, so an event's time, when its hook started, orders it, not its place in
+the log. A session shows while it has an event in the past day. Its state comes from its events
+and from whether its process still runs, and its requirement from the workflow it last started or
+else its branch. Once a repository's git common folder is known, reading costs no git call: a log
+is first read from its end back to its latest workflow, at most READ_BACK bytes, then only what
+is appended to it, and a line that can't be read is skipped. Any local process can write a log,
+so its path must stay in the folder, it is never read through a link, and what it says is shown
+escaped.
 """
 
 from __future__ import annotations
@@ -21,7 +24,7 @@ from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path, PurePosixPath
 from stat import S_ISREG
-from typing import Any
+from typing import Any, BinaryIO
 
 from repocop.config import Settings
 from repocop.errors import RepoCopError
@@ -30,7 +33,9 @@ from repocop.services.repositories import Repository
 
 FORMAT = 1  # the version of the log format read here
 SHOWN_FOR = timedelta(days=1)  # how long after its last event a session still shows
-TAIL_BYTES = 64 * 1024  # how much of the end of each log is read
+CHUNK = 64 * 1024  # how much of a log is read at a time
+READ_BACK = 1024 * 1024  # how far back from its end a log is first read, for its latest workflow
+IDENTITY_BYTES = 256  # the first bytes of a log, which tell it from another file at its path
 LOGS_READ = 200  # the most logs read in one repository, most recently written first
 LOGS = PurePosixPath("repocop", "sessions")  # in the repository's git common folder
 # The hook the repo template ships, which records sessions, and the settings that run it.
@@ -44,8 +49,8 @@ HOW_CLOSED = {"clear": "was cleared", "logout": "was logged out"}  # else it exi
 
 _COMMON_DIRS: dict[Path, Path] = {}  # each primary checkout's git common folder, once known
 _COMMON_DIRS_GUARD = threading.Lock()
-READINGS_KEPT = 5000  # the most logs whose reading is kept, so an unchanged log isn't read again
-_READINGS: dict[Path, tuple[tuple[int, int], _Reading | None]] = {}
+READINGS_KEPT = 5000  # the most logs whose reading is kept, so only what's appended is read
+_READINGS: dict[Path, _Reading] = {}
 _READINGS_GUARD = threading.Lock()
 
 
@@ -111,13 +116,19 @@ class _Event:
 
 @dataclass(frozen=True)
 class _Reading:
-    """What a log says, before its process and its requirement are looked at."""
+    """What a log says as far as it has been read, before its process and its requirement are
+    looked at. Each field holds what the latest event, by time, that bears on it says."""
 
-    latest: _Event
-    state: State
-    since: datetime
+    file: tuple[int, int, bytes]  # the log's device, inode and first bytes: another file differs
+    end: int  # where reading stopped: just past a line's end
+    written: int  # when the log was last written, as of that read
+    latest: _Event | None
+    state: State | None  # None until an event sets one
+    since: datetime | None  # when it went into its state
+    state_at: datetime | None  # when the event that last set its state happened
     workflow: str | None
     argument: str | None  # the latest workflow's, "" when it had none; None with no workflow
+    workflow_at: datetime | None
     waiting_for: str | None
     tool: str | None
     closed: str | None
@@ -135,10 +146,12 @@ def of(repository: Repository, settings: Settings, *, now: datetime | None = Non
     now = now or datetime.now(UTC)
     pages = _requirement_pages(repository)
     found = []
-    for log, written in _recent_logs(folder, now):
-        reading = _reading(log, written)
-        if reading is not None and now - reading.latest.at <= SHOWN_FOR:
-            found.append(_session(repository, log.name.removesuffix(".jsonl"), reading, pages))
+    for log in _recent_logs(folder, now):
+        reading = _reading(log)
+        latest = reading.latest if reading else None
+        if reading and latest and now - latest.at <= SHOWN_FOR:
+            session = log.name.removesuffix(".jsonl")
+            found.append(_session(repository, session, reading, latest, pages))
     return sorted(found, key=lambda session: session.last_at, reverse=True)
 
 
@@ -176,9 +189,9 @@ def _common_dir(repository: Repository, settings: Settings) -> Path | None:
     return found
 
 
-def _recent_logs(folder: Path, now: datetime) -> list[tuple[Path, tuple[int, int]]]:
-    """The folder's logs written in the past day, the latest first, at most LOGS_READ, each with
-    when it was last written and its size. A link is never read: it could lead anywhere."""
+def _recent_logs(folder: Path, now: datetime) -> list[Path]:
+    """The folder's logs written in the past day, the latest first, at most LOGS_READ. A link
+    is never read: it could lead anywhere."""
     oldest = (now - SHOWN_FOR).timestamp()
     found = []
     for entry in folder.iterdir():
@@ -189,81 +202,117 @@ def _recent_logs(folder: Path, now: datetime) -> list[tuple[Path, tuple[int, int
             stat = entry.lstat()
         except OSError:
             continue
-        if not S_ISREG(stat.st_mode) or stat.st_mtime < oldest:
-            continue
-        found.append((stat.st_mtime_ns, stat.st_size, entry))
+        if S_ISREG(stat.st_mode) and stat.st_mtime >= oldest:
+            found.append((stat.st_mtime_ns, entry))
     found.sort(reverse=True)
-    return [(entry, (written, size)) for written, size, entry in found[:LOGS_READ]]
+    return [entry for _, entry in found[:LOGS_READ]]
 
 
-def _reading(log: Path, written: tuple[int, int]) -> _Reading | None:
-    """What the log says, read again only once it has been written to since it was last read."""
+def _reading(log: Path) -> _Reading | None:
+    """What the log says now: read only as far as it was appended to since it was last read, or
+    anew when it is another file, or shorter, than then. None when it can't be opened."""
     with _READINGS_GUARD:
         known = _READINGS.get(log)
-    if known is not None and known[0] == written:
-        return known[1]
-    reading = _read(log)
+    try:
+        descriptor = os.open(log, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return None
+    with os.fdopen(descriptor, "rb") as file:
+        stat = os.fstat(file.fileno())
+        if not S_ISREG(stat.st_mode):
+            return None
+        unchanged = (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino)
+        if known and unchanged == (known.end, known.written, *known.file[:2]):
+            return known
+        same = known is not None and known.file == _identity(file, stat)
+        session = log.name.removesuffix(".jsonl")
+        if same and known and known.end <= stat.st_size:
+            reading = _read_on(file, stat, known, session)
+        else:
+            reading = _read_anew(file, stat, session)
     with _READINGS_GUARD:
         if len(_READINGS) >= READINGS_KEPT:
             _READINGS.clear()
-        _READINGS[log] = (written, reading)
+        _READINGS[log] = reading
     return reading
 
 
-def _read(log: Path) -> _Reading | None:
-    """What the last TAIL_BYTES of a log say, read from its end back only as far as needed: its
-    latest event, the state its latest events put it in and since when, and the workflow it last
-    started. A line that can't be read is skipped. None when no line can be read."""
-    try:
-        with log.open("rb") as file:
-            size = file.seek(0, os.SEEK_END)
-            start = max(0, size - TAIL_BYTES)
-            file.seek(start)
-            data = file.read(TAIL_BYTES)
-    except OSError:
-        return None
-    lines = data.split(b"\n")
-    if start > 0:
-        lines = lines[1:]  # cut where the read began
-    session = log.name.removesuffix(".jsonl")
-    latest: _Event | None = None
-    state: State | None = None
-    since = None
-    waiting_for = tool = closed = workflow = argument = None
-    in_run = seen_workflow = False
-    for line in reversed(lines):
-        event = _event(line, session)
-        if event is None:
-            continue
-        if latest is None:
-            latest, in_run = event, True
-        if event.event == "workflow" and not seen_workflow:
-            workflow, argument = event.text("workflow"), event.text("argument") or ""
-            seen_workflow = True
-        if in_run and event.event != "moved":
-            new = _STATE_OF[event.event]
-            if state is None:
-                state, waiting_for, tool = new, event.text("waiting_for"), event.text("tool")
-                if event.event == "closed":
-                    closed = HOW_CLOSED.get(event.text("reason") or "", "exited")
-            elif new is not state:
-                in_run = False
-            elif tool is None and event.text("waiting_for") == waiting_for:
-                tool = event.text("tool")
-            if in_run:
-                since = event.at
-        if not in_run and seen_workflow:
+def _read_anew(file: BinaryIO, stat: os.stat_result, session: str) -> _Reading:
+    """What the log says, read from its last complete line back until its latest workflow, or
+    READ_BACK bytes."""
+    file.seek(max(0, stat.st_size - CHUNK))
+    tail = file.read()
+    end = stat.st_size - (len(tail) - tail.rfind(b"\n") - 1) if b"\n" in tail else 0
+    found: list[_Event] = []
+    position, carried = end, b""
+    while position > 0 and end - position < READ_BACK:
+        start = max(0, position - CHUNK, end - READ_BACK)
+        file.seek(start)
+        lines = (file.read(position - start) + carried).split(b"\n")
+        carried = lines.pop(0) if start > 0 else b""  # whole only with the chunk before it
+        events = [event for line in lines if (event := _event(line, session))]
+        found[:0] = events
+        position = start
+        if any(event.event == "workflow" for event in events):
             break
-    if latest is None:
-        return None
+    empty = _Reading(_identity(file, stat), end, stat.st_mtime_ns, *[None] * 10)
+    return _fold(empty, found, end, stat.st_mtime_ns)
+
+
+def _identity(file: BinaryIO, stat: os.stat_result) -> tuple[int, int, bytes]:
+    """What tells a log from another file at its path: its device and inode, which a new file can
+    be given again, and its first bytes, which appending leaves as they are."""
+    file.seek(0)
+    return stat.st_dev, stat.st_ino, file.read(IDENTITY_BYTES)
+
+
+def _read_on(file: BinaryIO, stat: os.stat_result, known: _Reading, session: str) -> _Reading:
+    """`known`, with the complete lines written after where its reading stopped."""
+    file.seek(known.end)
+    data = file.read(stat.st_size - known.end)
+    complete = data[: data.rfind(b"\n") + 1]
+    events = [event for line in complete.split(b"\n") if (event := _event(line, session))]
+    return _fold(known, events, known.end + len(complete), stat.st_mtime_ns)
+
+
+def _fold(reading: _Reading, events: list[_Event], end: int, written: int) -> _Reading:
+    """`reading`, with `events` taken in by their time, those at one time in the log's order. An
+    event older than the one that last set a field leaves that field as it is."""
+    latest, state, since, state_at = reading.latest, reading.state, reading.since, reading.state_at
+    workflow, argument, workflow_at = reading.workflow, reading.argument, reading.workflow_at
+    waiting_for, tool, closed = reading.waiting_for, reading.tool, reading.closed
+    for event in sorted(events, key=lambda event: event.at):
+        if latest is None or event.at >= latest.at:
+            latest = event
+        if event.event == "workflow" and (workflow_at is None or event.at >= workflow_at):
+            workflow, argument = event.text("workflow"), event.text("argument") or ""
+            workflow_at = event.at
+        if event.event == "moved" or (state_at is not None and event.at < state_at):
+            continue
+        new = _STATE_OF[event.event]
+        if event.event == "waiting":
+            asked = event.text("waiting_for")
+            same_wait = state is State.NEEDS_INPUT and asked == waiting_for
+            tool = event.text("tool") or (tool if same_wait else None)
+            waiting_for = asked
+        if event.event == "closed":
+            closed = HOW_CLOSED.get(event.text("reason") or "", "exited")
+        if new is not state:
+            since = event.at
+        state, state_at = new, event.at
     return _Reading(
+        reading.file,
+        end,
+        written,
         latest,
-        state or State.WAITING,
-        since or latest.at,
+        state,
+        since,
+        state_at,
         workflow,
         argument,
-        waiting_for if state is State.NEEDS_INPUT else None,
-        tool if state is State.NEEDS_INPUT else None,
+        workflow_at,
+        waiting_for,
+        tool,
         closed,
     )
 
@@ -271,14 +320,15 @@ def _read(log: Path) -> _Reading | None:
 def _event(line: bytes, session: str) -> _Event | None:
     try:
         found = json.loads(line.decode("utf-8", "replace"))
-    except ValueError:
+    except (ValueError, RecursionError):  # not JSON, or nested too deep to read
         return None
     if not isinstance(found, dict):
         return None
     fields = {key: _clean(value) for key, value in found.items()}
     if fields.get("v") != FORMAT or fields.get("session") != session:
         return None
-    if fields.get("event") not in EVENTS or not isinstance(fields.get("cwd"), str):
+    event, cwd = fields.get("event"), fields.get("cwd")
+    if not isinstance(event, str) or event not in EVENTS or not isinstance(cwd, str):
         return None
     try:
         at = datetime.fromisoformat(str(fields.get("at")))
@@ -306,14 +356,18 @@ def _clean(value: Any) -> Any:
 
 
 def _session(
-    repository: Repository, session: str, reading: _Reading, pages: dict[str, tuple[str, str]]
+    repository: Repository,
+    session: str,
+    reading: _Reading,
+    latest: _Event,
+    pages: dict[str, tuple[str, str]],
 ) -> Session:
     """The session as it stands now: its log's reading, its process looked at again, since it can
     end without a word, and its requirement among those the repository has now."""
-    latest, state, since = reading.latest, reading.state, reading.since
+    state, since = reading.state or State.WAITING, reading.since or latest.at
     if state in (State.WORKING, State.NEEDS_INPUT) and _ended(latest):
         state, since = State.STOPPED, latest.at
-    named = _named(repository, reading.argument) if reading.argument is not None else None
+    named = _named(repository, reading.argument, pages) if reading.argument else None
     belongs = pages.get(latest.branch.rpartition("/")[2]) if latest.branch else None
     requirement, page = named or belongs or (None, None)
     return Session(
@@ -333,12 +387,19 @@ def _session(
     )
 
 
-def _named(repository: Repository, argument: str) -> tuple[str, str] | None:
+def _named(
+    repository: Repository, argument: str, pages: dict[str, tuple[str, str]]
+) -> tuple[str, str] | None:
     """(name, page file) of the requirement whose path in the requirements folder the workflow's
-    argument holds, if it holds one."""
-    folder = re.escape(requirements.todo_dir(repository) + "/")
-    found = re.search(folder + r"([^\s/\"'`]+\.md)", argument)
-    return (backlog.name_of(found[1]), found[1]) if found else None
+    argument holds, if it holds one: the longest, as a file's name may hold anything, spaces
+    and all."""
+    folder = requirements.todo_dir(repository)
+    held = [
+        (len(page), named)
+        for named in set(pages.values())
+        if f"{folder}/{(page := named[1])}" in argument
+    ]
+    return max(held)[1] if held else None
 
 
 def _requirement_pages(repository: Repository) -> dict[str, tuple[str, str]]:

@@ -89,7 +89,7 @@ def record_session(checkout: Path, *events: dict[str, Any], session: str = SESSI
             at = NOW - timedelta(minutes=fields.pop("ago", 0))
             line = {
                 "v": 1,
-                "at": at.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                "at": at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                 "session": session,
                 "cwd": str(checkout),
                 "branch": "main",

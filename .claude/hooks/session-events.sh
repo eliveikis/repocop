@@ -6,8 +6,14 @@
 # time, the folder and branch it is in and the agent's process; beyond those it holds only a
 # workflow's name and the first line of its argument, the tool a permission wait is for, or why
 # the session closed. Never a prompt, a command or what the agent said. It runs async and always
-# exits 0, so it never delays or fails the session. A session's start removes the logs that have
-# gone a week without an event. Needs only sh, awk and git.
+# exits 0, so it never delays or fails the session. Hooks run side by side and finish in any
+# order, so a line's time is when its hook started, to the nanosecond where `date` can say: that,
+# not where it lands in the log, orders it. A session's start removes the logs that have gone a
+# week without an event. Needs only sh, awk and git.
+at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
+case $at in
+*[!0-9TZ:.-]*) at=$(date -u +%Y-%m-%dT%H:%M:%SZ) ;; # a date without nanoseconds
+esac
 LC_ALL=C
 export LC_ALL
 
@@ -170,13 +176,7 @@ Notification)
   *) exit 0 ;;
   esac
   ;;
-PostToolUse)
-  # Back to work only after something that stopped it; otherwise it was working all along.
-  case $(tail -n 1 "$log" 2>/dev/null) in
-  *'"event":"waiting"'* | *'"event":"turn-finished"'* | *'"event":"started"'*) event=working ;;
-  *) exit 0 ;;
-  esac
-  ;;
+PostToolUse) event=working ;; # back at work, whatever the log says yet: a wait may land later
 Stop) event=turn-finished ;;
 SessionEnd)
   event=closed
@@ -213,7 +213,6 @@ if [ -r "/proc/$process/stat" ]; then
   esac
 fi
 
-at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
 mkdir -p "$logs" 2>/dev/null || exit 0
 printf '{"v":1,"at":"%s","session":"%s","event":"%s","cwd":"%s","branch":%s,"pid":%s,"pid_start":%s%s}\n' \
   "$at" "$session" "$event" "$cwd" "$branch" "$pid" "$pid_start" "$extra" >>"$log" 2>/dev/null
