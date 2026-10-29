@@ -231,6 +231,14 @@ def test_settings_record_each_session_event_without_waiting_on_it(root: Path) ->
     }
     assert runs_on == SESSION_HOOK_RUNS_ON
     assert os.access(SESSION_EVENTS, os.X_OK)
+    delivers = [
+        hook
+        for entry in hooks["Stop"]
+        for hook in entry["hooks"]
+        if hook["command"] == f"{command} deliver"
+    ]
+    assert len(delivers) == 1
+    assert "async" not in delivers[0]  # Stop's decision counts only from a hook it waits for
 
 
 @pytest.mark.parametrize("root", [TEMPLATE, PROJECT_ROOT], ids=["template", "this repo"])

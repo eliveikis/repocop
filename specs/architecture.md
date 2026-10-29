@@ -8,6 +8,7 @@ Root design file. It covers *how* the system works; *why* is in [product.md](pro
 repository owns knowledge         → CLAUDE.md, .claude/, specs/ live in each repo
 the developer's agent does work   → in their own agent tool; RepoCop runs no coding agent
 sessions report themselves        → each repo's hook logs events in <git common dir>/repocop/sessions/
+a click asks a session            → a workflow and a requirement, handed over by its own hook or socket
 RepoCop shows and syncs           → the board from each repo and GitHub; SQLite: registry, template syncs
 worktree owns isolated changes    → 1 template sync ↔ 1 branch ↔ 1 worktree under <worktrees_root>/<repo>/
 human keeps final control         → RepoCop's only write in a primary checkout is a fetch; no auto-push/merge/delete
@@ -31,6 +32,7 @@ flowchart TD
         tasksvc["tasks.py<br/>sync records, status + events, workflows"]
         prs["pull_requests.py<br/>push a sync's branch, open its PR"]
         sess["sessions.py<br/>read session logs: state, requirement"]
+        asks["session_requests.py<br/>ask a session to run a workflow"]
         nav["navigation.py<br/>sidebar, session lists, switcher"]
         github["github.py<br/>ONLY place that runs gh"]
     end
@@ -43,10 +45,12 @@ flowchart TD
     agent["Developer's agent session"]
 
     browser -->|"HTTP; session lists every 2 s"| routes
-    routes --> repos & board & reqs & tasksvc & sync & prs & sess & nav
+    routes --> repos & board & reqs & tasksvc & sync & prs & sess & nav & asks
     board --> repos & reqs & git & github & sess
-    nav --> sess
+    nav --> sess & asks
     sess --> reqs
+    asks --> sess & tasksvc
+    asks -->|"a request file, or the session's socket"| agent
     sess -->|"read the tail, no git"| logs
     agent -->|"hook appends a line per event"| logs
     prs --> tasksvc & wts & git & github
@@ -196,6 +200,7 @@ RepoCop shows the developer's agent sessions as they work, however and wherever 
 | `event` | `started`, `moved`, `workflow`, `waiting`, `working`, `turn-finished` or `closed` |
 | `cwd`, `branch` | the folder the session is in, and its branch there (`null` off a branch) |
 | `pid`, `pid_start` | the agent's process and its start time as `/proc` shows it (`null` where there is none) |
+| `socket` | the inbox socket where the agent takes messages, as Claude Code tells its hooks (`null` where it tells none) |
 | `workflow`, `argument` | for `workflow`: the skill, and the first line of its argument, at most 200 characters |
 | `waiting_for`, `tool` | for `waiting`: `permission` or `answer`, and the tool a permission is for when known |
 | `reason` | for `closed`: why, as the agent says (`exit`, `clear`, `logout`, …) |
@@ -230,9 +235,21 @@ Each shows how long it has been in its state, the workflow it last started, and 
 
 **Refreshing.** The shell asks for the session lists every page shows every 2 s, with one request naming each list on the page, and swaps each into place, the sidebar's included: no git call, and no read of GitHub, whose pull requests the board reads once per page load. A card's stage is as of the page load.
 
+## Session requests
+
+From a requirement's page, the developer asks one of its live sessions to run one of the repository's committed workflows on it, which moves the work on without finding the session in a terminal, VS Code or agent view. RepoCop doesn't launch or manage the session: the request reaches it where it runs, and the developer sees it arrive there.
+
+- **Only a click, only a workflow and a requirement.** Each live session of the requirement has its own form, a choice among the skills committed in the repository and a button: no free text. RepoCop refuses a workflow the repository hasn't committed, and a requirement path that would change the request's meaning (a backtick, a backslash, a line break, an absolute path). The session is told: ``The developer asks, from RepoCop: run the `<workflow>` skill with the argument `<path>`.``, a wording verified to make Claude Code call the skill.
+- **A session at work gets it when its turn ends.** For a session that is working, or needs input, the request waits as `<git common dir>/repocop/inbox/<session id>.json`: `v`, `id`, `workflow`, `requirement` and `at`. Until then it can be cancelled, and only one waits for a session at a time. When its turn ends, the session's own hook, `session-events.sh deliver`, registered on `Stop` and waited for, takes it by renaming it, so it is delivered once, checks the workflow is a skill committed in the session's checkout and the requirement a file there, and returns Stop's decision to carry on with the wording above as its reason. A session's end removes the request still waiting for it.
+- **A session waiting for an instruction gets it at once**, through the inbox socket its log names: one line, `{"type":"user","session_id":…,"priority":"later","from":"RepoCop","uuid":…,"message":{"role":"user","content":…}}`, which starts its next turn, or waits for the end of one begun meanwhile. A message whose `session_id` isn't the session's is dropped by Claude Code, so it reaches no other. The socket is used only when it is this user's, a socket, named `<pid>.sock` after the session's recorded process, in a folder no one else can write. A request left just as the session's turn ended, which its hook may have looked for already, is handed over the same way, and one still waiting once the session is idle can be sent from the page.
+- **Delivered.** Whoever hands a request over records it in `<session id>.delivered.json` beside it, with when. The requirement's page shows a waiting request, then the delivered one, until the session starts its workflow, and says so when that hasn't happened within three minutes.
+- **A session that can't be reached says why, and gives the line to run in it instead:** it closed, or stopped mid-turn; it waits for an instruction but its process isn't running, as when agent view has put it to sleep; or its log names no socket, because the hook that recorded it predates requests, so a template sync brings them.
+
+These rest on Claude Code 2.1.312: `Stop`'s `decision: block` carrying the session on at once, and a `later` message on a session's socket starting its next turn, in which it calls the skill named.
+
 ## Coding agents
 
-RepoCop runs none, and isn't tied to one vendor's. What in it is specific to one agent is kept to a few places, which `.claude/rules/agents.md` lists and `tests/test_architecture.py` holds the code to: where a repository's workflows are found, `.claude/skills`, the line that runs one, `/<workflow> <path>`, and where the template's hook that records sessions lives, all Claude Code's. The session log's format is RepoCop's own, so reading it needs no agent's module. The repo template ships `CLAUDE.md` and `.claude/` for Claude Code, and `AGENTS.md` for Codex.
+RepoCop runs none, and isn't tied to one vendor's. What in it is specific to one agent is kept to a few places, which `.claude/rules/agents.md` lists and `tests/test_architecture.py` holds the code to: where a repository's workflows are found, `.claude/skills`, the line that runs one, `/<workflow> <path>`, where the template's hook that records sessions lives, and the message a request is sent to a session's socket as, all Claude Code's. The session log's format is RepoCop's own, so reading it needs no agent's module. The repo template ships `CLAUDE.md` and `.claude/` for Claude Code, and `AGENTS.md` for Codex.
 
 ## UI approach
 

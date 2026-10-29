@@ -649,6 +649,11 @@ a.card-name:hover { text-decoration: underline; }
 .session-list { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-1) 0 0; padding: 0; list-style: none; }
 .session { overflow-wrap: anywhere; }
 .session-meta { color: var(--muted); font-size: var(--text-sm); }
+.session-request { display: block; color: var(--muted); font-size: var(--text-sm); }
+.session-request.late { color: var(--danger); }
+.asks { display: flex; flex-direction: column; gap: var(--space-3); margin: var(--space-3) 0; padding: 0; list-style: none; }
+.ask-session { margin: 0; }
+.asks .actions label { display: flex; align-items: center; gap: var(--space-2); }
 .sessions-heading { margin: var(--space-2) 0 0; color: var(--muted); font-size: var(--text-xs); font-weight: 600; }
 .fetch-failures {
   margin: var(--space-3) 0;

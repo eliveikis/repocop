@@ -5,3 +5,9 @@
 {%- if with_requirement and session.requirement %} · {% if session.page %}<a href="{{ url_for('requirement_page', repository_id=session.repository_id, file_name=session.page) }}">{{ session.requirement }}</a>{% else %}{{ session.requirement }}{% endif %}{% endif %}
 {%- if session.workflow %} · <code>{{ session.workflow }}</code>{% endif %}
 {%- if session.branch %} · <code>{{ session.branch }}</code>{% endif %}</span>
+{%- set standing = standings.get(session.id) if with_request and standings else none %}
+{%- if standing and standing.waiting %}
+<span class="session-request">Asked to run <code>{{ standing.waiting.workflow }}</code> {{ standing.waiting.at | ago }}: it gets it when its turn ends.</span>
+{%- elif standing and standing.delivered and not standing.started %}
+<span class="session-request{% if standing.late %} late{% endif %}">Handed <code>{{ standing.delivered.workflow }}</code> {{ standing.delivered.at | ago }}{% if standing.late %}, but it hasn't started it{% endif %}.</span>
+{%- endif %}

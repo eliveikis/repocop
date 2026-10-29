@@ -92,6 +92,10 @@ class Session:
     waiting_for: str | None  # while it needs input: "permission" or "answer"
     tool: str | None  # the tool a permission wait is for, when known
     closed: str | None  # how it closed: "exited", "was cleared" or "was logged out"
+    workflow_at: datetime | None = None  # when it last started a workflow
+    pid: int | None = None  # its agent's process, as its latest event names it
+    running: bool | None = None  # whether that process still runs; None where it can't be told
+    socket: str | None = None  # where its agent takes messages, as its latest event names it
 
     @property
     def live(self) -> bool:
@@ -137,7 +141,7 @@ class _Reading:
 def of(repository: Repository, settings: Settings, *, now: datetime | None = None) -> list[Session]:
     """The repository's sessions with an event in the past day, the latest first. None while its
     checkout isn't there."""
-    common = _common_dir(repository, settings)
+    common = common_dir(repository, settings)
     if common is None:
         return []
     folder = common / LOGS
@@ -174,8 +178,14 @@ def recorder_on_origin(repository: Repository, settings: Settings) -> bool | Non
     return files[RECORDER] is not None and PurePosixPath(RECORDER).name.encode() in runs
 
 
-def _common_dir(repository: Repository, settings: Settings) -> Path | None:
-    """The repository's git common folder, asked of git only the first time."""
+def get(repository: Repository, settings: Settings, session: str) -> Session | None:
+    """The repository's session `session`, while it has an event in the past day."""
+    return next((found for found in of(repository, settings) if found.id == session), None)
+
+
+def common_dir(repository: Repository, settings: Settings) -> Path | None:
+    """The repository's git common folder, where its sessions' logs and requests are: asked of
+    git only the first time. None while its checkout isn't there."""
     with _COMMON_DIRS_GUARD:
         known = _COMMON_DIRS.get(repository.primary_path)
     if known is not None:
@@ -365,7 +375,8 @@ def _session(
     """The session as it stands now: its log's reading, its process looked at again, since it can
     end without a word, and its requirement among those the repository has now."""
     state, since = reading.state or State.WAITING, reading.since or latest.at
-    if state in (State.WORKING, State.NEEDS_INPUT) and _ended(latest):
+    running = _running(latest)
+    if state in (State.WORKING, State.NEEDS_INPUT) and running is False:
         state, since = State.STOPPED, latest.at
     named = _named(repository, reading.argument, pages) if reading.argument else None
     belongs = pages.get(latest.branch.rpartition("/")[2]) if latest.branch else None
@@ -384,6 +395,10 @@ def _session(
         waiting_for=reading.waiting_for if state is State.NEEDS_INPUT else None,
         tool=reading.tool if state is State.NEEDS_INPUT else None,
         closed=reading.closed if state is State.CLOSED else None,
+        workflow_at=reading.workflow_at,
+        pid=latest.pid,
+        running=running,
+        socket=latest.text("socket"),
     )
 
 
@@ -418,14 +433,14 @@ def _requirement_pages(repository: Repository) -> dict[str, tuple[str, str]]:
     return pages
 
 
-def _ended(event: _Event) -> bool:
-    """Whether the process that wrote `event` has ended. Only where `/proc` shows processes:
-    elsewhere, or with no process recorded, it can't be told."""
+def _running(event: _Event) -> bool | None:
+    """Whether the process that wrote `event` still runs. None where `/proc` doesn't show
+    processes, or no process was recorded: it can't be told."""
     if event.pid is None or event.pid_start is None or not Path("/proc/self/stat").exists():
-        return False
+        return None
     try:
         stat = Path(f"/proc/{event.pid}/stat").read_text()
     except OSError:
-        return True
+        return False
     fields = stat.rpartition(") ")[2].split()
-    return len(fields) < 20 or fields[19] != event.pid_start
+    return len(fields) >= 20 and fields[19] == event.pid_start

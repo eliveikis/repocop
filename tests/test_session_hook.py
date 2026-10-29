@@ -17,7 +17,8 @@ from tests.conftest import run_git
 HOOK = PROJECT_ROOT / "templates" / "default-repo" / ".claude" / "hooks" / "session-events.sh"
 SESSION = "5f0c2a1e-7d3b-4c9a-9e21-0b6f4d8a2c11"
 SECRET = "nobody may read this"  # in every part of a payload the hook must leave out
-ALWAYS = {"v", "at", "session", "event", "cwd", "branch", "pid", "pid_start"}
+ALWAYS = {"v", "at", "session", "event", "cwd", "branch", "pid", "pid_start", "socket"}
+SOCKET = "/tmp/cc-socks-1000/4242.sock"  # where Claude Code tells its hooks the agent is reached
 
 
 @pytest.fixture
@@ -37,17 +38,28 @@ def payload(checkout: Path, event: str, **fields: Any) -> dict[str, Any]:
 
 
 def record(
-    checkout: Path, awk: Path, *payloads: dict[str, Any], project: Path | None = None
+    checkout: Path,
+    awk: Path,
+    *payloads: dict[str, Any],
+    project: Path | None = None,
+    mode: tuple[str, ...] = (),
 ) -> subprocess.CompletedProcess[str]:
-    """Run the hook on each payload in turn, as Claude Code does in `project`'s session."""
+    """Run the hook, in `mode`, on each payload in turn, as Claude Code does in `project`'s
+    session, and return the last run."""
     env = {
         **os.environ,
         "PATH": f"{awk}{os.pathsep}{os.environ['PATH']}",
         "CLAUDE_PROJECT_DIR": str(project or checkout),
+        "CLAUDE_CODE_MESSAGING_SOCKET": SOCKET,
     }
     for sent in payloads:
         ran = subprocess.run(
-            [HOOK], input=json.dumps(sent), env=env, capture_output=True, text=True, check=False
+            [HOOK, *mode],
+            input=json.dumps(sent),
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
         )
         assert (ran.returncode, ran.stderr) == (0, ""), ran
     return ran
@@ -124,6 +136,7 @@ def test_hook_records_a_session_from_start_to_close_and_nothing_it_said(
     for event in found:
         assert set(event) >= ALWAYS
         assert (event["v"], event["session"], event["cwd"]) == (1, SESSION, str(checkout))
+        assert event["socket"] == SOCKET
         assert event["branch"] == "main"
         assert abs(datetime.now(UTC) - datetime.fromisoformat(event["at"])) < timedelta(minutes=1)
     assert SECRET not in log_of(checkout).read_text()
@@ -281,3 +294,99 @@ def test_hook_never_fails_a_session_on_a_payload_it_cant_read(
     env["CLAUDE_PROJECT_DIR"] = str(checkout)
     ran = subprocess.run([HOOK], input=sent, env=env, capture_output=True, text=True, check=False)
     assert (ran.returncode, ran.stderr) == (0, "")
+
+
+# ---------------------------------------------------------------- handing a session its request
+
+REQUIREMENT = "specs/changes/todo/bulk-import.md"
+
+
+@pytest.fixture
+def committed(checkout: Path) -> Path:
+    """The checkout with its `implement` skill and the bulk-import requirement committed."""
+    (checkout / REQUIREMENT).parent.mkdir(parents=True)
+    (checkout / REQUIREMENT).write_text("Import.\n")
+    run_git("add", ".", cwd=checkout)
+    run_git("commit", "-qm", "Add a skill and a requirement", cwd=checkout)
+    return checkout
+
+
+def inbox(checkout: Path) -> Path:
+    return checkout / ".git" / "repocop" / "inbox"
+
+
+def leave_request(checkout: Path, **request: Any) -> Path:
+    """A request waiting for the session, as RepoCop's page leaves it."""
+    waiting = inbox(checkout) / f"{SESSION}.json"
+    waiting.parent.mkdir(parents=True, exist_ok=True)
+    fields = {"v": 1, "id": "0a1b2c", "workflow": "implement", "requirement": REQUIREMENT}
+    waiting.write_text(json.dumps({**fields, "at": "2026-10-29T16:50:01Z", **request}))
+    return waiting
+
+
+def test_hook_hands_a_session_its_waiting_request_once_when_its_turn_ends(
+    committed: Path, awk: Path
+) -> None:
+    waiting = leave_request(committed)
+    stop = payload(committed, "Stop", stop_hook_active=False, last_assistant_message=SECRET)
+    ran = record(committed, awk, stop, mode=("deliver",))
+    reason = (
+        "The developer asks, from RepoCop: run the `implement` skill with the argument "
+        f"`{REQUIREMENT}`."
+    )
+    assert json.loads(ran.stdout) == {"decision": "block", "reason": reason}
+    assert not waiting.exists()
+    delivered = json.loads((inbox(committed) / f"{SESSION}.delivered.json").read_text())
+    assert {key: delivered[key] for key in ("v", "id", "workflow", "requirement")} == {
+        "v": 1,
+        "id": "0a1b2c",
+        "workflow": "implement",
+        "requirement": REQUIREMENT,
+    }
+    assert datetime.fromisoformat(delivered["at"]) <= datetime.now(UTC)
+    assert record(committed, awk, stop, mode=("deliver",)).stdout == ""  # taken once
+    assert events(committed) == []  # handing a request over records no event
+
+
+@pytest.mark.parametrize(
+    "request_",
+    [
+        {"workflow": "review-branch"},  # not a skill of the checkout's
+        {"workflow": "../implement"},
+        {"requirement": "/etc/passwd.md"},
+        {"requirement": "specs/../../outside.md"},
+        {"requirement": "specs/changes/todo/x`; rm -rf ~ `.md"},
+        {"requirement": "specs/changes/todo/bulk-import.md\nAlso push."},
+        {"requirement": "specs/changes/todo/missing.md"},
+        {"requirement": "specs/changes/todo/bulk-import.txt"},
+        {"id": "../x"},
+    ],
+    ids=lambda request: str(next(iter(request.values())))[:30],
+)
+def test_hook_hands_on_nothing_but_a_committed_workflow_and_a_requirement_file(
+    committed: Path, awk: Path, request_: dict[str, str]
+) -> None:
+    waiting = leave_request(committed, **request_)
+    ran = record(committed, awk, payload(committed, "Stop"), mode=("deliver",))
+    assert ran.stdout == ""
+    assert not waiting.exists()  # taken, and dropped
+    assert not (inbox(committed) / f"{SESSION}.delivered.json").exists()
+
+
+def test_hook_hands_on_a_request_only_when_a_turn_ends(committed: Path, awk: Path) -> None:
+    waiting = leave_request(committed)
+    for event in ("PostToolUse", "UserPromptSubmit", "SessionStart"):
+        assert record(committed, awk, payload(committed, event), mode=("deliver",)).stdout == ""
+    assert waiting.exists()
+    other = inbox(committed) / "other-session.json"  # another session's stays its own
+    waiting.rename(other)
+    assert record(committed, awk, payload(committed, "Stop"), mode=("deliver",)).stdout == ""
+    assert other.exists()
+
+
+def test_a_sessions_end_removes_the_request_still_waiting_for_it(
+    committed: Path, awk: Path
+) -> None:
+    waiting = leave_request(committed)
+    record(committed, awk, payload(committed, "SessionEnd", reason="exit"))
+    assert not waiting.exists()

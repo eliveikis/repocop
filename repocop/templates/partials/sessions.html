@@ -3,7 +3,7 @@
 <input type="hidden" name="shown" value="{{ key }}">
 {% if shown %}
 {% if key.startswith("o:") %}<p class="sessions-heading">Other sessions</p>{% endif %}
-{% set with_requirement = not key.startswith("r:") %}
+{% set with_requirement = not key.startswith(("r:", "p:")) %}{% set with_request = key.startswith("p:") %}
 <ul class="session-list">
   {% for session in shown %}<li class="session">{% include "partials/session.html" %}</li>
   {% endfor %}

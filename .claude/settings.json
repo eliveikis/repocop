@@ -186,6 +186,15 @@
             "async": true
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-events.sh deliver",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SessionEnd": [

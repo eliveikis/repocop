@@ -16,7 +16,7 @@ They enforce the design pillars in `specs/product.md`. A change that weakens one
 
 ## Human-owned checkout
 - The primary checkout is **human-owned**: RepoCop never checks out, resets, stashes, cleans or commits there.
-- RepoCop's only write there is explicit and user-initiated: fetching from `origin`. Requirements are read-only in RepoCop, written and committed by their developer (ADR-037). The repo template reaches a repository only through a sync (ADR-029), which works on its own worktree branch and never writes there.
+- RepoCop's only writes there are explicit and user-initiated: fetching from `origin`, and asking one of its sessions to run a workflow, as a request in its git folder's `repocop/inbox/` (ADR-041). Requirements are read-only in RepoCop, written and committed by their developer (ADR-037). The repo template reaches a repository only through a sync (ADR-029), which works on its own worktree branch and never writes there.
 - A fetch updates `origin`'s remote-tracking branches and nothing else, whatever refspecs the git config holds: no tags, no pruning, never a pull or merge. Nothing fetches on a page load or in the background (ADR-022).
 - Reading the checkout never writes to it: git runs without optional locks, so a status check doesn't rewrite the index.
 
@@ -31,6 +31,11 @@ They enforce the design pillars in `specs/product.md`. A change that weakens one
 - Never force: no `--force`, `-f`, `--force-with-lease` or `+` refspec. Refuse when the remote branch has commits the local one lacks.
 - Refuse before pushing when the template sync didn't complete, and when its worktree is gone, on another branch or has uncommitted changes.
 - Never merge, close or approve a pull request.
+
+## Requests to sessions
+- A request reaches a session only on the developer's click on the requirement's page, and names only a workflow the repository has committed and the requirement's path: no free text, and a path that would change the request's meaning (a backtick, a backslash, a line break, an absolute path) is refused. The session's hook checks the same before it hands one over.
+- One request waits for a session at a time, taken once, by renaming it, so it is delivered once and only to the session it names.
+- Send to a session's socket only when it is this user's, a socket, named after the session's recorded process, in a folder no one else can write, and always with the session's id, so no other session takes it.
 
 ## Git remotes
 - Validate remote URLs before use. Allow `https://`, `ssh://`, scp-style `git@host:owner/repo(.git)`, and (for tests and local use) absolute `file://` or existing local paths. Reject anything starting with `-`, containing whitespace or control characters, or using the `ext::` or `fd::` transports.

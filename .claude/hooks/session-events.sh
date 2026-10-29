@@ -3,13 +3,22 @@
 # Hook on Claude Code's session events: records what this session does, one JSON line per event in
 # RepoCop's session log format, in <git common dir>/repocop/sessions/<session id>.jsonl, a folder
 # every worktree of the repository shares and no commit holds. A line names the session, the
-# time, the folder and branch it is in and the agent's process; beyond those it holds only a
-# workflow's name and the first line of its argument, the tool a permission wait is for, or why
-# the session closed. Never a prompt, a command or what the agent said. It runs async and always
-# exits 0, so it never delays or fails the session. Hooks run side by side and finish in any
-# order, so a line's time is when its hook started, to the nanosecond where `date` can say: that,
-# not where it lands in the log, orders it. A session's start removes the logs that have gone a
-# week without an event. Needs only sh, awk and git.
+# time, the folder and branch it is in, the agent's process and its inbox socket; beyond those it
+# holds only a workflow's name and the first line of its argument, the tool a permission wait is
+# for, or why the session closed. Never a prompt, a command or what the agent said. It runs async
+# and always exits 0, so it never delays or fails the session. Hooks run side by side and finish
+# in any order, so a line's time is when its hook started, to the nanosecond where `date` can say:
+# that, not where it lands in the log, orders it. A session's start removes the logs and requests
+# that have gone a week untouched, and its end the request still waiting for it.
+#
+# With `deliver`, on Stop, it instead hands this session the request waiting for it in
+# <git common dir>/repocop/inbox/<session id>.json, if there is one, so it carries on with it at
+# once: a workflow and the requirement to run it on, left there by RepoCop's requirement page on
+# the developer's click. The request is taken once, by renaming it, and checked first: the
+# workflow must be a skill committed in the session's checkout, and the requirement a file there,
+# and nothing else in it is passed on. A taken request is recorded as delivered beside it.
+#
+# Needs only sh, awk and git.
 at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
 case $at in
 *[!0-9TZ:.-]*) at=$(date -u +%Y-%m-%dT%H:%M:%SZ) ;; # a date without nanoseconds
@@ -19,10 +28,13 @@ export LC_ALL
 
 input=$(cat)
 
-# The payload's top-level strings, and those of its tool_input, picked out by a small JSON scanner
-# that stops at tool_response. Each is printed as JSON holds it, escapes and all, one per line in
-# a fixed order; an argument only up to its first line break, and at most 200 characters.
-parsed=$(printf '%s' "$input" | awk '
+# fields KEY...: the value of each KEY in the JSON object on standard input, one per line, as JSON
+# holds it, escapes and all, or an empty line when it has none. A KEY names a top-level string, or
+# one in its tool_input as `tool_input.NAME`. Before a KEY, `first:` keeps only its first line, at
+# most 200 characters, and `path:` decodes it into a path, or nothing when it holds an escape a
+# path can't be read from. A small JSON scanner, which stops at tool_response.
+fields() {
+  awk -v keys="$*" '
 function firstline(raw,    out, i, n, c, e, count) {
   out = ""; count = 0; n = length(raw)
   for (i = 1; i <= n && count < 200; i++) {
@@ -72,8 +84,8 @@ BEGIN {
       if (type[d] == "o" && want[d]) {
         key[d] = str; want[d] = 0
         if (d == 1 && str == "tool_response") break
-      } else if (d == 1) top[key[1]] = str
-      else if (d == 2 && type[2] == "o" && parent[2] == "tool_input") tool[key[2]] = str
+      } else if (d == 1) value[key[1]] = str
+      else if (d == 2 && type[2] == "o" && parent[2] == "tool_input") value["tool_input." key[2]] = str
       continue
     }
     if (c == "{" || c == "[") {
@@ -83,26 +95,25 @@ BEGIN {
     else if (c == ",") want[d] = (type[d] == "o")
     p++
   }
-  where = ("new_cwd" in top) ? top["new_cwd"] : top["cwd"]
-  print top["hook_event_name"]
-  print top["session_id"]
-  print where
-  print path(where)
-  print top["command_name"]
-  print firstline(top["command_args"])
-  print top["tool_name"]
-  print tool["skill"]
-  print firstline(tool["args"])
-  print top["notification_type"]
-  print top["reason"]
-  print top["source"]
-}')
+}
+END {
+  count = split(keys, wanted, " ")
+  for (i = 1; i <= count; i++) {
+    name = wanted[i]
+    if (sub(/^first:/, "", name)) print firstline(value[name])
+    else if (sub(/^path:/, "", name)) print path(value[name])
+    else print value[name]
+  }
+}'
+}
 
 {
   IFS= read -r hook
   IFS= read -r session
   IFS= read -r cwd
   IFS= read -r folder
+  IFS= read -r moved_to
+  IFS= read -r moved_folder
   IFS= read -r command_name
   IFS= read -r command_args
   IFS= read -r tool_name
@@ -112,8 +123,14 @@ BEGIN {
   IFS= read -r reason
   IFS= read -r source
 } <<EOF
-$parsed
+$(printf '%s' "$input" | fields hook_event_name session_id cwd path:cwd new_cwd path:new_cwd \
+  command_name first:command_args tool_name tool_input.skill first:tool_input.args \
+  notification_type reason source)
 EOF
+if [ -n "$moved_to" ]; then
+  cwd=$moved_to
+  folder=$moved_folder
+fi
 
 case $session in
 '' | .* | *[!A-Za-z0-9._-]*) exit 0 ;;
@@ -123,6 +140,45 @@ project=${CLAUDE_PROJECT_DIR:-$folder}
 common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || exit 0
 logs="$common/repocop/sessions"
 log="$logs/$session.jsonl"
+inbox="$common/repocop/inbox"
+
+# The request waiting for this session, handed to it: printed as Stop's decision to carry on.
+deliver() {
+  [ "$hook" = Stop ] && [ -f "$inbox/$session.json" ] || return 0
+  taking="$inbox/$session.taking.$$"
+  mv "$inbox/$session.json" "$taking" 2>/dev/null || return 0 # another took it
+  {
+    IFS= read -r id
+    IFS= read -r workflow
+    IFS= read -r requirement
+  } <<EOF
+$(fields id workflow requirement <"$taking")
+EOF
+  rm -f "$taking"
+  case $id in
+  '' | *[!A-Za-z0-9-]*) return 0 ;;
+  esac
+  case $workflow in
+  '' | -* | *[!a-z0-9-]*) return 0 ;;
+  esac
+  case $requirement in
+  *.md) ;;
+  *) return 0 ;;
+  esac
+  case $requirement in
+  /* | *..* | *\\* | *'`'*) return 0 ;; # a path outside, an escape, or a quote that ends the line
+  esac
+  [ -f "$project/$requirement" ] || return 0
+  git -C "$project" cat-file -e "HEAD:.claude/skills/$workflow/SKILL.md" 2>/dev/null || return 0
+  printf '{"v":1,"id":"%s","workflow":"%s","requirement":"%s","at":"%s"}\n' \
+    "$id" "$workflow" "$requirement" "$at" >"$inbox/$session.delivered.json"
+  printf '{"decision":"block","reason":"The developer asks, from RepoCop: run the `%s` skill with the argument `%s`."}\n' \
+    "$workflow" "$requirement"
+}
+if [ "${1-}" = deliver ]; then
+  deliver
+  exit 0
+fi
 
 # The repository's own skill called $1, or nothing: only a skill it has is a workflow.
 skill_named() {
@@ -138,7 +194,7 @@ case $hook in
 SessionStart)
   [ "$source" = compact ] && exit 0 # the same session, carrying on
   event=started
-  find "$logs" -type f -name '*.jsonl' -mtime +6 -exec rm -f {} + 2>/dev/null
+  find "$logs" "$inbox" -type f -mtime +6 -exec rm -f {} + 2>/dev/null
   ;;
 CwdChanged) event=moved ;;
 UserPromptSubmit) event=working ;;
@@ -181,6 +237,7 @@ Stop) event=turn-finished ;;
 SessionEnd)
   event=closed
   extra=",\"reason\":\"$reason\""
+  rm -f "$inbox/$session.json"
   ;;
 *) exit 0 ;;
 esac
@@ -213,7 +270,11 @@ if [ -r "/proc/$process/stat" ]; then
   esac
 fi
 
+# Where other processes reach this session's agent, as Claude Code tells its hooks.
+socket=$(printf '%s' "${CLAUDE_CODE_MESSAGING_SOCKET-}" | sed 's/[\\"]/\\&/g')
+[ -n "$socket" ] && socket="\"$socket\"" || socket=null
+
 mkdir -p "$logs" 2>/dev/null || exit 0
-printf '{"v":1,"at":"%s","session":"%s","event":"%s","cwd":"%s","branch":%s,"pid":%s,"pid_start":%s%s}\n' \
-  "$at" "$session" "$event" "$cwd" "$branch" "$pid" "$pid_start" "$extra" >>"$log" 2>/dev/null
+printf '{"v":1,"at":"%s","session":"%s","event":"%s","cwd":"%s","branch":%s,"pid":%s,"pid_start":%s,"socket":%s%s}\n' \
+  "$at" "$session" "$event" "$cwd" "$branch" "$pid" "$pid_start" "$socket" "$extra" >>"$log" 2>/dev/null
 exit 0

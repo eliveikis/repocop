@@ -9,9 +9,10 @@ import sqlite3
 from dataclasses import dataclass
 
 from repocop.config import Settings
-from repocop.services import repositories, requirements, sessions, tasks
+from repocop.services import repositories, requirements, session_requests, sessions, tasks
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Requirement, RequirementError
+from repocop.services.session_requests import Standing
 from repocop.services.sessions import Session, State
 from repocop.services.tasks import Task
 
@@ -53,8 +54,9 @@ class SessionEntry:
 @dataclass(frozen=True)
 class SessionList:
     """The sessions a page shows in one place, by its key: `r:<repository id>:<requirement>`
-    for those working on a requirement, `a:<repository id>` for all of a repository's, and
-    `o:<repository id>` for those working on none of the requirements the page shows."""
+    for those working on a requirement, `p:<repository id>:<requirement>` for those with their
+    requests, as a requirement's page shows them, `a:<repository id>` for all of a repository's,
+    and `o:<repository id>` for those working on none of the requirements the page shows."""
 
     key: str
     sessions: tuple[Session, ...]
@@ -72,9 +74,10 @@ def needs_input(conn: sqlite3.Connection, settings: Settings) -> list[SessionEnt
 
 def session_lists(
     conn: sqlite3.Connection, settings: Settings, keys: list[str]
-) -> tuple[list[SessionList], list[SessionEntry]]:
-    """The session lists named by `keys`, as they are now, and the sessions that need input.
-    A key that names nothing known is left out."""
+) -> tuple[list[SessionList], list[SessionEntry], dict[str, Standing]]:
+    """The session lists named by `keys`, as they are now, the sessions that need input, and
+    where the requests of the sessions in `p:` lists stand, by session. A key that names nothing
+    known is left out."""
     found = _sessions(conn, settings)
     by_id = {repo.id: shown for repo, shown in found}
     shown_names: dict[int, set[str]] = {}
@@ -82,15 +85,17 @@ def session_lists(
     for key in dict.fromkeys(keys):
         kind, _, rest = key.partition(":")
         number, _, name = rest.partition(":")
-        if not number.isdigit() or int(number) not in by_id or kind not in ("r", "a", "o"):
+        if not number.isdigit() or int(number) not in by_id or kind not in ("r", "p", "a", "o"):
             continue
-        if kind == "r":
+        if kind in ("r", "p"):
             shown_names.setdefault(int(number), set()).add(name)
         parsed.append((key, kind, int(number), name))
+    repos = {repo.id: repo for repo, _ in found}
     lists = []
+    standings: dict[str, Standing] = {}
     for key, kind, repo_id, name in parsed:
         everyone = by_id[repo_id]
-        if kind == "r":
+        if kind in ("r", "p"):
             picked = sessions.for_requirement(everyone, name)
         elif kind == "o":
             names = shown_names.get(repo_id, set())
@@ -98,7 +103,10 @@ def session_lists(
         else:
             picked = tuple(everyone)
         lists.append(SessionList(key, picked))
-    return lists, _needing_input(found)
+        if kind == "p":
+            for session in picked:
+                standings[session.id] = session_requests.standing(repos[repo_id], settings, session)
+    return lists, _needing_input(found), standings
 
 
 def _sessions(

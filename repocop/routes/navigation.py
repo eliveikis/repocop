@@ -34,7 +34,7 @@ def session_lists(
 ) -> HTMLResponse:
     """The session lists named in `shown`, and the sidebar's sessions that need input, as they
     are now, each to be swapped into the page where it stands."""
-    lists, waiting = navigation.session_lists(conn, settings, shown or [])
-    context = {"lists": lists, "needs_input": waiting}
+    lists, waiting, standings = navigation.session_lists(conn, settings, shown or [])
+    context = {"lists": lists, "needs_input": waiting, "standings": standings}
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(request, "partials/session_lists.html", context)

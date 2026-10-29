@@ -8,6 +8,8 @@
 
 {% block title %}{{ requirement.name }} · RepoCop{% endblock %}
 
+{% block toasts %}{% if notice %}<p class="toast">{{ notice }}</p>{% endif %}{% endblock %}
+
 {% block content %}
 <h1>{{ requirement.name }}</h1>
 <p class="facts"><code>{{ detail.content.path if detail and detail.content else requirement.path }}</code> <span class="owner owner-human">human-owned</span>{% if detail %} · {{ detail.location }}{% endif %}{% if editor_link %} · <a href="{{ editor_link }}">Open in editor</a>{% endif %}</p>
@@ -36,8 +38,43 @@
 <section id="sessions" aria-labelledby="sessions-heading">
 <h2 id="sessions-heading">Sessions</h2>
 <p class="hint">The agent sessions working on {{ requirement.name }} with an event in the past day, as they report it.</p>
-{% set key, shown = "r:%d:%s" % (repository.id, card_name), sessions %}{% include "partials/sessions.html" %}
+{% set key, shown = "p:%d:%s" % (repository.id, card_name), sessions %}{% include "partials/sessions.html" %}
 </section>
+
+{% if active and asks %}
+<section id="ask" aria-labelledby="ask-heading">
+<h2 id="ask-heading">Ask a session</h2>
+<ul class="asks">
+  {% for session, unreachable, standing in asks %}
+  <li class="ask">
+    <p class="ask-session"><span class="status status-{{ session.state.slug }}">{{ session.state }}</span>{% if session.branch %} <code>{{ session.branch }}</code>{% endif %}{% if session.workflow %} · <code>{{ session.workflow }}</code>{% endif %}</p>
+    {% set requests = url_for('ask_session', repository_id=repository.id, file_name=requirement.file_name, session_id=session.id) %}
+    {% if unreachable %}
+    <p class="hint">{{ unreachable }}</p>
+    {% if workflow_lines %}<ul class="commands">
+      {% for line in workflow_lines %}<li><pre><code>{{ line }}</code></pre> <button type="button" class="copy" data-copy="{{ line }}" hidden>Copy</button></li>
+      {% endfor %}
+    </ul>{% endif %}
+    {% elif standing.waiting %}
+    <div class="actions">
+      <span>Asked to run <code>{{ standing.waiting.workflow }}</code>: it gets it when its turn ends.</span>
+      {% if session.state == "Waiting for instruction" %}<form method="post" action="{{ requests }}/send"><button type="submit" class="primary">Send it now</button></form>{% endif %}
+      <form method="post" action="{{ requests }}/cancel"><button type="submit">Cancel</button></form>
+    </div>
+    {% elif workflows %}
+    <form class="actions" method="post" action="{{ requests }}">
+      <label>Workflow <select name="workflow">{% for workflow in workflows %}<option>{{ workflow }}</option>{% endfor %}</select></label>
+      <button type="submit" class="primary">Run in this session</button>
+    </form>
+    {% endif %}
+  </li>
+  {% endfor %}
+</ul>
+<details class="help"><summary>How this works</summary>
+  <p>Asks the session to run the workflow on {{ requirement.name }}, and nothing else. A session waiting for an instruction gets it at once and starts on it; one at work gets it when its turn ends, and the request waits until then, so it can be cancelled. Its own hook hands it over, so it shows in the session wherever it runs.</p>
+</details>
+</section>
+{% endif %}
 
 {% if active %}
 <section id="your-agent" aria-labelledby="your-agent-heading">

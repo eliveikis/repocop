@@ -10,8 +10,11 @@ import json
 import os
 import shlex
 import shutil
+import socket
 import sqlite3
 import subprocess
+import tempfile
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -101,6 +104,51 @@ def record_session(checkout: Path, *events: dict[str, Any], session: str = SESSI
     return log
 
 
+class Inbox:
+    """A session's inbox socket, as Claude Code listens on it: it keeps every line it gets."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lines: list[dict[str, Any]] = []
+        self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._server.bind(str(path))
+        self._server.listen()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                connection, _ = self._server.accept()
+            except OSError:
+                return
+            with connection:
+                data = b""
+                while chunk := connection.recv(4096):
+                    data += chunk
+            self.lines += [json.loads(line) for line in data.splitlines() if line]
+
+    def received(self) -> list[dict[str, Any]]:
+        """What it has got by now, once the sender has finished."""
+        self._thread.join(timeout=0.2)
+        return self.lines
+
+    def close(self) -> None:
+        self._server.close()
+
+
+@pytest.fixture
+def inbox_socket() -> Iterator[Inbox]:
+    """A socket named after this test's process, in a short folder only this user can write,
+    as Claude Code makes them."""
+    folder = Path(tempfile.mkdtemp(prefix="cc-socks-"))
+    folder.chmod(0o700)
+    inbox = Inbox(folder / f"{os.getpid()}.sock")
+    yield inbox
+    inbox.close()
+    shutil.rmtree(folder)
+
+
 def push_commit(remote: Path, workdir: Path, name: str = "upstream.txt") -> str:
     """Add a commit to `remote`'s `main` from a clone under `workdir`, and return its hash."""
     clone = workdir / "pusher"
@@ -115,9 +163,10 @@ def push_commit(remote: Path, workdir: Path, name: str = "upstream.txt") -> str:
 
 @pytest.fixture(autouse=True)
 def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep git, GitHub and RepoCop config hermetic for every test.
+    """Keep git, GitHub, RepoCop config and any agent session running the tests out of every test.
 
-    The working directory moves to tmp_path too, so a real ./repocop.yaml can't leak in.
+    The working directory moves to tmp_path too, so a real ./repocop.yaml can't leak in, and
+    Claude Code's variables, such as its socket, are dropped.
     `gh` and `codex` are the fakes, each of which fails unless the test asked for it with its
     fixture, `fake_gh` or `fake_codex`.
     """
@@ -137,7 +186,7 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Test")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.invalid")
     for key in list(os.environ):
-        if key.startswith(("REPOCOP_", f"{FORMER_NAME.upper()}_")):
+        if key.startswith(("REPOCOP_", f"{FORMER_NAME.upper()}_", "CLAUDE_")):
             monkeypatch.delenv(key)
 
 
