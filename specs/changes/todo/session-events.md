@@ -1,10 +1,11 @@
 ---
 depends-on:
   - fleet-dashboard
+  - no-agent-runs
 ---
 ## Requirement
 
-The developer runs the workflows in their own agent sessions, in a terminal, in VS Code or in Claude Code's agent view, and agents make their own worktrees and branches. RepoCop sees none of it: it can't say what is being worked on right now, or which session is waiting for the developer, because it only knows the sessions it started itself.
+The developer runs the workflows in their own agent sessions, in a terminal, in VS Code or in Claude Code's agent view, and agents make their own worktrees and branches. RepoCop sees none of it: it can't say what is being worked on right now, or which session is waiting for the developer.
 
 Each onboarded repository's agent sessions report what they do as they do it: a session starting, a workflow starting on a requirement, the session waiting for its user, a turn finishing, the session closing. They write it to a log on the developer's machine that RepoCop reads, so RepoCop shows the live state of the work however and wherever it was started, without launching anything.
 
@@ -27,7 +28,7 @@ Each onboarded repository's agent sessions report what they do as they do it: a 
    Nothing else the session said or did.
 4. The events stay on the developer's machine, out of every commit.
 5. For each repository, RepoCop shows each session that has an event in the past day. For each it shows:
-   - the requirement its branch belongs to (`.claude/rules/specs.md` › A branch's requirement), taken from the folder and branch of its latest event;
+   - the requirement it works on: the one its latest workflow named, or else the one its branch belongs to (`.claude/rules/specs.md` › A branch's requirement), from the folder and branch of its latest event. A requirement's state is the requirement's, whatever branch the work is on;
    - the workflow it last started;
    - its state, and how long it has been in it. The states:
      - **Working**: its process is running, and it hasn't finished its turn or asked for anything.
@@ -35,9 +36,9 @@ Each onboarded repository's agent sessions report what they do as they do it: a 
      - **Waiting for instruction**: it finished its turn. This holds whether its process still runs or agent view has put it to sleep, which a reply wakes.
      - **Stopped mid-turn**: its process ended before the turn finished, as when it crashed, was killed, or the machine shut down.
      - **Closed**: the session ended, and how (it exited, was cleared, or was logged out).
-6. A requirement's card on the fleet board, and its page, show its sessions. The sidebar lists the sessions that need input, beside RepoCop's own active tasks. A page showing sessions refreshes while any of them is working or needs input, as live views do.
-7. A session doesn't change a requirement's stage on the board.
-8. A session on a branch that belongs to no requirement still shows, under its repository, so no running work goes unseen.
+6. A requirement's card on the fleet board, and its page, show its sessions. The sidebar lists the sessions that need input. A page showing sessions refreshes while any of them is working or needs input, as live views do.
+7. A session that is working, needs input or is waiting for instruction puts its requirement In progress on the board, unless a later stage applies.
+8. A session tied to no requirement still shows, under its repository, so no running work goes unseen.
 9. When a repository's default branch on `origin`, as last fetched, lacks the recording hook, RepoCop says so: a template sync brings it, and sessions on branches made before that sync record nothing.
 10. Showing sessions keeps every page fast. With 20 repositories and 50 sessions from the past day, it adds no noticeable delay to a page or its refreshes. Manual check: under 100 ms per page.
 
@@ -49,7 +50,6 @@ Each onboarded repository's agent sessions report what they do as they do it: a 
 - What a session said, its transcript or its diff.
 - Reading Claude Code's own session files or its `claude agents` listing.
 - Sessions on other machines.
-- Retiring RepoCop's own task runner.
 
 ## Implementation Notes
 
@@ -71,6 +71,7 @@ Each onboarded repository's agent sessions report what they do as they do it: a 
 
   It appends one line per event to `<git common dir>/repocop/sessions/<session id>.jsonl`. That folder is shared by every worktree of the repository and is never committed.
 - **Picking the fields.** The hook picks out only the fields criterion 3 lists. It never copies the payload whole, since that would store the prompt, commands and the agent's last message. It decodes the JSON the way the amend guard does, needing only `sh` and `awk`, and is tested with recorded payloads under `mawk` and `gawk --posix`, as `backlog.sh` is.
+- **A session's requirement.** A workflow's argument names its requirement's path, as `/implement specs/changes/todo/bulk-import.md` does, or a path into the repository's requirements folder anywhere in its first line, as `/address-review` with a requirement first does. A workflow run without one works on the branch's requirement (the skills default to it), so the branch decides. `specs/architecture.md` › Fleet board's In progress rule grows to count a live session.
 - **The log format** is RepoCop's protocol, written into `specs/architecture.md`, and is agent-neutral, so RepoCop's reader needs no agent module. One JSON object per line:
   - Always: `v` (the format's version, 1), `at`, `session`, `event`, `cwd`, `branch`, `pid` and `pid_start`.
   - `event` is one of `started`, `moved`, `workflow`, `waiting`, `working`, `turn-finished` or `closed`.
@@ -78,6 +79,7 @@ Each onboarded repository's agent sessions report what they do as they do it: a 
   - `PostToolUse` after a wait records `working`.
 - **Process checks.** Whether a session's process is alive comes from its recorded process and start time in `/proc`, as restart recovery does. Elsewhere, Stopped mid-turn isn't detected, and a session shows its last state until a day passes without an event.
 - **Reading the logs.** RepoCop reads only each log's last lines, skips malformed ones, caps what it reads, and containment-checks each log's path inside the repository's git common folder (`.claude/rules/safety.md` › Paths). Any local process can write a log, so pages render it escaped. The decision record says so.
+- **Refreshing.** Only the sessions refresh, from their logs: the board's pull requests are read once per page load, never on a refresh, since each read is two GitHub calls per repository against an hourly limit.
 - **Cost.** Each repository's git common folder is resolved once and kept in memory, since it doesn't change. Pages and refreshes then read the logs as files, without running git.
   - `.claude/rules/web-ui.md`'s "(from the database alone, never git)", and `specs/architecture.md` › The shell's "It reads only the database, so it adds no git call to a page", become a rule on cost.
   - That rule: the shell is on every page and refreshes every 2 s, so what it shows must cost each page little, whatever the number of repositories and sessions. Starting a process per repository on each page or refresh is what breaks it.
