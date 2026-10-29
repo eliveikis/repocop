@@ -199,6 +199,19 @@ def test_only_sessions_with_an_event_in_the_past_day_show_the_latest_first(
     assert [found.id for found in sessions.of(repo, settings, now=NOW)] == ["b", "a"]
 
 
+def test_a_live_session_shows_however_many_newer_sessions_there_are(
+    settings: Settings, repo: Repository
+) -> None:
+    quiet = write(repo, {"event": "turn-finished", "ago": 600}, session="quiet")
+    hours_ago = (NOW - timedelta(hours=10)).timestamp()
+    os.utime(quiet, (hours_ago, hours_ago))
+    for number in range(250):
+        write(repo, {"event": "closed", "ago": 1}, session=f"done-{number}")
+    shown = {found.id: found.state for found in sessions.of(repo, settings, now=NOW)}
+    assert len(shown) == 251
+    assert shown["quiet"] is State.WAITING
+
+
 def test_lines_that_cant_be_read_are_skipped(settings: Settings, repo: Repository) -> None:
     log = write(repo, {"event": "started", "ago": 9})
     with log.open("a") as file:

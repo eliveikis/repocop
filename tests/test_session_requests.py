@@ -5,6 +5,7 @@ turn to end, where it can be cancelled."""
 import json
 import os
 import sqlite3
+import threading
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -115,11 +116,67 @@ def test_a_request_still_waiting_once_the_turn_ended_can_be_sent_now(
     working = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
     sent = session_requests.send(repo, settings, working, "implement", REQUIREMENT)
     with pytest.raises(RequestError, match="still working"):
-        session_requests.send_waiting(repo, settings, working)
+        session_requests.send_waiting(repo, settings, working, REQUIREMENT)
     idle = session(repo, settings, inbox_socket, {"event": "turn-finished", "ago": 1})
-    assert session_requests.send_waiting(repo, settings, idle).id == sent.id
+    assert session_requests.send_waiting(repo, settings, idle, REQUIREMENT).id == sent.id
     assert [line["uuid"] for line in inbox_socket.received()] == [sent.id]
     assert not waiting_file(repo).exists()
+
+
+@pytest.mark.parametrize(
+    ("edited", "refusal"),
+    [
+        ({"workflow": "deploy"}, "isn't a skill committed"),
+        ({"requirement": "specs/changes/todo/other.md"}, "isn't for"),
+        ({"requirement": "x`; push`"}, "isn't for"),
+        ({"workflow": 7}, "can't be read"),
+    ],
+)
+def test_a_waiting_request_someone_edited_is_checked_again_and_dropped(
+    settings: Settings,
+    repo: Repository,
+    inbox_socket: Inbox,
+    edited: dict[str, Any],
+    refusal: str,
+) -> None:
+    working = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
+    session_requests.send(repo, settings, working, "implement", REQUIREMENT)
+    left = json.loads(waiting_file(repo).read_text())
+    waiting_file(repo).write_text(json.dumps({**left, **edited}))
+    idle = session(repo, settings, inbox_socket, {"event": "turn-finished", "ago": 1})
+    with pytest.raises(RequestError, match=f"{refusal}.*dropped"):
+        session_requests.send_waiting(repo, settings, idle, REQUIREMENT)
+    assert inbox_socket.received() == []
+    assert not waiting_file(repo).exists()
+
+
+def test_a_waiting_request_that_never_reached_its_session_waits_again(
+    settings: Settings, repo: Repository, inbox_socket: Inbox
+) -> None:
+    working = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
+    sent = session_requests.send(repo, settings, working, "implement", REQUIREMENT)
+    idle = session(repo, settings, inbox_socket, {"event": "turn-finished", "ago": 1})
+    inbox_socket.close()
+    inbox_socket.path.unlink()
+    with pytest.raises(RequestError, match="socket is gone"):
+        session_requests.send_waiting(repo, settings, idle, REQUIREMENT)
+    assert session_requests.standing(repo, settings, idle).waiting == sent
+
+
+def test_a_pipe_where_a_request_would_be_is_never_waited_on(
+    settings: Settings, repo: Repository, inbox_socket: Inbox
+) -> None:
+    working = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
+    waiting_file(repo).parent.mkdir(parents=True)
+    os.mkfifo(waiting_file(repo))
+    found: list[session_requests.Standing] = []
+    reader = threading.Thread(
+        target=lambda: found.append(session_requests.standing(repo, settings, working)),
+        daemon=True,
+    )
+    reader.start()
+    reader.join(timeout=5)
+    assert [standing.waiting for standing in found] == [None]
 
 
 @pytest.mark.parametrize(

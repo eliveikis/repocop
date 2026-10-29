@@ -151,8 +151,9 @@ deliver() {
     IFS= read -r id
     IFS= read -r workflow
     IFS= read -r requirement
+    IFS= read -r requirement_path
   } <<EOF
-$(fields id workflow requirement <"$taking")
+$(fields id workflow requirement path:requirement <"$taking")
 EOF
   rm -f "$taking"
   case $id in
@@ -161,14 +162,15 @@ EOF
   case $workflow in
   '' | -* | *[!a-z0-9-]*) return 0 ;;
   esac
-  case $requirement in
+  # The path itself, decoded: none when it holds a line break or another escape a path can't.
+  case $requirement_path in
   *.md) ;;
   *) return 0 ;;
   esac
-  case $requirement in
-  /* | *..* | *\\* | *'`'*) return 0 ;; # a path outside, an escape, or a quote that ends the line
+  case $requirement_path in
+  /* | ../* | */../* | */.. | *\\* | *'`'*) return 0 ;; # outside, or a mark that ends the line
   esac
-  [ -f "$project/$requirement" ] || return 0
+  [ -f "$project/$requirement_path" ] || return 0
   git -C "$project" cat-file -e "HEAD:.claude/skills/$workflow/SKILL.md" 2>/dev/null || return 0
   printf '{"v":1,"id":"%s","workflow":"%s","requirement":"%s","at":"%s"}\n' \
     "$id" "$workflow" "$requirement" "$at" >"$inbox/$session.delivered.json"

@@ -40,6 +40,10 @@ class RequestError(RepoCopError):
     """A request can't be sent, cancelled or handed over as asked."""
 
 
+class NotSent(RequestError):
+    """Nothing reached the session, so a request held for it can be kept."""
+
+
 @dataclass(frozen=True)
 class Request:
     id: str
@@ -117,10 +121,7 @@ def send(
     be told to it as it is, and when another request waits for it already."""
     if reason := unreachable(session):
         raise RequestError(reason)
-    if workflow not in tasks.workflows(settings, repository):
-        raise RequestError(f"{workflow!r} isn't a skill committed in {repository.name}")
-    if any(mark in requirement for mark in ("`", "\\", "\n", "\r")) or requirement.startswith("/"):
-        raise RequestError(f"{requirement} can't be named in a request as it is")
+    _check(repository, settings, workflow, requirement)
     folder = _inbox(repository, settings, make=True)
     if folder is None:
         raise RequestError(f"{repository.name}'s checkout isn't there")
@@ -133,13 +134,16 @@ def send(
     # It may have finished its turn since it was read, and its hook may have looked already.
     now = sessions.get(repository, settings, session.id)
     if now is not None and now.state is State.WAITING and unreachable(now) is None:
-        _take_and_hand_over(folder, now)
+        _take_and_hand_over(repository, settings, folder, now, requirement)
     return request
 
 
-def send_waiting(repository: Repository, settings: Settings, session: Session) -> Request:
+def send_waiting(
+    repository: Repository, settings: Settings, session: Session, requirement: str
+) -> Request:
     """Hand the request waiting for the session over now, through its socket: for a session
-    whose turn ended before its hook could see the request."""
+    whose turn ended before its hook could see the request. Like any request, it must name a
+    committed workflow, and the requirement at `requirement`; one that doesn't is dropped."""
     if reason := unreachable(session):
         raise RequestError(reason)
     if session.state is not State.WAITING:
@@ -147,7 +151,7 @@ def send_waiting(repository: Repository, settings: Settings, session: Session) -
     folder = _inbox(repository, settings)
     if folder is None:
         raise RequestError(f"{repository.name}'s checkout isn't there")
-    return _take_and_hand_over(folder, session)
+    return _take_and_hand_over(repository, settings, folder, session, requirement)
 
 
 def cancel(repository: Repository, settings: Settings, session: Session) -> None:
@@ -177,8 +181,21 @@ def _inbox(repository: Repository, settings: Settings, *, make: bool = False) ->
     return folder
 
 
-def _take_and_hand_over(folder: Path, session: Session) -> Request:
-    """Take the request waiting for the session, once, and hand it over through its socket."""
+def _check(repository: Repository, settings: Settings, workflow: str, requirement: str) -> None:
+    """Refuse a workflow the repository hasn't committed, and a requirement path that would
+    change what the request says (a backtick, a backslash, a line break, an absolute path)."""
+    if workflow not in tasks.workflows(settings, repository):
+        raise RequestError(f"{workflow!r} isn't a skill committed in {repository.name}")
+    if any(mark in requirement for mark in ("`", "\\", "\n", "\r")) or requirement.startswith("/"):
+        raise RequestError(f"{requirement} can't be named in a request as it is")
+
+
+def _take_and_hand_over(
+    repository: Repository, settings: Settings, folder: Path, session: Session, requirement: str
+) -> Request:
+    """Take the request waiting for the session, once, check it again, as anyone could have
+    written it, and hand it over through its socket. A request that fails the check is
+    dropped; one that never reached the session waits again."""
     waiting = folder / f"{session.id}.json"
     taking = folder / f"{session.id}.taking.{uuid.uuid4()}"
     try:
@@ -186,11 +203,31 @@ def _take_and_hand_over(folder: Path, session: Session) -> Request:
     except FileNotFoundError:
         raise RequestError(GONE) from None
     request = _read(taking)
+    try:
+        if request is None:
+            raise RequestError("The request waiting for it can't be read")
+        if request.requirement != requirement:
+            raise RequestError(f"The request waiting for it isn't for {requirement}")
+        _check(repository, settings, request.workflow, request.requirement)
+        _hand_over(folder, session, request)
+    except NotSent:
+        _put_back(taking, waiting)
+        raise
+    except RequestError as exc:
+        taking.unlink(missing_ok=True)
+        raise RequestError(f"{exc}, so it was dropped.") from None
     taking.unlink(missing_ok=True)
-    if request is None:
-        raise RequestError("The request waiting for it can't be read, so it was dropped.")
-    _hand_over(folder, session, request)
     return request
+
+
+def _put_back(taking: Path, waiting: Path) -> None:
+    """Let a taken request wait again, unless another has come to wait meanwhile."""
+    try:
+        waiting.hardlink_to(taking)
+    except FileExistsError:
+        pass
+    finally:
+        taking.unlink(missing_ok=True)
 
 
 def _hand_over(folder: Path, session: Session, request: Request) -> None:
@@ -204,14 +241,21 @@ def _hand_over(folder: Path, session: Session, request: Request) -> None:
         "uuid": request.id,
         "message": {"role": "user", "content": instruction(request.workflow, request.requirement)},
     }
-    try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+    connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    with connection:
+        try:
             connection.settimeout(SEND_TIMEOUT_S)
             connection.connect(str(path))
+        except OSError as exc:
+            raise NotSent(f"The session couldn't be reached: {exc.strerror or exc}") from None
+        try:
             connection.sendall((json.dumps(message) + "\n").encode())
             connection.shutdown(socket.SHUT_WR)
-    except OSError as exc:
-        raise RequestError(f"The session couldn't be reached: {exc.strerror or exc}") from None
+        except OSError as exc:
+            raise RequestError(
+                f"Sending it to the session failed partway, so it may have arrived: "
+                f"{exc.strerror or exc}"
+            ) from None
     delivered = Request(request.id, request.workflow, request.requirement, _now())
     _write(folder / f"{session.id}.delivered.json", delivered, exclusive=False)
 
@@ -219,7 +263,7 @@ def _hand_over(folder: Path, session: Session, request: Request) -> None:
 def _socket(session: Session) -> Path:
     """The session's socket, refused unless it is a socket of this user's, named after the
     session's own process, in a folder no one else can write."""
-    refused = RequestError("Its socket can't be trusted, so nothing was sent to it.")
+    refused = NotSent("Its socket can't be trusted, so nothing was sent to it.")
     if session.socket is None or session.pid is None:
         raise refused
     path = Path(session.socket)
@@ -228,7 +272,7 @@ def _socket(session: Session) -> Path:
     try:
         found, folder = os.lstat(path), os.lstat(path.parent)
     except OSError:
-        raise RequestError("Its socket is gone: the session has ended or moved.") from None
+        raise NotSent("Its socket is gone: the session has ended or moved.") from None
     mine = os.getuid()
     if not S_ISSOCK(found.st_mode) or found.st_uid != mine:
         raise refused
@@ -248,7 +292,7 @@ def _write(path: Path, request: Request, *, exclusive: bool) -> None:
         "at": request.at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
     }
     draft = path.with_name(f"{path.name}.{uuid.uuid4()}.draft")
-    draft.write_text(json.dumps(fields) + "\n")
+    draft.write_text(json.dumps(fields, ensure_ascii=False) + "\n", encoding="utf-8")
     try:
         if exclusive:
             path.hardlink_to(draft)
@@ -263,10 +307,12 @@ def _write(path: Path, request: Request, *, exclusive: bool) -> None:
 
 
 def _read(path: Path) -> Request | None:
-    """The request in the file at `path`, or None when there is none that can be read. Never
-    through a link: any local process can write here."""
+    """The request in the file at `path`, or None when there is none that can be read. Only a
+    regular file, never through a link, and without waiting on a pipe: any local process can
+    write here."""
     try:
-        descriptor = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(path, flags)
     except OSError:
         return None
     with os.fdopen(descriptor, "rb") as file:

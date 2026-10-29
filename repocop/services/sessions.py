@@ -36,7 +36,6 @@ SHOWN_FOR = timedelta(days=1)  # how long after its last event a session still s
 CHUNK = 64 * 1024  # how much of a log is read at a time
 READ_BACK = 1024 * 1024  # how far back from its end a log is first read, for its latest workflow
 IDENTITY_BYTES = 256  # the first bytes of a log, which tell it from another file at its path
-LOGS_READ = 200  # the most logs read in one repository, most recently written first
 LOGS = PurePosixPath("repocop", "sessions")  # in the repository's git common folder
 # The hook the repo template ships, which records sessions, and the settings that run it.
 RECORDER = ".claude/hooks/session-events.sh"
@@ -150,8 +149,8 @@ def of(repository: Repository, settings: Settings, *, now: datetime | None = Non
     now = now or datetime.now(UTC)
     pages = _requirement_pages(repository)
     found = []
-    for log in _recent_logs(folder, now):
-        reading = _reading(log)
+    for log, listed in _recent_logs(folder, now):
+        reading = _reading(log, listed)
         latest = reading.latest if reading else None
         if reading and latest and now - latest.at <= SHOWN_FOR:
             session = log.name.removesuffix(".jsonl")
@@ -199,9 +198,10 @@ def common_dir(repository: Repository, settings: Settings) -> Path | None:
     return found
 
 
-def _recent_logs(folder: Path, now: datetime) -> list[Path]:
-    """The folder's logs written in the past day, the latest first, at most LOGS_READ. A link
-    is never read: it could lead anywhere."""
+def _recent_logs(folder: Path, now: datetime) -> list[tuple[Path, os.stat_result]]:
+    """The folder's logs written in the past day, each with what a look at it found, however
+    many there are: a session that hasn't written for hours may still be live. A link is never
+    read: it could lead anywhere."""
     oldest = (now - SHOWN_FOR).timestamp()
     found = []
     for entry in folder.iterdir():
@@ -213,18 +213,22 @@ def _recent_logs(folder: Path, now: datetime) -> list[Path]:
         except OSError:
             continue
         if S_ISREG(stat.st_mode) and stat.st_mtime >= oldest:
-            found.append((stat.st_mtime_ns, entry))
-    found.sort(reverse=True)
-    return [entry for _, entry in found[:LOGS_READ]]
+            found.append((entry, stat))
+    return found
 
 
-def _reading(log: Path) -> _Reading | None:
-    """What the log says now: read only as far as it was appended to since it was last read, or
-    anew when it is another file, or shorter, than then. None when it can't be opened."""
+def _reading(log: Path, listed: os.stat_result) -> _Reading | None:
+    """What the log says now: unread while it is as `listed` found it when last read, else read
+    only as far as it was appended to since, or anew when it is another file, or shorter, than
+    then. None when it can't be opened as a regular file."""
     with _READINGS_GUARD:
         known = _READINGS.get(log)
+    seen = (listed.st_size, listed.st_mtime_ns, listed.st_dev, listed.st_ino)
+    if known and seen == (known.end, known.written, *known.file[:2]):
+        return known
     try:
-        descriptor = os.open(log, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+        flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(log, flags)
     except OSError:
         return None
     with os.fdopen(descriptor, "rb") as file:

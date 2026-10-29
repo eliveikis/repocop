@@ -348,6 +348,22 @@ def test_hook_hands_a_session_its_waiting_request_once_when_its_turn_ends(
     assert events(committed) == []  # handing a request over records no event
 
 
+@pytest.mark.parametrize("name", ["café.md", 'say "hi".md'])
+def test_hook_hands_on_a_requirement_whatever_its_file_is_called(
+    committed: Path, awk: Path, name: str
+) -> None:
+    path = f"specs/changes/todo/{name}"
+    (committed / path).write_text("Import.\n")
+    waiting = inbox(committed) / f"{SESSION}.json"
+    request = {"v": 1, "id": "0a1b2c", "workflow": "implement", "requirement": path, "at": "x"}
+    waiting.parent.mkdir(parents=True, exist_ok=True)
+    waiting.write_text(json.dumps(request, ensure_ascii=False))  # as RepoCop writes it
+    ran = record(committed, awk, payload(committed, "Stop"), mode=("deliver",))
+    assert json.loads(ran.stdout)["reason"].endswith(f"with the argument `{path}`.")
+    delivered = json.loads((inbox(committed) / f"{SESSION}.delivered.json").read_text())
+    assert delivered["requirement"] == path
+
+
 @pytest.mark.parametrize(
     "request_",
     [

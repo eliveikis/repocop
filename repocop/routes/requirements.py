@@ -69,7 +69,7 @@ def send_waiting_request(
 ) -> Response:
     repository, session = _session_of(conn, settings, requirement, session_id)
     try:
-        sent = session_requests.send_waiting(repository, settings, session)
+        sent = session_requests.send_waiting(repository, settings, session, requirement.path)
     except RepoCopError as exc:
         return _render(request, conn, settings, requirement, error=str(exc), status_code=400)
     return _back(request, requirement, asked=sent.workflow)
