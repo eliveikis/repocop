@@ -233,7 +233,7 @@ Sessions run through the Python Claude Agent SDK (`claude-agent-sdk`, `ClaudeSDK
 
 ## UI approach
 
-Server-rendered Jinja, with HTMX for live panels and the quick switcher, one shared script for the shell, and optional page-specific plain JavaScript or vendored libraries where a page needs more. No SPA framework, npm, bundler, or CDN dependency at runtime. Route handlers stay thin, with logic in `services/`. HTMX is vendored in `repocop/static/vendor/`, and it and the shell's script load on every page.
+Server-rendered Jinja, with HTMX for live panels, the quick switcher and the board's pull requests, one shared script for the shell, and optional page-specific plain JavaScript or vendored libraries where a page needs more. No SPA framework, npm, bundler, or CDN dependency at runtime. Route handlers stay thin, with logic in `services/`. HTMX is vendored in `repocop/static/vendor/`, and it and the shell's script load on every page.
 
 **The shell.** Every page shares one frame, so an operator sees what is running anywhere and gets to any repository, requirement or task quickly:
 
