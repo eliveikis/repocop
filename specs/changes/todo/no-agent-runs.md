@@ -6,7 +6,7 @@ RepoCop stops running coding agents. It shows where every requirement stands, gi
 
 ## Acceptance Criteria
 
-1. A requirement's page offers no way to start a workflow, a review or a pull request action. For each of the repository's workflows, it still gives the line that runs it on the requirement in the developer's own agent, and names the branch to do the work on.
+1. A requirement's page offers no way to start a workflow, a review or a pull request action. For each of the repository's workflows, it still gives the line that runs it on the requirement in the developer's own agent, such as `/implement specs/changes/todo/bulk-import.md`, and names the branch to do the work on. Each line has a Copy button that puts it on the clipboard.
 2. RepoCop launches no coding agent: no Claude Code session and no Codex review.
 3. Template sync works as before: its plan, its commit on its own branch and worktree, pushing that branch and opening its pull request, and removing it.
 4. The main page has no Claude sign-in panel, and `make doctor` checks only what RepoCop itself runs.
@@ -44,5 +44,5 @@ RepoCop stops running coding agents. It shows where every requirement stands, gi
 
 ## Open questions
 
-1. **Review and pull request buttons for requirements.** **→** Removed with the runs. Agent tools push and open their own pull requests, `.reviews/review.sh` runs the same Codex review by hand, and `queue-next-step` can ask a session to review or address a review. The alternative keeps them and points them at the requirement's branch wherever it lives, which changes the safety rules on what RepoCop pushes and where Codex may run.
+1. **Review and pull request buttons for requirements.** **→** Removed with the runs. The repo template's `/review-branch` and `/open-pull-request` take over in the agent's own session (`pull-request-and-review-skills`), and `queue-next-step` can ask a session to run them. The alternative keeps them and points them at the requirement's branch wherever it lives, which changes the safety rules on what RepoCop pushes and where Codex may run.
 2. **Past runs' records.** **→** A forward-only migration drops the tasks and events of past workflow runs and reviews, and their pages go. Their worktrees and branches stay on disk, untouched.
