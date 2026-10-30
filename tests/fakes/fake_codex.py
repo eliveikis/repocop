@@ -24,6 +24,9 @@ class FakeCodex:
         """The `codex review` calls so far."""
         return [call for call in self.records if call["args"][:1] == ["review"]]
 
+    def log_out(self) -> None:
+        (self.directory / "logged-out").touch()
+
     def review_says(self, text: str) -> None:
         (self.directory / "review.txt").write_text(text)
 

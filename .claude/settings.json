@@ -34,13 +34,20 @@
       "Bash(git mv:*)",
       "Bash(.claude/skills/address-pr-comments/fetch-threads.sh:*)",
       "Bash(.claude/skills/complete-change/archive.sh:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(.reviews/review.sh:*)",
+      "Bash(gh auth status:*)",
+      "Bash(gh pr list:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh repo view:*)"
     ],
     "ask": [
       "Bash(uv add:*)",
       "Bash(uv remove:*)",
       "Bash(git push:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(gh pr create:*)",
+      "Bash(gh pr edit:*)"
     ],
     "deny": [
       "Read(./.env)",

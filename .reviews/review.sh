@@ -8,8 +8,15 @@
 # review is read-only and needs no approvals, whatever your own Codex settings say. REVIEW_EFFORT
 # sets how hard Codex thinks (default high; blank leaves it to your Codex settings) and
 # REVIEW_MODEL the model (default: Codex's own). Codex's progress shows as it works, and the
-# review is saved as .reviews/<branch>-<commit>.md, which git ignores, and printed.
+# review is saved as .reviews/<branch>-<commit>.md, which git ignores, and printed. It refuses,
+# saying why and changing nothing, without Codex installed and signed in, without the base, on
+# the base's own branch, with uncommitted changes, and with no commits the base lacks.
 set -eu
+
+if ! command -v codex >/dev/null 2>&1; then
+  echo "Codex isn't installed, or isn't on PATH." >&2
+  exit 1
+fi
 
 top=$(git rev-parse --show-toplevel)
 cd "$top"
@@ -23,12 +30,24 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   echo "$base isn't here. Fetch it, or name the base: .reviews/review.sh <base>" >&2
   exit 1
 fi
+branch=$(git branch --show-current)
+if [ -n "$branch" ] && [ "$branch" = "${base##*/}" ]; then
+  echo "This is $base's own branch: review a branch made from it." >&2
+  exit 1
+fi
 if [ -n "$(git status --porcelain)" ]; then
   echo "There are uncommitted changes, which Codex would review too. Commit or stash them first." >&2
   exit 1
 fi
+if [ "$(git rev-list --count "$base..HEAD")" -eq 0 ]; then
+  echo "This branch has no commits $base lacks, so there's nothing to review." >&2
+  exit 1
+fi
+if ! codex login status </dev/null >/dev/null 2>&1; then
+  echo "Codex isn't signed in: run codex login." >&2
+  exit 1
+fi
 
-branch=$(git branch --show-current)
 name=$(printf '%s' "${branch:-detached}" | tr '/' '-')-$(git rev-parse --short HEAD)
 out=.reviews/$name.md
 

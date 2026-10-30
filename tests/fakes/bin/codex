@@ -3,9 +3,9 @@
 
 Without FAKE_CODEX_DIR it fails, so a test that didn't ask for the fake can't reach Codex. With
 it, state lives in that folder: `calls.jsonl` gets each call's arguments, its working directory
-and whether its input was closed. A review prints its progress on standard error and the review
-on standard output, as Codex does: `review.txt` holds the review to print, and `fail` the error
-to fail with.
+and whether its input was closed, and a `logged-out` file makes `login status` fail. A review
+prints its progress on standard error and the review on standard output, as Codex does:
+`review.txt` holds the review to print, and `fail` the error to fail with.
 """
 
 import json
@@ -27,7 +27,11 @@ def progress(text: str) -> None:
     print(text, file=sys.stderr, flush=True)
 
 
-if args[:1] == ["review"]:
+if args[:2] == ["login", "status"]:
+    if (state / "logged-out").exists():
+        sys.exit("Not logged in")
+    print("Logged in using ChatGPT")
+elif args[:1] == ["review"]:
     progress("OpenAI Codex (fake)\nsandbox: read-only")
     if (state / "fail").exists():
         progress(f"ERROR: {(state / 'fail').read_text().strip()}")

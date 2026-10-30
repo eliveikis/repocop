@@ -134,3 +134,40 @@ def test_a_failed_review_saves_nothing(checkout: Path, fake_codex: FakeCodex) ->
     assert result.returncode != 0
     assert "ERROR: out of credit" in result.stderr
     assert saved(checkout) == []
+
+
+def test_review_refuses_the_bases_own_branch(checkout: Path, fake_codex: FakeCodex) -> None:
+    run_git("switch", "-q", "main", cwd=checkout)
+    result = review(checkout)
+    assert result.returncode != 0
+    assert "origin/main's own branch" in result.stderr
+    assert fake_codex.reviews == [] and saved(checkout) == []
+
+
+def test_review_refuses_a_branch_with_nothing_the_base_lacks(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
+    run_git("switch", "-q", "-c", "empty", "origin/main", cwd=checkout)
+    result = review(checkout)
+    assert result.returncode != 0
+    assert "no commits origin/main lacks" in result.stderr
+    assert fake_codex.reviews == []
+
+
+def test_review_refuses_without_codex_signed_in(checkout: Path, fake_codex: FakeCodex) -> None:
+    fake_codex.log_out()
+    result = review(checkout)
+    assert result.returncode != 0
+    assert "isn't signed in: run codex login" in result.stderr
+    assert fake_codex.reviews == [] and saved(checkout) == []
+
+
+def test_review_refuses_without_codex_installed(checkout: Path, tmp_path: Path) -> None:
+    tools = tmp_path / "no-codex"
+    tools.mkdir()
+    for tool in ("git", "sh", "mktemp", "tr", "cat", "mv", "rm"):
+        (tools / tool).symlink_to(shutil.which(tool) or tool)
+    result = review(checkout, env={"PATH": str(tools)})
+    assert result.returncode != 0
+    assert "Codex isn't installed" in result.stderr
+    assert saved(checkout) == []

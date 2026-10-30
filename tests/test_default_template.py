@@ -166,10 +166,17 @@ def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None
         "git merge-base",
         "git branch --show-current",
         "git rev-parse",
+        "git log",
         "make check",
+        ".reviews/review.sh",
+        "gh auth status",
+        "gh pr list",
+        "gh pr view",
+        "gh repo view",
     ):
         assert any(rule.startswith(f"Bash({command}") for rule in permissions["allow"]), command
-    assert "Bash(git push:*)" in permissions["ask"]
+    for asked in ("git push", "gh pr create", "gh pr edit"):  # each asks the developer first
+        assert f"Bash({asked}:*)" in permissions["ask"], asked
     for script in sorted((TEMPLATE / ".claude" / "skills").glob("*/*.sh")):
         rule = f"Bash({script.relative_to(TEMPLATE).as_posix()}:*)"
         assert rule in permissions["allow"], rule
