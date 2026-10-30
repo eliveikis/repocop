@@ -21,6 +21,7 @@ from repocop.services import git
 GH = "gh"
 HOST = "github.com"
 TIMEOUT_S = 60.0
+PULL_REQUESTS_READ = 200  # the open pull requests read from a repository at once
 
 
 class GitHubError(RepoCopError):
@@ -36,12 +37,12 @@ def repository_of(remote_url: str) -> str:
     return match[1]
 
 
-def check_ready(cwd: Path) -> None:
+def check_ready(cwd: Path, *, timeout: float = TIMEOUT_S) -> None:
     """Refuse unless `gh` is installed and logged in to github.com."""
     if shutil.which(GH) is None:
         raise GitHubError(f"the GitHub CLI ({GH}) isn't installed, or isn't on PATH")
     try:
-        _run(["auth", "status", "--hostname", HOST], cwd=cwd)
+        _run(["auth", "status", "--hostname", HOST], cwd=cwd, timeout=timeout)
     except GitHubError:
         raise GitHubError(
             f"the GitHub CLI isn't logged in to {HOST}: run `gh auth login`"
@@ -55,6 +56,21 @@ def pull_request_of(cwd: Path, repository: str, branch: str) -> str | None:
         _run([*listing, "--state", "open", "--json", "url", "--limit", "1"], cwd=cwd)
     )
     return _pull_request_url(found[0]["url"]) if found else None
+
+
+def open_pull_requests(cwd: Path, repository: str, *, timeout: float = TIMEOUT_S) -> dict[str, str]:
+    """The address of each open pull request whose branch is in `repository` itself, by its
+    branch: one read, which changes nothing on GitHub. Pull requests from forks are left out."""
+    fields = "url,headRefName,isCrossRepository"
+    listing = ["pr", "list", "--repo", repository, "--state", "open", "--json", fields]
+    found = json.loads(
+        _run([*listing, "--limit", str(PULL_REQUESTS_READ)], cwd=cwd, timeout=timeout)
+    )
+    return {
+        pull["headRefName"]: _pull_request_url(pull["url"])
+        for pull in found
+        if not pull["isCrossRepository"]
+    }
 
 
 def create_pull_request(
@@ -79,7 +95,7 @@ def _pull_request_url(text: str) -> str:
     return text
 
 
-def _run(args: list[str], *, cwd: Path) -> str:
+def _run(args: list[str], *, cwd: Path, timeout: float = TIMEOUT_S) -> str:
     command = f"gh {' '.join(args[:2])}"
     env = {**os.environ, "GH_PROMPT_DISABLED": "1", "GH_NO_UPDATE_NOTIFIER": "1", "NO_COLOR": "1"}
     try:
@@ -92,11 +108,11 @@ def _run(args: list[str], *, cwd: Path) -> str:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=TIMEOUT_S,
+            timeout=timeout,
             check=False,
         )
     except subprocess.TimeoutExpired:
-        raise GitHubError(f"{command} timed out after {TIMEOUT_S:g}s") from None
+        raise GitHubError(f"{command} timed out after {timeout:g}s") from None
     except OSError as exc:
         raise GitHubError(f"{command} couldn't run: {exc}") from exc
     if result.returncode != 0:

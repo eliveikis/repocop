@@ -9,6 +9,7 @@
 
 {% block toasts %}
 {% if fetched %}<p class="toast">Fetched from origin.</p>{% endif %}
+{% if default_branch_set %}<p class="toast">{{ repository.name }} now compares with <code>{{ repository.default_branch }}</code>.</p>{% endif %}
 {% if removed %}<p class="toast">Removed <code>{{ removed }}</code> and its worktree.</p>{% endif %}
 {% endblock %}
 
@@ -23,6 +24,7 @@
   <a href="#overview">Overview</a>
   {% if status != "missing" %}<a href="#checkout">Checkout</a>{% endif %}
   <a href="#requirements">Requirements</a>
+  <a href="#sessions">Sessions</a>
   {% if syncs %}<a href="#syncs">Template syncs</a>{% endif %}
 </nav>
 
@@ -31,7 +33,22 @@
     <dt>Status</dt><dd>{% include "partials/repository_status.html" %}</dd>
     <dt>Remote</dt><dd>{% include "partials/repository_remote.html" %}</dd>
     <dt>Paths</dt><dd class="paths">{% include "partials/repository_paths.html" %}</dd>
+    <dt>Default branch</dt><dd><code>{{ repository.default_branch }}</code>{% if origin_branches and origin_branches.branches %}
+      <details class="change">
+        <summary>Change</summary>
+        <form class="actions" method="post" action="{{ url_for('change_default_branch', repository_id=repository.id) }}">
+          <select name="default_branch" aria-label="Default branch">{% for branch in origin_branches.branches %}<option{% if branch == repository.default_branch %} selected{% endif %}>{{ branch }}</option>{% endfor %}</select>
+          <button type="submit">Use it</button>
+        </form>
+      </details>{% endif %}</dd>
   </dl>
+  {% if default_branch_error %}<p class="error" role="alert">{{ default_branch_error }}</p>{% endif %}
+  {% if origin_default %}
+  <div class="notice default-offer">
+    <p>origin's default branch is now <code>{{ origin_default }}</code>, but {{ repository.name }} compares with <code>{{ repository.default_branch }}</code>.</p>
+    <form method="post" action="{{ url_for('change_default_branch', repository_id=repository.id) }}"><input type="hidden" name="default_branch" value="{{ origin_default }}"><button type="submit" class="primary">Use <code>{{ origin_default }}</code></button></form>
+  </div>
+  {% endif %}
   {% if waiting %}{% set fetched_at = checkout.state.fetched_at if checkout.state else none %}{% include "partials/sync_waiting.html" %}{% endif %}
 </section>
 
@@ -88,7 +105,6 @@
     {% for level in listing.levels %}{% if loop.first or not ready %}{% set entries = level %}{% include "partials/requirement_rows.html" %}{% endif %}{% endfor %}
     {% if not ready %}
     {% set entries, held_up = listing.apart, true %}{% include "partials/requirement_rows.html" %}
-    {% set entries, held_up = listing.delivered + listing.missing, false %}{% include "partials/requirement_rows.html" %}
     {% endif %}
     </tbody>
   </table>
@@ -105,6 +121,13 @@
   {% endif %}
 </section>
 
+<section id="sessions" aria-labelledby="sessions-heading">
+  <h2 id="sessions-heading">Sessions</h2>
+  <p class="hint">The agent sessions in {{ repository.name }} with an event in the past day, as they report it, wherever they run.</p>
+  {% if recorded is false %}<p class="notice"><code>{{ waiting_ref }}</code> lacks the hook that records agent sessions, so they aren't shown here. A template sync brings it, and sessions on branches made before that sync record nothing.</p>{% endif %}
+  {% set key, shown = "a:%d" % repository.id, sessions %}{% include "partials/sessions.html" %}
+</section>
+
 {% if syncs %}
 <section id="syncs" aria-labelledby="syncs-heading">
   <h2 id="syncs-heading">Template syncs</h2>
@@ -112,7 +135,7 @@
   <div class="table-scroll">
   <table class="tasks">
     <thead>
-      <tr><th>Task</th><th>Branch</th><th>State</th><th>Created</th><th></th></tr>
+      <tr><th>Sync</th><th>Branch</th><th>State</th><th>Created</th><th></th></tr>
     </thead>
     <tbody>
       {% for task in syncs %}

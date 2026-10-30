@@ -1,6 +1,6 @@
 # ADR-012: One branch and worktree per requirement
 
-**Status:** accepted, its branch names superseded by ADR-026 · **Date:** 2026-09-24
+**Status:** superseded, its branch names by ADR-026 and the rest by ADR-039 · **Date:** 2026-09-24
 
 ## Context
 

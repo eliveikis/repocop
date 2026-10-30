@@ -1,6 +1,6 @@
 # ADR-003: Every coordinator session runs in a worktree
 
-**Status:** accepted · **Date:** 2026-09-24
+**Status:** superseded by ADR-039 · **Date:** 2026-09-24
 
 ## Context
 

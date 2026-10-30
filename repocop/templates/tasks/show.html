@@ -1,28 +1,21 @@
 {% extends "base.html" %}
 {% set crumbs = [("Repositories", url_for('list_repositories'))]
   + ([(repository.name, url_for('repository_page', repository_id=repository.id))] if repository else [])
-  + ([(requirement.name, url_for('requirement_page', repository_id=requirement.repository_id, file_name=requirement.file_name))] if requirement else [])
-  + [("Task #" ~ task.id, url_for('task_page', task_id=task.id))] %}
-{% set instruction_offered = instructable and task.status in ("running", "waiting_for_user") %}
+  + [("Sync #" ~ task.id, url_for('task_page', task_id=task.id))] %}
 
-{% block title %}#{{ task.id }} · RepoCop{% endblock %}
+{% block title %}Sync #{{ task.id }} · RepoCop{% endblock %}
 
 {% block toasts %}
-{% if notices.started %}<p class="toast">Task started in its worktree.</p>{% endif %}
-{% if notices.sent %}<p class="toast">Instruction sent to this task's session.</p>{% endif %}
-{% if notices.cancelled %}<p class="toast">Task cancelled.</p>{% endif %}
-{% if notices.done %}<p class="toast">Task marked done.</p>{% endif %}
 {% if pull_request_done == "push" %}<p class="toast">Pushed <code>{{ task.branch }}</code>.</p>
 {% elif pull_request_done == "review" %}<p class="toast">Asked Copilot to review the pull request.</p>{% endif %}
 {% endblock %}
 
 {% block content %}
-<h1>#{{ task.id }} · {{ task.workflow }}</h1>
+<h1>Template sync #{{ task.id }}</h1>
 
 <nav class="section-links" aria-label="On this page">
   <a href="#overview">Overview</a>
   <a href="#transcript">Transcript</a>
-  {% if instruction_offered %}<a href="#instruction">Instruction</a>{% endif %}
   {% if pull_request_offered %}<a href="#pull-request">Pull request</a>{% endif %}
   <a href="#worktree">Worktree</a>
 </nav>
@@ -31,35 +24,51 @@
 {% if waiting %}{% include "partials/sync_waiting.html" %}{% endif %}
 
 <section id="overview" aria-label="Overview">
-{% include "partials/task_header.html" %}
+<dl class="facts">
+  <dt>Status</dt><dd><span class="status status-{{ task.status }}">{{ task.status }}</span></dd>
+  {% if restarted %}<dt>Error</dt><dd class="error-text">RepoCop stopped while it was committing this sync, so the sync failed. Run it again from the repository's sync page.</dd>
+  {% elif task.error %}<dt>Error</dt><dd class="error-text">{{ task.error }}</dd>{% endif %}
+  {% if repository %}<dt>Repository</dt><dd><a href="{{ url_for('repository_page', repository_id=repository.id) }}">{{ repository.name }}</a></dd>{% endif %}
+  {% if task.branch %}<dt>Branch</dt><dd><code>{{ task.branch }}</code></dd>{% endif %}
+  {% if task.worktree_path %}<dt>Worktree</dt><dd><code>{{ task.worktree_path }}</code> <span class="owner owner-repocop">RepoCop-owned</span>{% if editor_link %} <a href="{{ editor_link }}">Open in editor</a>{% endif %}</dd>{% endif %}
+  {% if task.base_commit %}<dt>Base commit</dt><dd><code>{{ task.base_commit[:12] }}</code></dd>{% endif %}
+  <dt>Created</dt><dd>{{ task.created_at | ago }}</dd>
+  <dt>Updated</dt><dd>{{ task.updated_at | ago }}</dd>
+</dl>
 </section>
 
 <section id="transcript" aria-labelledby="transcript-heading">
   <h2 id="transcript-heading">Transcript</h2>
   <ol class="transcript">
-  {% include "partials/task_events.html" %}
+  {% for event in events %}
+  <li class="event event-{{ event.kind }}">
+    {% if event.kind == "status_change" %}<span class="who">Status</span> {{ event.payload.status }}{% if event.payload.error %}: {{ event.payload.error }}{% endif %}
+    {% elif event.kind == "error" %}<span class="who">Error</span><pre>{{ event.payload.error }}</pre>
+    {% else %}<pre>{{ event.payload.text or event.payload }}</pre>{% endif %}
+  </li>
+  {% endfor %}
   </ol>
 </section>
-
-{% if instruction_offered %}
-<section id="instruction" aria-label="Instruction">
-  <form class="instruction" method="post" action="{{ url_for('send_instruction', task_id=task.id) }}">
-    <label>Instruction for this session
-      <textarea name="text" rows="4">{{ instruction }}</textarea>
-    </label>
-    <span class="hint">Goes to this task's session only. While it's working, it's answered after the current turn.</span>
-    <button type="submit" class="primary">Send to #{{ task.id }}</button>
-  </form>
-</section>
-{% endif %}
 
 {% if pull_request_offered %}
 {% set pull_request_route = "task_pull_request" %}{% set pull_request_params = {"task_id": task.id} %}{% set branch = task.branch %}
 {% include "partials/pull_request.html" %}
 {% endif %}
 
-<section id="worktree" aria-labelledby="worktree-heading">
+<section id="worktree" class="worktree-changes" aria-labelledby="worktree-heading">
   <h2 id="worktree-heading">Worktree</h2>
-  {% include "partials/task_worktree.html" %}
+  {% if changes is none %}
+  <p class="empty">The worktree isn't there any more, so its status and diff can't be shown.</p>
+  {% else %}
+  <h3>git status</h3>
+  <pre class="git-status">{{ changes.status }}</pre>
+  <h3>Diff since the base commit</h3>
+  {% if changes.diff %}
+  {% set diff = changes.diff %}{% include "partials/diff.html" %}
+  {% if changes.clipped %}<p class="hint">Only part of the diff is shown: it's too long, or adds too many new files.</p>{% endif %}
+  {% else %}
+  <p class="empty">No changes since the base commit.</p>
+  {% endif %}
+  {% endif %}
 </section>
 {% endblock %}

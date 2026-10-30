@@ -1,6 +1,6 @@
 # ADR-024: The coordinator isn't tied to one coding agent
 
-**Status:** accepted · **Date:** 2026-10-11
+**Status:** accepted, its agent's module superseded by ADR-039 · **Date:** 2026-10-11
 
 ## Context
 

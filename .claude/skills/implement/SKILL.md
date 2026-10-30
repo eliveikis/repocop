@@ -1,6 +1,6 @@
 ---
 name: implement
-description: Implement a requirement end-to-end on the current branch — plan, build each piece with its check written first, verify with the repo's check command, and summarize. Use when asked to implement a change in specs/changes/todo/.
+description: Implement a requirement end-to-end on its own branch — put itself on that branch, plan, build each piece with its check written first, verify with the repo's check command, and summarize. Use when asked to implement a change in specs/changes/todo/.
 argument-hint: "[path-to-requirement.md] [scope note]  (defaults to the branch's requirement)"
 ---
 <!-- managed by template -->
@@ -11,11 +11,20 @@ Implement: `$ARGUMENTS`
 
 With no path, implement the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so, ask for the path, and change nothing. Name the requirement you picked before you start.
 
-## Preconditions (stop and report if any fail)
+## Preconditions (stop and report if any fail, changing nothing)
 
-- You are **not** on `main`/`master`. Don't create or switch branches yourself: work on the branch you're on, which the human or RepoCop chose.
 - The requirement file exists.
-- `git status` is clean apart from the requirement file itself.
+- `git status --porcelain --untracked-files=all` lists nothing but the requirement file itself, so nothing unrelated comes onto its branch.
+
+## Its branch
+
+Work on the requirement's branch, named by the requirement's name (`.claude/rules/specs.md` › A branch's requirement). Pick it before anything else, and say which of these you did:
+
+1. **The current branch** (`git branch --show-current`), when it belongs to the requirement: stay on it.
+2. Else **its existing branch**, named exactly the requirement's name, here (`git rev-parse --verify --quiet refs/heads/<name>`) or on `origin` as last fetched (`git rev-parse --verify --quiet refs/remotes/origin/<name>`). When another worktree has it checked out (`git worktree list --porcelain`), stop, name that worktree, and change nothing. Else switch to it: `git switch <name>`.
+3. Else **a new branch** by that name, made off the current branch: `git switch -c <name>`.
+
+Never work on the repository's default branch (`git rev-parse --abbrev-ref origin/HEAD` names it as `origin/<branch>`): if the branch picked is that one, stop and change nothing. If a switch is refused, report git's reason and stop.
 
 ## Process
 

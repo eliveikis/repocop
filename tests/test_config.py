@@ -25,7 +25,6 @@ def test_load_settings_defaults_without_file_or_env(tmp_path: Path) -> None:
     assert settings.logs_dir == home / ".local/share/repocop/logs"
     assert settings.host == "127.0.0.1"
     assert settings.port == 8765
-    assert settings.claude_bin == "claude"
     assert settings.template_dir == PROJECT_ROOT / "templates" / "default-repo"
     assert settings.changes_dir == "specs/changes"
 
@@ -62,10 +61,8 @@ def test_load_settings_falls_back_to_user_file(tmp_path: Path) -> None:
 def test_load_settings_env_overrides_file(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     write_config(tmp_path / "repocop.yaml", "port: 2222\nhost: 127.0.0.1\n")
     monkeypatch.setenv("REPOCOP_PORT", "9000")
-    monkeypatch.setenv("REPOCOP_CLAUDE_BIN", "/opt/claude/bin/claude")
     settings = load_settings()
     assert settings.port == 9000
-    assert settings.claude_bin == "/opt/claude/bin/claude"
 
 
 def test_load_settings_expands_tilde_and_env_vars(
@@ -183,7 +180,25 @@ def test_load_settings_refuses_a_requirement_path_pattern_from_the_environment(
         load_settings()
 
 
-@pytest.mark.parametrize("field", ["repos_root", "host", "claude_bin"])
+@pytest.mark.parametrize(
+    "key", ["claude_bin", "anthropic_api_key", "review_model", "review_effort"]
+)
+def test_load_settings_refuses_a_setting_only_agent_runs_used(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, key: str
+) -> None:
+    config = write_config(tmp_path / "c.yaml", f"{key}: something\n")
+    monkeypatch.setenv("REPOCOP_CONFIG", str(config))
+    with pytest.raises(
+        ConfigError, match=f"{key} is no longer used: RepoCop runs no coding agents"
+    ):
+        load_settings()
+    monkeypatch.delenv("REPOCOP_CONFIG")
+    monkeypatch.setenv(f"REPOCOP_{key.upper()}", "something")
+    with pytest.raises(ConfigError, match=f"{key} is no longer used"):
+        load_settings()
+
+
+@pytest.mark.parametrize("field", ["repos_root", "host"])
 def test_settings_rejects_empty_values(field: str) -> None:
     with pytest.raises(ValueError, match=field):
         Settings.model_validate({field: ""})
@@ -194,51 +209,10 @@ def test_settings_is_immutable(settings: Settings) -> None:
         settings.port = 1  # type: ignore[misc]
 
 
-def test_settings_default_to_the_claude_subscription() -> None:
-    assert Settings().anthropic_api_key is None
-
-
-def test_settings_take_an_api_key_from_the_environment_and_never_show_it(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("REPOCOP_ANTHROPIC_API_KEY", "sk-ant-secret-value")
-    settings = load_settings()
-    assert settings.anthropic_api_key is not None
-    assert settings.anthropic_api_key.get_secret_value() == "sk-ant-secret-value"
-    assert "sk-ant-secret-value" not in repr(settings)
-
-
-def test_settings_ignore_the_plain_anthropic_api_key_variable(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-for-other-tools")
-    assert load_settings().anthropic_api_key is None
-
-
 def test_settings_have_no_editor_link_by_default() -> None:
     settings = Settings()
     assert settings.editor_url is None
     assert settings.editor_link(Path("/srv/code/sample")) is None
-
-
-def test_settings_name_no_review_model_unless_one_is_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert Settings().review_model is None
-    monkeypatch.setenv("REPOCOP_REVIEW_MODEL", "  ")
-    assert load_settings().review_model is None
-    monkeypatch.setenv("REPOCOP_REVIEW_MODEL", "gpt-6-sol")
-    assert load_settings().review_model == "gpt-6-sol"
-
-
-def test_settings_review_at_high_effort_unless_another_or_none_is_configured(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    assert Settings().review_effort == "high"
-    monkeypatch.setenv("REPOCOP_REVIEW_EFFORT", "xhigh")
-    assert load_settings().review_effort == "xhigh"
-    monkeypatch.setenv("REPOCOP_REVIEW_EFFORT", " ")
-    assert load_settings().review_effort is None
 
 
 def test_settings_treat_a_blank_editor_url_as_unset(monkeypatch: pytest.MonkeyPatch) -> None:

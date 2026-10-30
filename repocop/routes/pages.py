@@ -1,7 +1,8 @@
-"""The template environment every page renders with: the sidebar the shell shows, read only when
-a page shows it, and the `ago` filter, which shows a time relative to now, with the exact time on
-hover."""
+"""The template environment every page renders with: what the shell's sidebar lists, read only
+when a page shows it; the `ago` filter, which shows a time relative to now, with the exact time
+on hover; and the `sessions_id` filter, the element id of a session list."""
 
+import hashlib
 from contextlib import closing
 from datetime import UTC, datetime
 from functools import cached_property
@@ -15,30 +16,42 @@ from markupsafe import Markup
 from repocop import db
 from repocop.config import Settings
 from repocop.services import navigation
+from repocop.services.repositories import Repository
 
 
 def templates(directory: Path) -> Jinja2Templates:
-    """The page templates in `directory`, each given the sidebar and the `ago` filter."""
+    """The page templates in `directory`, each given the sidebar and the filters."""
     environment = Jinja2Templates(directory=directory, context_processors=[_shell])
     environment.env.filters["ago"] = ago
+    environment.env.filters["sessions_id"] = sessions_id
     return environment
 
 
 class LazySidebar:
-    """The sidebar's contents, read from the database the first time a page shows them, so a
-    fragment, which doesn't, reads nothing for it."""
+    """What the sidebar lists, read the first time a page shows it, so a fragment, which
+    doesn't, reads nothing for it: the repositories, and the sessions that need input."""
 
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
 
     @cached_property
-    def contents(self) -> navigation.Sidebar:
+    def repositories(self) -> list[Repository]:
         with closing(db.connect(self._settings.database_path)) as conn:
             return navigation.sidebar(conn)
+
+    @cached_property
+    def needs_input(self) -> list[navigation.SessionEntry]:
+        with closing(db.connect(self._settings.database_path)) as conn:
+            return navigation.needs_input(conn, self._settings)
 
 
 def _shell(request: Request) -> dict[str, Any]:
     return {"sidebar": LazySidebar(request.app.state.settings)}
+
+
+def sessions_id(key: str) -> str:
+    """The element id of the session list named `key`: the same for the same key, on any page."""
+    return "sessions-" + hashlib.sha1(key.encode(), usedforsecurity=False).hexdigest()[:16]
 
 
 def ago(when: str | datetime | None) -> Markup:

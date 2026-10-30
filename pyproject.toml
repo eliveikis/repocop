@@ -14,7 +14,6 @@ dependencies = [
   "python-multipart>=0.0.9", # HTML form posts
   "pydantic>=2.7",
   "pyyaml>=6.0",
-  "claude-agent-sdk>=0.2.159",
 ]
 
 [project.scripts]
@@ -23,7 +22,6 @@ repocop = "repocop.__main__:main"
 [dependency-groups]
 dev = [
   "pytest>=8.2",
-  "pytest-asyncio>=0.23",
   "pytest-cov>=5.0",
   "httpx2", # Starlette/FastAPI TestClient (starlette>=1.x deprecates plain httpx)
   "ruff>=0.6",
@@ -59,7 +57,7 @@ select = [
 ]
 ignore = [
   "S603", # subprocess without shell=True is the *desired* pattern; S602 (shell=True) stays on
-  "S607", # partial executable path: we intentionally resolve `git` / `claude` from PATH
+  "S607", # partial executable path: we intentionally resolve `git` / `gh` from PATH
 ]
 
 [tool.ruff.lint.per-file-ignores]
@@ -81,9 +79,7 @@ disallow_untyped_defs = false
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-ra --strict-markers"
-asyncio_mode = "auto"
 markers = [
-  "claude: requires a real, authenticated Claude Code CLI (skipped by default)",
   "slow: slow tests",
 ]
 

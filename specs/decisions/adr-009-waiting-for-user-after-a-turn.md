@@ -1,6 +1,6 @@
 # ADR-009: A finished turn waits for the user
 
-**Status:** accepted · **Date:** 2026-09-24
+**Status:** superseded by ADR-039 · **Date:** 2026-09-24
 
 ## Context
 

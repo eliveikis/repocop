@@ -1,6 +1,8 @@
-"""Repository pages: the registry list, Add repository, each repository's page, fetch, and
-removing a completed template sync's branch."""
+"""Repository pages: the main page with the fleet's board and the registry, adding a repository
+and choosing its default branch, fetching one repository or all of them, each repository's page
+and changing its default branch, and removing a completed template sync's branch."""
 
+import contextlib
 import sqlite3
 from typing import Annotated, Any
 
@@ -13,10 +15,11 @@ from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RepositoryDep, SettingsDep
 from repocop.services import (
     backlog,
-    claude,
+    board,
     pull_requests,
     repositories,
     requirements,
+    sessions,
     tasks,
     template_sync,
 )
@@ -35,12 +38,26 @@ def list_repositories(
     settings: SettingsDep,
     registered: int | None = None,
     outcome: Outcome | None = None,
+    pull_requests: bool = False,
 ) -> HTMLResponse:
+    """The main page. Its board shows at once, and its pull requests are read after it, unless
+    `pull_requests` asks for them now, as a browser without JavaScript does."""
     registration = None
     if registered is not None and outcome is not None:
         repository = repositories.get(conn, registered)
         registration = Registration(repository, outcome) if repository else None
-    return _render_list(request, conn, settings, registration=registration)
+    return _render_list(
+        request, conn, settings, registration=registration, with_pull_requests=pull_requests
+    )
+
+
+@router.get("/board", response_class=HTMLResponse)
+def board_panel(request: Request, conn: ConnectionDep, settings: SettingsDep) -> HTMLResponse:
+    """The fleet's board, with each repository's open pull requests read from GitHub now."""
+    listed = repositories.list_all(conn)
+    context = {"board": board.read(settings, listed, with_pull_requests=True)}
+    templates: Jinja2Templates = request.app.state.templates
+    return templates.TemplateResponse(request, "partials/board.html", context)
 
 
 @router.post("/repositories", response_class=HTMLResponse)
@@ -50,9 +67,22 @@ def add_repository(
     settings: SettingsDep,
     remote_url: Annotated[str, Form()] = "",
     name: Annotated[str, Form()] = "",
+    default_branch: Annotated[str, Form()] = "",
 ) -> Response:
+    """Add a repository in two steps. Without `default_branch`, show what adding it does and ask
+    for its default branch, suggesting the one `origin` names. With it, register it."""
     try:
-        registration = repositories.register(conn, settings, remote_url, name)
+        if default_branch.strip():
+            registration = repositories.register(
+                conn, settings, remote_url, name, default_branch=default_branch
+            )
+        else:
+            proposed = repositories.propose(conn, settings, remote_url, name)
+            if isinstance(proposed, repositories.Candidate):
+                templates: Jinja2Templates = request.app.state.templates
+                context = {"candidate": proposed}
+                return templates.TemplateResponse(request, "repositories/add.html", context)
+            registration = proposed
     except RepoCopError as exc:
         form = {"remote_url": remote_url, "name": name}
         return _render_list(request, conn, settings, error=str(exc), form=form, status_code=400)
@@ -60,6 +90,26 @@ def add_repository(
         registered=registration.repository.id, outcome=registration.outcome.value
     )
     return RedirectResponse(target, status_code=303)
+
+
+@router.post("/repositories/fetch-all", response_class=HTMLResponse)
+def fetch_all_repositories(
+    request: Request, conn: ConnectionDep, settings: SettingsDep
+) -> HTMLResponse:
+    """Fetch every repository whose checkout is there, each as its own Fetch does."""
+    listed = [r for r in repositories.list_all(conn) if repositories.checkout_present(r, settings)]
+    fetched = repositories.fetch_each(listed, settings)
+    summary = {
+        "fetched": sum(1 for repository in listed if fetched[repository.id].error is None),
+        "of": len(listed),
+        "failures": [(r, fetched[r.id].error) for r in listed if fetched[r.id].error],
+        "offers": [
+            (r, offered)
+            for r in listed
+            if (offered := fetched[r.id].origin_default) and offered != r.default_branch
+        ],
+    }
+    return _render_list(request, conn, settings, fetched_all=summary)
 
 
 @router.get("/repositories/{repository_id}", response_class=HTMLResponse)
@@ -71,9 +121,19 @@ def repository_page(
     fetched: bool = False,
     removed: str | None = None,
     ready: bool = False,
+    origin_default: str | None = None,
+    default_branch_set: bool = False,
 ) -> HTMLResponse:
     return _render_repository(
-        request, conn, settings, repository, fetched=fetched, removed=removed, ready=ready
+        request,
+        conn,
+        settings,
+        repository,
+        fetched=fetched,
+        removed=removed,
+        ready=ready,
+        origin_default=origin_default,
+        default_branch_set=default_branch_set,
     )
 
 
@@ -82,13 +142,34 @@ def fetch_repository(
     request: Request, conn: ConnectionDep, settings: SettingsDep, repository: RepositoryDep
 ) -> Response:
     try:
-        repositories.fetch(repository, settings)
+        origin_default = repositories.fetch(repository, settings)
     except RepoCopError as exc:
         return _render_repository(
             request, conn, settings, repository, fetch_error=str(exc), status_code=400
         )
+    params = {"fetched": "true"}
+    if origin_default and origin_default != repository.default_branch:
+        params["origin_default"] = origin_default  # offered on the page, never switched to
     target = request.url_for("repository_page", repository_id=repository.id)
-    return RedirectResponse(target.include_query_params(fetched="true"), status_code=303)
+    return RedirectResponse(target.include_query_params(**params), status_code=303)
+
+
+@router.post("/repositories/{repository_id}/default-branch", response_class=HTMLResponse)
+def change_default_branch(
+    request: Request,
+    conn: ConnectionDep,
+    settings: SettingsDep,
+    repository: RepositoryDep,
+    default_branch: Annotated[str, Form()] = "",
+) -> Response:
+    try:
+        repositories.set_default_branch(conn, settings, repository, default_branch.strip())
+    except RepoCopError as exc:
+        return _render_repository(
+            request, conn, settings, repository, default_branch_error=str(exc), status_code=400
+        )
+    target = request.url_for("repository_page", repository_id=repository.id)
+    return RedirectResponse(target.include_query_params(default_branch_set="true"), 303)
 
 
 @router.post("/repositories/{repository_id}/syncs/{task_id}/remove", response_class=HTMLResponse)
@@ -125,15 +206,22 @@ def _render_repository(
     removed: str | None = None,
     sync_error: str | None = None,
     ready: bool = False,
+    origin_default: str | None = None,
+    default_branch_set: bool = False,
+    default_branch_error: str | None = None,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
     listing = None
     try:
-        listing = backlog.listing(conn, settings, repository)
+        listing = backlog.listing(settings, repository)
     except RepoCopError as exc:
         error = error or str(exc)
     status = repositories.status(repository, settings)
     waiting = _waiting(conn, settings, repository, status)
+    origin_branches = None
+    if status is not Status.MISSING:
+        with contextlib.suppress(RepoCopError):  # without them, the default branch can't change
+            origin_branches = repositories.origin_branches(repository, settings)
     context = {
         "repository": repository,
         "status": status,
@@ -146,10 +234,26 @@ def _render_repository(
         ),
         "checkout": _checkout(repository, settings, status),
         "remote": repositories.remote(repository, settings),
+        "origin_branches": origin_branches,
+        "origin_default": (
+            origin_default
+            if origin_branches
+            and origin_default in origin_branches.branches
+            and origin_default != repository.default_branch
+            else None
+        ),
+        "default_branch_set": default_branch_set,
+        "default_branch_error": default_branch_error,
         "changed_shown": CHANGED_FILES_SHOWN,
         "fetched": fetched,
         "fetch_error": fetch_error,
         "listing": listing,
+        "sessions": sessions.of(repository, settings),
+        "recorded": (
+            sessions.recorder_on_origin(repository, settings)
+            if status is not Status.MISSING
+            else None
+        ),
         "todo_dir": requirements.todo_dir(repository),
         "ready": ready,
         "syncs": tasks.list_for_repository(conn, repository, workflow=template_sync.WORKFLOW),
@@ -191,19 +295,28 @@ def _render_list(
     registration: Registration | None = None,
     error: str | None = None,
     form: dict[str, str] | None = None,
+    with_pull_requests: bool = False,
+    fetched_all: dict[str, Any] | None = None,
     status_code: int = 200,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
     listed = []
+    offered: dict[int, int] = {}
     for repo in repositories.list_all(conn):
         status = repositories.status(repo, settings)
         waiting = _waiting(conn, settings, repo, status)
         checkout = _checkout(repo, settings, status)
         listed.append((repo, status, waiting, checkout, repositories.remote(repo, settings)))
+        if status is Status.BEHIND and waiting is None:
+            with contextlib.suppress(RepoCopError):  # a plan that can't be read offers nothing
+                offered[repo.id] = len(repositories.template_plan(repo, settings).offered)
+    registered = [repo for repo, *_ in listed]
     context = {
         "settings": settings,
-        "claude_auth": claude.auth_status(settings),
         "repositories": listed,
+        "offered": offered,
+        "board": board.read(settings, registered, with_pull_requests=with_pull_requests),
+        "fetched_all": fetched_all,
         "registration": registration,
         "error": error,
         "form": form or {"remote_url": "", "name": ""},

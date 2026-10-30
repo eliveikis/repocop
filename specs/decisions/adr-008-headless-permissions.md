@@ -1,6 +1,6 @@
 # ADR-008: Headless permissions: `acceptEdits` plus the repository's allowlist
 
-**Status:** accepted · **Date:** 2026-09-24
+**Status:** superseded by ADR-039 · **Date:** 2026-09-24
 
 ## Context
 

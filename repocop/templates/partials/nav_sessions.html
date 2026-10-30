@@ -1,0 +1,13 @@
+<div id="nav-sessions"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if needs_input %}
+<h2 class="nav-heading" id="nav-needs-input">Needs input</h2>
+<ul class="nav-list nav-sessions" aria-labelledby="nav-needs-input">
+  {% for entry in needs_input %}{% set session = entry.session %}
+  <li><a href="{% if session.page %}{{ url_for('requirement_page', repository_id=session.repository_id, file_name=session.page) }}{% else %}{{ url_for('repository_page', repository_id=session.repository_id) }}#sessions{% endif %}">
+    <span class="nav-session-name">{{ session.requirement or session.branch or entry.repository }}</span>
+    <span class="nav-session-meta">{{ entry.repository }} · {% if session.waiting_for == "answer" %}a question{% elif session.tool %}{{ session.tool }}{% else %}permission{% endif %} · {{ session.since | ago }}</span>
+  </a></li>
+  {% endfor %}
+</ul>
+{% endif %}
+</div>

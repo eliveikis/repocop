@@ -31,9 +31,13 @@ class FakeGh:
         """Make every `gh pr` command fail with this message."""
         (self.directory / "fail").write_text(stderr)
 
-    def add_pull_request(self, branch: str, url: str) -> None:
-        """An open pull request that exists on GitHub already."""
-        (self.directory / "pulls.json").write_text(json.dumps({branch: url}))
+    def add_pull_request(self, branch: str, url: str, *, fork: bool = False) -> None:
+        """An open pull request that exists on GitHub already, from `branch` of this repository
+        or, with `fork`, of a fork's."""
+        pulls_file = self.directory / "pulls.json"
+        pulls = json.loads(pulls_file.read_text()) if pulls_file.exists() else {}
+        pulls[branch] = {"url": url, "fork": fork}
+        pulls_file.write_text(json.dumps(pulls))
 
     def close_pull_requests(self) -> None:
         """Every pull request has been merged or closed on GitHub."""

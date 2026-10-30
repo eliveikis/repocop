@@ -1,6 +1,6 @@
 # ADR-025: Branch reviews by an agent's own review, Codex first
 
-**Status:** accepted · **Date:** 2026-10-12
+**Status:** superseded by ADR-039 · **Date:** 2026-10-12
 
 ## Context
 

@@ -8,10 +8,7 @@
 
 {% block title %}{{ requirement.name }} · RepoCop{% endblock %}
 
-{% block toasts %}
-{% if pull_request_done == "push" %}<p class="toast">Pushed <code>{{ branch }}</code>.</p>
-{% elif pull_request_done == "review" %}<p class="toast">Asked Copilot to review the pull request.</p>{% endif %}
-{% endblock %}
+{% block toasts %}{% if notice %}<p class="toast">{{ notice }}</p>{% endif %}{% endblock %}
 
 {% block content %}
 <h1>{{ requirement.name }}</h1>
@@ -29,7 +26,7 @@
 {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
 
 {% if detail and detail.uncommitted %}
-<p class="notice">This file has uncommitted changes. Commit it before starting a task.</p>
+<p class="notice">This file has uncommitted changes, which an agent working in another worktree won't see. Commit it first.</p>
 {% endif %}
 
 {% if detail and detail.content %}
@@ -38,70 +35,62 @@
 <p class="error" role="alert">The file is missing from <code>{{ requirement.path }}</code> and from the archive folder beside it.</p>
 {% endif %}
 
-{% if active and workflow_lines %}
-<section id="your-agent" aria-labelledby="your-agent-heading">
-<h2 id="your-agent-heading">In your own agent</h2>
-<p>Do the work on a branch named <code>{{ requirement.name }}</code>, so a review can tell which requirement it's for. Then run one of these in your agent session in the checkout:</p>
-<ul class="commands">
-  {% for line in workflow_lines %}<li><pre><code>{{ line }}</code></pre></li>
+<section id="sessions" aria-labelledby="sessions-heading">
+<h2 id="sessions-heading">Sessions</h2>
+<p class="hint">The agent sessions working on {{ requirement.name }} with an event in the past day, as they report it.</p>
+{% set key, shown = "p:%d:%s" % (repository.id, card_name), sessions %}{% include "partials/sessions.html" %}
+</section>
+
+{% if active and asks %}
+<section id="ask" aria-labelledby="ask-heading">
+<h2 id="ask-heading">Ask a session</h2>
+<ul class="asks">
+  {% for session, unreachable, standing in asks %}
+  <li class="ask">
+    <p class="ask-session"><span class="status status-{{ session.state.slug }}">{{ session.state }}</span>{% if session.branch %} <code>{{ session.branch }}</code>{% endif %}{% if session.workflow %} · <code>{{ session.workflow }}</code>{% endif %}</p>
+    {% set requests = url_for('ask_session', repository_id=repository.id, file_name=requirement.file_name, session_id=session.id) %}
+    {% if unreachable %}
+    <p class="hint">{{ unreachable }}</p>
+    {% if workflow_lines %}<ul class="commands">
+      {% for line in workflow_lines %}<li><pre><code>{{ line }}</code></pre> <button type="button" class="copy" data-copy="{{ line }}" hidden>Copy</button></li>
+      {% endfor %}
+    </ul>{% endif %}
+    {% elif standing.waiting %}
+    <div class="actions">
+      <span>Asked to run <code>{{ standing.waiting.workflow }}</code>: it gets it when its turn ends.</span>
+      {% if session.state == "Waiting for instruction" %}<form method="post" action="{{ requests }}/send"><button type="submit" class="primary">Send it now</button></form>{% endif %}
+      <form method="post" action="{{ requests }}/cancel"><button type="submit">Cancel</button></form>
+    </div>
+    {% elif workflows %}
+    <form class="actions" method="post" action="{{ requests }}">
+      <label>Workflow <select name="workflow">{% for workflow in workflows %}<option>{{ workflow }}</option>{% endfor %}</select></label>
+      <button type="submit" class="primary">Run in this session</button>
+    </form>
+    {% endif %}
+  </li>
   {% endfor %}
 </ul>
+<details class="help"><summary>How this works</summary>
+  <p>Asks the session to run the workflow on {{ requirement.name }}, and nothing else. A session waiting for an instruction gets it at once and starts on it; one at work gets it when its turn ends, and the request waits until then, so it can be cancelled. Its own hook hands it over, so it shows in the session wherever it runs.</p>
+</details>
 </section>
 {% endif %}
 
-<section id="tasks" aria-labelledby="tasks-heading">
-<h2 id="tasks-heading">Tasks</h2>
-{% if tasks %}
-<div class="table-scroll">
-<table class="tasks">
-  <thead>
-    <tr><th>Task</th><th>Workflow</th><th>Status</th><th>Created</th></tr>
-  </thead>
-  <tbody>
-    {% for task in tasks %}
-    <tr>
-      <td><a href="{{ url_for('task_page', task_id=task.id) }}">#{{ task.id }}</a></td>
-      <td>{{ task.workflow }}</td>
-      <td><span class="status status-{{ task.status }}">{{ task.status }}</span></td>
-      <td>{{ task.created_at | ago }}</td>
-    </tr>
-    {% endfor %}
-  </tbody>
-</table>
-</div>
-{% elif active and workflows %}
-<p class="empty">No tasks yet. Pick a workflow and start one.</p>
-{% elif not active %}
-<p class="empty">No tasks yet.</p>
-{% endif %}
 {% if active %}
-{% if workflows %}
-<form class="start-task" method="post" action="{{ url_for('start_task', repository_id=repository.id, file_name=requirement.file_name) }}">
-  <label>Workflow
-    <select name="workflow">
-      {% for workflow in workflows %}<option>{{ workflow }}</option>{% endfor %}
-    </select>
-  </label>
-  <button type="submit" class="primary">Start</button>
-</form>
-<details class="help"><summary>How this works</summary>
-  <p>
-    Tasks run in a RepoCop-owned worktree for {{ requirement.name }}, on its own branch, created
-    from the primary checkout's HEAD on the first start and reused by later tasks.
-  </p>
-</details>
+<section id="your-agent" aria-labelledby="your-agent-heading">
+<h2 id="your-agent-heading">In your own agent</h2>
+{% if workflow_lines %}
+<p>Do the work on a branch named <code>{{ requirement.name }}</code>, so the board and a review can tell which requirement it's for. Then run one of these in your agent session in the checkout:</p>
+<ul class="commands">
+  {% for line in workflow_lines %}<li><pre><code>{{ line }}</code></pre> <button type="button" class="copy" data-copy="{{ line }}" hidden>Copy</button></li>
+  {% endfor %}
+</ul>
 {% else %}
 <div class="empty-state">
-  <p>No skills are committed in <code>.claude/skills/</code> of {{ repository.name }}, so there are no workflows to start. The repo template has them: sync with it, merge its pull request, and pull the merge into the checkout.</p>
+  <p>No skills are committed in <code>.claude/skills/</code> of {{ repository.name }}, so there are no workflows to run. The repo template has them: sync with it, merge its pull request, and pull the merge into the checkout.</p>
   <a class="button primary" href="{{ url_for('template_sync_page', repository_id=repository.id) }}">Sync with the template</a>
 </div>
 {% endif %}
-{% endif %}
 </section>
-
-{% if branch %}
-{% include "partials/review.html" %}
-{% set pull_request_route = "requirement_pull_request" %}{% set pull_request_params = {"repository_id": repository.id, "file_name": requirement.file_name} %}
-{% include "partials/pull_request.html" %}
 {% endif %}
 {% endblock %}

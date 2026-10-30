@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**RepoCop** is a local FastAPI app, a fleet manager for agentic repositories: it keeps many unrelated Git repos in step with one repo template (the same rules, skills and spec layout), and runs coding agents' sessions against them. Each session runs in its own isolated git worktree, and many run at once.
+**RepoCop** is a local FastAPI app, a fleet manager for agentic repositories: it keeps many unrelated Git repos in step with one repo template (the same rules, skills and spec layout), and shows where each one's work stands. The developer runs coding agents in their own agent tool, many at once; RepoCop runs none.
 
 - **Root design files:** [specs/product.md](specs/product.md) (why and for whom) and [specs/architecture.md](specs/architecture.md) (how, with Mermaid diagrams). They are the current truth: when you make or change a design decision, update them in the same change, and record a significant one in [specs/decisions/](specs/decisions/). Optional area specs (`specs/<area>.md`) are added only when a feature earns one.
 - **Changes** (`specs/changes/todo/`) are requirements being delivered. Don't contradict a change; raise conflicts instead.
@@ -13,25 +13,25 @@ make check       # lint + typecheck + tests. MUST be green before you say "done"
 make test        # pytest (add args: make test ARGS=... or: uv run pytest tests/x.py -k name)
 make format      # ruff format + safe fixes
 make run         # start RepoCop on http://127.0.0.1:8765 (same as: uv run repocop)
-make doctor      # verify python / uv / git / claude CLI on this host, and the optional gh and codex
+make doctor      # verify python / uv / git on this host, and the optional gh
 ```
 
 Always use `uv run …` (or make). Never call bare `python`, `pip`, or `pytest`.
 
 ## Stack (fixed — don't substitute)
 
-Python 3.12+, FastAPI, Jinja2 server-rendered HTML, HTMX (vendored in `repocop/static/`), stdlib `sqlite3`, Git CLI, Claude Code (which runs the tasks), and optionally the GitHub CLI and the Codex CLI (which reviews branches), each via one wrapper module. **No** SPA framework, frontend build step, ORM, Celery/Redis, or auth in v0.1.
+Python 3.12+, FastAPI, Jinja2 server-rendered HTML, HTMX (vendored in `repocop/static/`), stdlib `sqlite3`, the Git CLI, and optionally the GitHub CLI, each via one wrapper module. **No** SPA framework, frontend build step, ORM, Celery/Redis, or auth in v0.1.
 
 ## Layout
 
 ```text
 repocop/            app package
   main.py config.py db.py
-  services/             repositories, bootstrap, template_sync, requirements, backlog, worktrees, tasks, runner, pull_requests, reviews, navigation, git, claude, github, codex
+  services/             repositories, board, bootstrap, template_sync, requirements, backlog, worktrees, tasks, pull_requests, sessions, session_requests, navigation, git, github
   routes/  templates/   thin handlers + Jinja
   static/               css, the shell's script, vendored htmx
 templates/default-repo/ the repo template, synced into onboarded repos (NOT Jinja app templates)
-tests/                  hermetic; fixtures in conftest.py; fakes/ (stand-ins for the Claude SDK client, the GitHub CLI and the Codex CLI)
+tests/                  hermetic; fixtures in conftest.py; fakes/ (stand-ins for the GitHub CLI, and the Codex CLI the template's review script runs)
 specs/                  index.md, product.md, architecture.md, [<area>.md], decisions/, changes/{todo,archive}/
 ```
 
@@ -39,12 +39,11 @@ Don't mix up `repocop/templates/` (UI pages) with `templates/default-repo/` (fil
 
 ## Invariants (details in `.claude/rules/safety.md`)
 
-1. The agents RepoCop starts never run in, or modify, a repo's **human-owned primary checkout**. They work only in RepoCop worktrees under `<worktrees_root>/<repo>/`: one worktree and branch per requirement (`agent/<name>`, its file name without `.md`), shared by its tasks in turn. RepoCop makes no commit there: its only write is a fetch, and requirements are read-only in RepoCop (ADR-037).
-2. Only `services/git.py` runs git, only `services/claude.py` talks to Claude Code, only `services/github.py` runs the GitHub CLI and only `services/codex.py` runs Codex, always with argv lists and never `shell=True`.
+1. RepoCop never modifies a repo's **human-owned primary checkout**: its only writes there are a fetch, and a request to one of its sessions in its git folder's `repocop/inbox/`, each on the developer's click (ADR-041), and requirements are read-only in RepoCop (ADR-037). What it writes, a template sync, it commits in a RepoCop worktree under `<worktrees_root>/<repo>/`, on a branch of its own (`agent/template-sync-<id>`).
+2. RepoCop launches no coding agent (ADR-039). Only `services/git.py` runs git and only `services/github.py` runs the GitHub CLI, always with argv lists and never `shell=True`.
 3. Never overwrite existing repo files silently, never auto-delete worktrees or branches, and never push without an explicit click or by force.
 4. RepoCop's database stores execution state and references only, never copies of requirements or repo config.
-5. One task ↔ one Claude session, and at most one active task per worktree. An instruction goes to exactly one session.
-6. No hard-coded host paths or usernames. Everything comes from `repocop.config`.
+5. No hard-coded host paths or usernames. Everything comes from `repocop.config`.
 
 ## Working here
 

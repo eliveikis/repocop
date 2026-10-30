@@ -104,6 +104,11 @@ class SyncPlan:
         return tuple(f for f in self.files if f.state is FileState.RETIRED)
 
     @property
+    def offered(self) -> tuple[SyncFile, ...]:
+        """The files a sync offers to change: every one not up to date but those it can't merge."""
+        return (*self.missing, *self.differing, *self.behind, *self.retired)
+
+    @property
     def up_to_date(self) -> bool:
         return all(f.up_to_date for f in self.files)
 

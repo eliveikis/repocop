@@ -4,7 +4,8 @@
 Without FAKE_GH_DIR it fails, so a test that didn't ask for the fake can't reach GitHub. With it,
 state lives in that folder: `calls.jsonl` gets each call's arguments and the environment that
 matters, a `logged-out` file makes `auth status` fail, `fail` holds the stderr every `pr` command
-fails with, and `pulls.json` maps a branch to its open pull request's URL.
+fails with, and `pulls.json` maps a branch to its open pull request: its URL, and whether it
+comes from a fork.
 """
 
 import json
@@ -18,6 +19,10 @@ if "FAKE_GH_DIR" not in os.environ:
 state = Path(os.environ["FAKE_GH_DIR"])
 pulls_file = state / "pulls.json"
 pulls = json.loads(pulls_file.read_text()) if pulls_file.exists() else {}
+pulls = {
+    branch: pull if isinstance(pull, dict) else {"url": pull, "fork": False}
+    for branch, pull in pulls.items()
+}
 call = {"args": args, "cwd": str(Path.cwd()), "prompt_disabled": os.environ.get("GH_PROMPT_DISABLED")}
 with (state / "calls.jsonl").open("a") as log:
     log.write(json.dumps(call) + "\n")
@@ -32,14 +37,21 @@ if args[:2] == ["auth", "status"]:
         sys.exit("You are not logged into any GitHub hosts. To log in, run: gh auth login")
 elif args[:1] == ["pr"] and (state / "fail").exists():
     sys.exit((state / "fail").read_text())
+elif args[:2] == ["pr", "list"] and "--head" in args:
+    pull = pulls.get(option("--head"))
+    print(json.dumps([{"url": pull["url"]}] if pull and not pull["fork"] else []))
 elif args[:2] == ["pr", "list"]:
-    url = pulls.get(option("--head"))
-    print(json.dumps([{"url": url}] if url else []))
+    fields = ("url", "headRefName", "isCrossRepository")
+    assert option("--json") == ",".join(fields), option("--json")
+    print(json.dumps([
+        {"url": pull["url"], "headRefName": branch, "isCrossRepository": pull["fork"]}
+        for branch, pull in pulls.items()
+    ]))
 elif args[:2] == ["pr", "create"]:
     created = [c for c in map(json.loads, (state / "calls.jsonl").read_text().splitlines())]
     number = sum(1 for c in created if c["args"][:2] == ["pr", "create"])
     url = f"https://github.com/{option('--repo')}/pull/{number}"
-    pulls[option("--head")] = url
+    pulls[option("--head")] = {"url": url, "fork": False}
     pulls_file.write_text(json.dumps(pulls))
     print(url)
 elif args[:2] == ["pr", "edit"]:

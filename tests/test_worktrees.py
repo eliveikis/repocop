@@ -15,12 +15,7 @@ from tests.conftest import run_git
 
 @pytest.fixture
 def repo(conn: sqlite3.Connection, settings: Settings, remote_repo: Path) -> Repository:
-    return repositories.register(conn, settings, str(remote_repo)).repository
-
-
-@pytest.mark.parametrize("name", ["login-crash", "req-124-login-crash"])
-def test_requirement_names_are_its_name_on_a_branch_an_agent_made(name: str) -> None:
-    assert worktrees.requirement_names(name) == (name, f"agent/{name}")
+    return repositories.register(conn, settings, str(remote_repo), default_branch="main").repository
 
 
 def test_create_adds_a_worktree_on_a_new_branch_from_primary_head(
@@ -130,26 +125,6 @@ def test_is_worktree_rejects_a_symlink_at_the_worktree_path(
     worktree.path.rename(real)
     worktree.path.symlink_to(real)
     assert not worktrees.is_worktree(repo, settings, worktree.path)
-
-
-def test_snapshot_reports_commits_since_the_base_and_uncommitted_files(
-    settings: Settings, repo: Repository
-) -> None:
-    worktree = worktrees.create(repo, settings, "req-1-x", "feature/req-1-x")
-    (worktree.path / "done.txt").write_text("committed\n")
-    run_git("add", "done.txt", cwd=worktree.path)
-    run_git("commit", "-qm", "Done part", cwd=worktree.path)
-    (worktree.path / "half.txt").write_text("half done\n")
-    snapshot = worktrees.snapshot(repo, settings, worktree.path, worktree.base_commit)
-    assert snapshot == worktrees.Snapshot(commits=1, uncommitted=("half.txt",))
-
-
-def test_snapshot_is_none_when_the_worktree_is_gone(
-    settings: Settings, repo: Repository, tmp_path: Path
-) -> None:
-    worktree = worktrees.create(repo, settings, "req-1-x", "feature/req-1-x")
-    worktree.path.rename(tmp_path / "moved-away")
-    assert worktrees.snapshot(repo, settings, worktree.path, worktree.base_commit) is None
 
 
 def test_is_worktree_rejects_a_worktree_of_a_repository_that_replaced_the_primary(

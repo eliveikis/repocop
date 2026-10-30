@@ -8,33 +8,48 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import SecretStr
 
 from repocop.config import Settings
 from repocop.main import create_app
 from tests.conftest import push_commit, run_git, write_template
-from tests.fakes.fake_claude import FakeClaudeFactory
 
 
 @pytest.fixture
-def linked(settings: Settings, fake_claude: FakeClaudeFactory) -> Iterator[TestClient]:
+def linked(settings: Settings) -> Iterator[TestClient]:
     """The app with an editor configured."""
     with_editor = settings.model_copy(update={"editor_url": "editor://open{path}/"})
-    with TestClient(create_app(with_editor, claude_client=fake_claude)) as test_client:
+    with TestClient(create_app(with_editor)) as test_client:
         yield test_client
 
 
-def add(client: TestClient, remote_url: str, name: str = "") -> str:
-    """Post the Add repository form and return the page it redirects to."""
-    response = client.post(
-        "/repositories", data={"remote_url": remote_url, "name": name}, follow_redirects=False
-    )
+def add(client: TestClient, remote_url: str, name: str = "", default_branch: str = "main") -> str:
+    """Post the Add repository form, its default branch chosen, and return the page it
+    redirects to."""
+    form = {"remote_url": remote_url, "name": name, "default_branch": default_branch}
+    response = client.post("/repositories", data=form, follow_redirects=False)
     assert response.status_code == 303, response.text
     return client.get(response.headers["location"]).text
 
 
+def default_branch_shown(html: str) -> str:
+    """The default branch a repository's page says it compares with."""
+    match = re.search(r"<dt>Default branch</dt><dd><code>([^<]*)</code>", html)
+    assert match, "no default branch shown"
+    return match[1]
+
+
+def options(html: str) -> list[str]:
+    """The default branches offered, the selected one marked with a `*`."""
+    select = re.search(r'<select name="default_branch"[^>]*>(.*?)</select>', html, re.DOTALL)
+    assert select, "no default branch to choose"
+    return [
+        ("*" if selected else "") + branch
+        for selected, branch in re.findall(r"<option( selected)?>([^<]*)</option>", select[1])
+    ]
+
+
 def row_names(html: str) -> list[str]:
-    return re.findall(r'<td class="name"><a [^>]*>([^<]*)</a></td>', html)
+    return re.findall(r'<td class="name"><a [^>]*>([^<]*)</a>', html)
 
 
 def test_repository_list_shows_empty_state_and_add_form(client: TestClient) -> None:
@@ -225,28 +240,10 @@ def test_repository_list_ignores_an_unknown_registered_id(client: TestClient) ->
     assert "Cloned" not in response.text
 
 
-def test_main_page_shows_claude_is_using_the_subscription(client: TestClient) -> None:
+def test_main_page_has_no_coding_agent_sign_in(client: TestClient) -> None:
     html = client.get("/").text
-    assert "Claude: your Claude subscription (Max, you@example.invalid)" in html
-
-
-def test_main_page_shows_claude_is_using_an_api_key(
-    settings: Settings, fake_claude: FakeClaudeFactory
-) -> None:
-    keyed = settings.model_copy(update={"anthropic_api_key": SecretStr("sk-ant-configured")})
-    with TestClient(create_app(keyed, claude_client=fake_claude)) as client:
-        html = client.get("/").text
-    assert "Claude: an API key from RepoCop's configuration" in html
-    assert "sk-ant-configured" not in html
-
-
-def test_main_page_warns_when_claude_is_not_logged_in(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setenv("FAKE_CLAUDE_LOGGED_OUT", "1")
-    html = client.get("/").text
-    assert 'class="claude-auth claude-auth-problem"' in html
-    assert "claude auth login" in html
+    assert "Claude" not in html
+    assert "auth login" not in html
 
 
 # ---------------------------------------------------------------- checkout state
@@ -419,3 +416,85 @@ def test_a_missing_checkout_has_no_editor_link(
     (settings.repos_root / "sample").rename(tmp_path / "moved-away")
     assert "Open in editor" not in linked.get("/").text
     assert "Open in editor" not in linked.get("/repositories/1").text
+
+
+# ---------------------------------------------------------------- the default branch
+
+
+def test_adding_a_repository_asks_for_its_default_branch_suggesting_origins(
+    client: TestClient, settings: Settings, remote_repo: Path
+) -> None:
+    run_git("branch", "trunk", "main", cwd=remote_repo)
+    response = client.post("/repositories", data={"remote_url": str(remote_repo)})
+    assert response.status_code == 200
+    assert options(response.text) == ["*main", "trunk"]
+    assert not (settings.repos_root / "sample").exists()  # nothing is cloned until it's chosen
+    add(client, str(remote_repo), default_branch="trunk")
+    assert default_branch_shown(client.get("/repositories/1").text) == "trunk"
+
+
+def test_adding_a_checkout_suggests_origins_default_not_the_branch_it_has_checked_out(
+    client: TestClient, primary_checkout: Path
+) -> None:
+    run_git("remote", "set-head", "origin", "--delete", cwd=primary_checkout)
+    run_git("branch", "feature", cwd=primary_checkout)
+    run_git("push", "-q", "origin", "feature", cwd=primary_checkout)
+    run_git("switch", "-q", "feature", cwd=primary_checkout)
+    html = client.post("/repositories", data={"name": "sample"}).text
+    assert options(html) == ["feature", "*main"]
+
+
+def test_adding_a_checkout_whose_origin_cant_be_reached_offers_its_branches_as_last_fetched(
+    client: TestClient, primary_checkout: Path
+) -> None:
+    run_git("remote", "set-url", "origin", "file:///no/such/sample.git", cwd=primary_checkout)
+    html = client.post("/repositories", data={"name": "sample"}).text
+    assert options(html) == ["*main"]
+    assert "origin couldn't be reached" in html
+
+
+def test_adding_an_empty_repository_asks_for_the_branch_its_first_commit_goes_on(
+    client: TestClient, tmp_path: Path
+) -> None:
+    empty = tmp_path / "empty.git"
+    run_git("init", "-q", "--bare", str(empty), cwd=tmp_path)
+    html = client.post("/repositories", data={"remote_url": str(empty)}).text
+    assert '<input name="default_branch" value="main" required>' in html
+    assert "has no branches yet" in html
+
+
+def test_adding_refuses_a_default_branch_git_wouldnt_take(
+    client: TestClient, settings: Settings, remote_repo: Path
+) -> None:
+    form = {"remote_url": str(remote_repo), "default_branch": "bad..name"}
+    response = client.post("/repositories", data=form)
+    assert response.status_code == 400
+    assert "bad..name isn&#39;t a name git takes for a branch" in response.text
+    assert not (settings.repos_root / "sample").exists()
+
+
+def test_fetch_offers_origins_new_default_branch_and_switches_only_on_a_click(
+    client: TestClient, remote_repo: Path
+) -> None:
+    add(client, str(remote_repo))
+    run_git("branch", "trunk", "main", cwd=remote_repo)
+    run_git("symbolic-ref", "HEAD", "refs/heads/trunk", cwd=remote_repo)
+    response = client.post("/repositories/1/fetch", follow_redirects=False)
+    assert response.status_code == 303
+    html = client.get(response.headers["location"]).text
+    assert "origin's default branch is now <code>trunk</code>" in html
+    assert default_branch_shown(html) == "main"
+    response = client.post("/repositories/1/default-branch", data={"default_branch": "trunk"})
+    assert response.status_code == 200, response.text
+    assert default_branch_shown(response.text) == "trunk"
+
+
+def test_repository_page_changes_the_default_branch_only_to_one_origin_has(
+    client: TestClient, remote_repo: Path
+) -> None:
+    add(client, str(remote_repo))
+    assert options(client.get("/repositories/1").text) == ["*main"]
+    response = client.post("/repositories/1/default-branch", data={"default_branch": "nope"})
+    assert response.status_code == 400
+    assert "origin has no branch nope, as last fetched" in response.text
+    assert default_branch_shown(client.get("/repositories/1").text) == "main"

@@ -15,7 +15,6 @@ from repocop.config import Settings
 from repocop.services import repositories, requirements, tasks
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Requirement
-from repocop.services.runner import TaskRunner
 from repocop.services.tasks import Task
 
 READ_ONLY_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
@@ -75,13 +74,7 @@ def get_connection(
         conn.close()
 
 
-def get_runner(request: Request) -> TaskRunner:
-    runner: TaskRunner = request.app.state.runner
-    return runner
-
-
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-RunnerDep = Annotated[TaskRunner, Depends(get_runner)]
 ConnectionDep = Annotated[sqlite3.Connection, Depends(get_connection)]
 
 
@@ -106,10 +99,10 @@ TaskDep = Annotated[Task, Depends(get_task)]
 
 
 def get_requirement(
-    repository: RepositoryDep, file_name: str, conn: ConnectionDep, settings: SettingsDep
+    repository: RepositoryDep, file_name: str, settings: SettingsDep
 ) -> Requirement:
-    """The requirement whose file the path names in the repository, recorded or not, or 404."""
-    requirement = requirements.find(conn, settings, repository, file_name)
+    """The requirement whose file the path names in the repository, or 404."""
+    requirement = requirements.find(settings, repository, file_name)
     if requirement is None:
         raise HTTPException(status_code=404, detail="requirement not found")
     return requirement

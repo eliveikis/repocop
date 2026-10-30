@@ -6,7 +6,7 @@ What a review of changes to RepoCop checks and skips. It only points: each rule 
 
 - The safety invariants in [.claude/rules/safety.md](.claude/rules/safety.md), above all. A change that weakens one is a finding even when its tests pass.
 - The invariants in [CLAUDE.md](CLAUDE.md).
-- That what is specific to one agent stays in that agent's module, and that no limit is added per repository: [.claude/rules/agents.md](.claude/rules/agents.md).
+- That nothing new names what is specific to one coding agent, and that no limit is added on how many work at once: [.claude/rules/agents.md](.claude/rules/agents.md).
 - That a design decision the change makes is in the specs, as [.claude/rules/specs.md](.claude/rules/specs.md) says.
 - That each safety invariant's refusal has a test: [.claude/rules/testing.md](.claude/rules/testing.md).
 

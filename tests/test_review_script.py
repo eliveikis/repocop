@@ -1,4 +1,4 @@
-"""The template's `.reviews/review.sh`: a review run by hand, the way RepoCop runs one
+"""The template's `.reviews/review.sh`: a branch's review by Codex, read-only, saved beside it
 (with Codex faked)."""
 
 import os
@@ -8,12 +8,20 @@ from pathlib import Path
 
 import pytest
 
-from repocop.config import PROJECT_ROOT, Settings
-from repocop.services import codex
+from repocop.config import PROJECT_ROOT
 from tests.conftest import run_git
 from tests.fakes.fake_codex import FakeCodex
 
 TEMPLATE_REVIEWS = PROJECT_ROOT / "templates" / "default-repo" / ".reviews"
+
+
+@pytest.fixture
+def fake_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeCodex:
+    """Stands in for the Codex CLI: its reviews find nothing (tests/fakes)."""
+    directory = tmp_path / "codex"
+    directory.mkdir()
+    monkeypatch.setenv("FAKE_CODEX_DIR", str(directory))
+    return FakeCodex(directory)
 
 
 @pytest.fixture
@@ -63,15 +71,21 @@ def test_review_saves_codexs_review_in_the_ignored_folder_and_prints_it(
     assert run_git("status", "--porcelain", cwd=checkout) == ""
 
 
-def test_review_runs_codex_as_repocop_does(checkout: Path, fake_codex: FakeCodex) -> None:
+def test_review_runs_codex_read_only_with_no_approvals(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
     review(checkout)
     (call,) = fake_codex.reviews
-    assert call["args"][:2] == ["review", "--base=origin/main"]
-    for option in codex.READ_ONLY:  # the read-only pin, kept in step with codex.py
-        assert option in call["args"]
-    effort = Settings().review_effort  # the same default effort as RepoCop
-    assert f'model_reasoning_effort="{effort}"' in call["args"]
-    assert not any("review_model" in arg for arg in call["args"])
+    assert call["args"] == [
+        "review",
+        "--base=origin/main",
+        "-c",
+        'sandbox_mode="read-only"',
+        "-c",
+        'approval_policy="never"',
+        "-c",
+        'model_reasoning_effort="high"',
+    ]
     assert call["cwd"] == str(checkout) and call["input_closed"] is True
 
 
@@ -120,3 +134,58 @@ def test_a_failed_review_saves_nothing(checkout: Path, fake_codex: FakeCodex) ->
     assert result.returncode != 0
     assert "ERROR: out of credit" in result.stderr
     assert saved(checkout) == []
+
+
+def test_review_refuses_the_bases_own_branch(checkout: Path, fake_codex: FakeCodex) -> None:
+    run_git("switch", "-q", "main", cwd=checkout)
+    result = review(checkout)
+    assert result.returncode != 0
+    assert "origin/main's own branch" in result.stderr
+    assert fake_codex.reviews == [] and saved(checkout) == []
+
+
+def test_review_refuses_a_branch_with_nothing_the_base_lacks(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
+    run_git("switch", "-q", "-c", "empty", "origin/main", cwd=checkout)
+    result = review(checkout)
+    assert result.returncode != 0
+    assert "no commits origin/main lacks" in result.stderr
+    assert fake_codex.reviews == []
+
+
+def test_review_refuses_without_codex_signed_in(checkout: Path, fake_codex: FakeCodex) -> None:
+    fake_codex.log_out()
+    result = review(checkout)
+    assert result.returncode != 0
+    assert "isn't signed in: run codex login" in result.stderr
+    assert fake_codex.reviews == [] and saved(checkout) == []
+
+
+def test_review_refuses_without_codex_installed(checkout: Path, tmp_path: Path) -> None:
+    tools = tmp_path / "no-codex"
+    tools.mkdir()
+    for tool in ("git", "sh", "mktemp", "tr", "cat", "mv", "rm"):
+        (tools / tool).symlink_to(shutil.which(tool) or tool)
+    result = review(checkout, env={"PATH": str(tools)})
+    assert result.returncode != 0
+    assert "Codex isn't installed" in result.stderr
+    assert saved(checkout) == []
+
+
+def test_review_tells_a_base_branch_by_its_whole_name(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
+    run_git("push", "-q", "origin", "HEAD:refs/heads/release/stable", cwd=checkout)
+    run_git("fetch", "-q", "origin", cwd=checkout)
+    run_git("remote", "set-head", "origin", "release/stable", cwd=checkout)
+    run_git("switch", "-q", "-c", "release/stable", "origin/release/stable", cwd=checkout)
+    (checkout / "fix.py").write_text("print('fix')\n")
+    run_git("add", "fix.py", cwd=checkout)
+    run_git("commit", "-qm", "Fix", cwd=checkout)
+    refused = review(checkout)
+    assert refused.returncode != 0
+    assert "origin/release/stable's own branch" in refused.stderr
+    run_git("switch", "-q", "-c", "stable", cwd=checkout)  # another branch, by its last part
+    assert review(checkout).returncode == 0
+    assert len(fake_codex.reviews) == 1

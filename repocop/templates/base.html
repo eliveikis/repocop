@@ -10,23 +10,21 @@
 </head>
 <body>
 <a class="skip-link" href="#content">Skip to content</a>
-{% set nav = sidebar.contents %}
 {% set here = repository.id if repository is defined and repository else none %}
 <div class="shell">
-  <nav id="sidebar" class="sidebar" aria-label="Repositories and active tasks" popover>
+  <nav id="sidebar" class="sidebar" aria-label="Repositories and sessions that need input" popover>
     <a class="brand" href="{{ url_for('list_repositories') }}">RepoCop</a>
     <h2 class="nav-heading" id="nav-repositories">Repositories</h2>
-    {% if nav.repositories %}
+    {% if sidebar.repositories %}
     <ul class="nav-list" aria-labelledby="nav-repositories">
-      {% for repo in nav.repositories %}
+      {% for repo in sidebar.repositories %}
       <li><a href="{{ url_for('repository_page', repository_id=repo.id) }}"{% if here == repo.id %} aria-current="true"{% endif %}>{{ repo.name }}</a></li>
       {% endfor %}
     </ul>
     {% else %}
     <p class="nav-empty">None yet. <a href="{{ url_for('list_repositories') }}#add">Add one</a></p>
     {% endif %}
-    <h2 class="nav-heading" id="nav-active">Active tasks</h2>
-    {% set active_tasks = nav.active_tasks %}{% include "partials/active_tasks.html" %}
+    {% set needs_input = sidebar.needs_input %}{% include "partials/nav_sessions.html" %}
     <p class="nav-foot"><button type="button" class="quiet" data-opens="shortcuts" hidden>Keyboard shortcuts</button></p>
   </nav>
   <div class="page">
@@ -45,10 +43,11 @@
   </div>
 </div>
 <div class="toasts" role="status">{% block toasts %}{% endblock %}</div>
-<dialog id="jump" class="jump" aria-label="Jump to a repository, requirement or task">
+<div hidden hx-post="{{ url_for('session_lists') }}" hx-trigger="every 2s" hx-swap="none" hx-include="[name='shown']"></div>
+<dialog id="jump" class="jump" aria-label="Jump to a repository, requirement or sync">
   <input id="jump-input" class="jump-input" name="q" type="text" autocomplete="off" spellcheck="false"
     role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-listbox"
-    aria-label="Jump to a repository, requirement or task" placeholder="Jump to a repository, requirement or task"
+    aria-label="Jump to a repository, requirement or sync" placeholder="Jump to a repository, requirement or sync"
     hx-get="{{ url_for('switcher_matches') }}" hx-trigger="input delay:120ms, jumpopen"
     hx-target="#jump-results" hx-sync="this:replace">
   <div id="jump-results" class="jump-results"><div id="jump-listbox" role="listbox" aria-label="Matches"></div></div>
@@ -61,7 +60,7 @@
     <button type="button" class="quiet" data-closes>Close</button>
   </div>
   <dl class="shortcut-list">
-    <dt><kbd class="mod-key">Ctrl</kbd> <kbd>K</kbd></dt><dd>Jump to a repository, requirement or task</dd>
+    <dt><kbd class="mod-key">Ctrl</kbd> <kbd>K</kbd></dt><dd>Jump to a repository, requirement or sync</dd>
     <dt><kbd>g</kbd> then <kbd>r</kbd></dt><dd>Go to the repository list</dd>
     <dt><kbd>g</kbd> then <kbd>u</kbd></dt><dd>Go up one level</dd>
     <dt><kbd>?</kbd></dt><dd>Show these shortcuts</dd>

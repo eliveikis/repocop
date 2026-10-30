@@ -28,7 +28,6 @@ from pydantic import (
     BaseModel,
     ConfigDict,
     Field,
-    SecretStr,
     ValidationError,
     field_validator,
     model_validator,
@@ -51,6 +50,8 @@ _CHANGES_DIR = (
     "changes_dir, the folder holding a repository's todo/ and archive/ (default specs/changes)"
 )
 RETIRED = {"requirement_path_pattern": _CHANGES_DIR, "requirements_dir": _CHANGES_DIR}
+# Keys for the coding agents RepoCop used to run, which nothing replaced (ADR-039).
+AGENT_KEYS = ("claude_bin", "anthropic_api_key", "review_model", "review_effort")
 
 
 def _expand(value: str) -> Path:
@@ -80,23 +81,14 @@ class Settings(BaseModel):
     logs_dir: Path = Field(default_factory=lambda: _data_home() / "logs")
     host: str = Field(default="127.0.0.1", min_length=1)
     port: int = Field(default=8765, ge=1, le=65535)
-    claude_bin: str = Field(default="claude", min_length=1)
     template_dir: Path = PROJECT_ROOT / "templates" / "default-repo"
     # The folder of a newly registered repository that holds its changes, relative to it: todo/
     # holds those still to deliver, one Markdown file each, and archive/ the delivered ones.
     changes_dir: str = "specs/changes"
-    # Unset: Claude sessions use the host's Claude Code subscription login (ADR-018).
-    anthropic_api_key: SecretStr | None = None
     # A URL template containing {path}, e.g. vscode://file{path}/. Unset: pages show no editor link.
     editor_url: str | None = None
-    # The model a branch review runs on. Unset: the reviewing agent's own default.
-    review_model: str | None = None
-    # How hard the reviewer thinks, at a level its model offers. Blank: the reviewer's own setting.
-    review_effort: str | None = "high"
 
-    @field_validator(
-        "anthropic_api_key", "editor_url", "review_model", "review_effort", mode="before"
-    )
+    @field_validator("editor_url", mode="before")
     @classmethod
     def _blank_means_none(cls, value: Any) -> Any:
         return None if isinstance(value, str) and not value.strip() else value
@@ -134,6 +126,11 @@ class Settings(BaseModel):
             for key, replacement in RETIRED.items():
                 if key in values:
                     raise ValueError(f"{key} is replaced by {replacement}")
+            for key in AGENT_KEYS:
+                if key in values:
+                    raise ValueError(
+                        f"{key} is no longer used: RepoCop runs no coding agents. Remove it."
+                    )
         return values
 
     @field_validator("changes_dir")
@@ -247,7 +244,7 @@ def _read_config_file(path: Path) -> dict[str, Any]:
 
 def _env_overrides() -> dict[str, str]:
     overrides: dict[str, str] = {}
-    for name in (*Settings.model_fields, *RETIRED):
+    for name in (*Settings.model_fields, *RETIRED, *AGENT_KEYS):
         value = os.environ.get(ENV_PREFIX + name.upper())
         if value is not None:
             overrides[name] = value

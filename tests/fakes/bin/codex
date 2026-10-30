@@ -1,26 +1,16 @@
 #!/usr/bin/env python3
-"""Stands in for the Codex CLI in tests. Never used by the app itself.
+"""Stands in for the Codex CLI in tests.
 
 Without FAKE_CODEX_DIR it fails, so a test that didn't ask for the fake can't reach Codex. With
 it, state lives in that folder: `calls.jsonl` gets each call's arguments, its working directory
 and whether its input was closed, and a `logged-out` file makes `login status` fail. A review
 prints its progress on standard error and the review on standard output, as Codex does:
-`review.txt` holds the review to print, `fail` the error to fail with, and `write` the name of a
-file to leave in the working directory. With a `hang` file it touches `started` and then waits to
-be stopped.
-
-Misbehaving on purpose: `long-line` prints a progress line longer than a stream's default limit;
-`orphan` first starts a child that ignores SIGTERM; `close-stderr` closes its progress output and
-then waits; `hold-stdout` leaves a child holding its standard output open and exits. A child's
-process id goes in `child.pid`.
+`review.txt` holds the review to print, and `fail` the error to fail with.
 """
 
 import json
 import os
-import shlex
-import subprocess
 import sys
-import time
 from pathlib import Path
 
 args = sys.argv[1:]
@@ -43,26 +33,6 @@ if args[:2] == ["login", "status"]:
     print("Logged in using ChatGPT")
 elif args[:1] == ["review"]:
     progress("OpenAI Codex (fake)\nsandbox: read-only")
-    child = f"echo $$ > {shlex.quote(str(state / 'child.pid'))}; exec sleep 600"
-    if (state / "long-line").exists():
-        progress("x" * 100_000)
-    if (state / "orphan").exists():
-        subprocess.Popen(["sh", "-c", f"trap '' TERM; {child}"], stdin=subprocess.DEVNULL)
-        while not (state / "child.pid").exists():
-            time.sleep(0.01)
-    if (state / "close-stderr").exists():
-        (state / "started").touch()
-        os.close(2)
-        time.sleep(600)
-    if (state / "hold-stdout").exists():
-        subprocess.Popen(["sh", "-c", child], stdin=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        print("No actionable defects were found.", flush=True)
-        sys.exit(0)
-    if (state / "write").exists():
-        (Path.cwd() / (state / "write").read_text().strip()).write_text("left behind\n")
-    if (state / "hang").exists():
-        (state / "started").touch()
-        time.sleep(600)
     if (state / "fail").exists():
         progress(f"ERROR: {(state / 'fail').read_text().strip()}")
         sys.exit(1)

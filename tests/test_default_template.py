@@ -27,6 +27,7 @@ MIRRORED = (
     ".claude/rules/test-policy.md",
     ".claude/hooks/linux-only-path.sh",
     ".claude/hooks/amend-only-unpushed.sh",
+    ".claude/hooks/session-events.sh",
     ".reviews/.gitignore",
     ".reviews/review.sh",
     "specs/changes/README.md",
@@ -38,6 +39,20 @@ MARKDOWN_MARKER = "<!-- managed by template -->"
 COMMENT_MARKER = "# managed by template"
 LINUX_ONLY_PATH = TEMPLATE / ".claude" / "hooks" / "linux-only-path.sh"
 AMEND_ONLY_UNPUSHED = TEMPLATE / ".claude" / "hooks" / "amend-only-unpushed.sh"
+SESSION_EVENTS = TEMPLATE / ".claude" / "hooks" / "session-events.sh"
+# Each event the session hook records, with the matcher it runs on, if any.
+SESSION_HOOK_RUNS_ON = {
+    "SessionStart": None,
+    "CwdChanged": None,
+    "UserPromptSubmit": None,
+    "UserPromptExpansion": None,
+    "PreToolUse": "Skill|AskUserQuestion",
+    "PermissionRequest": None,
+    "Notification": "permission_prompt|elicitation_dialog",
+    "PostToolUse": None,
+    "Stop": None,
+    "SessionEnd": None,
+}
 OSRELEASE = Path("/proc/sys/kernel/osrelease")
 ON_WSL = OSRELEASE.is_file() and "microsoft" in OSRELEASE.read_text().lower()
 # Real tools first, so the hook and the shell sourcing its output can run.
@@ -102,7 +117,7 @@ def test_default_template_syncs_a_fresh_repository_until_it_is_ready(
     conn: sqlite3.Connection, settings: Settings, remote_repo: Path
 ) -> None:
     real = settings.model_copy(update={"template_dir": TEMPLATE})
-    repo = repositories.register(conn, real, str(remote_repo)).repository
+    repo = repositories.register(conn, real, str(remote_repo), default_branch="main").repository
     missing = [file.path for file in repositories.template_plan(repo, real).missing]
     task = template_sync.apply(conn, real, repo, create=missing, overwrite=[])
     assert task is not None and task.branch is not None and task.worktree_path is not None
@@ -142,7 +157,6 @@ def test_review_skills_report_their_one_commit_once(skill: str) -> None:
 
 
 def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None:
-    # RepoCop sessions are headless, so a command outside the allowlist is simply denied.
     permissions = json.loads((TEMPLATE / ".claude" / "settings.json").read_text())["permissions"]
     for command in (
         "git add",
@@ -152,10 +166,19 @@ def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None
         "git merge-base",
         "git branch --show-current",
         "git rev-parse",
+        "git log",
+        "git switch",
+        "git worktree list",
         "make check",
+        ".reviews/review.sh",
+        "gh auth status",
+        "gh pr list",
+        "gh pr view",
+        "gh repo view",
     ):
         assert any(rule.startswith(f"Bash({command}") for rule in permissions["allow"]), command
-    assert "Bash(git push:*)" in permissions["ask"]
+    for asked in ("git push", "gh pr create", "gh pr edit"):  # each asks the developer first
+        assert f"Bash({asked}:*)" in permissions["ask"], asked
     for script in sorted((TEMPLATE / ".claude" / "skills").glob("*/*.sh")):
         rule = f"Bash({script.relative_to(TEMPLATE).as_posix()}:*)"
         assert rule in permissions["allow"], rule
@@ -200,8 +223,31 @@ def test_default_template_settings_disable_bypass_permissions_mode() -> None:
 def test_default_template_settings_run_linux_only_path_at_session_start() -> None:
     hooks = json.loads((TEMPLATE / ".claude" / "settings.json").read_text())["hooks"]
     commands = [hook["command"] for entry in hooks["SessionStart"] for hook in entry["hooks"]]
-    assert commands == ['"$CLAUDE_PROJECT_DIR"/.claude/hooks/linux-only-path.sh']
+    assert '"$CLAUDE_PROJECT_DIR"/.claude/hooks/linux-only-path.sh' in commands
     assert os.access(LINUX_ONLY_PATH, os.X_OK)
+
+
+@pytest.mark.parametrize("root", [TEMPLATE, PROJECT_ROOT], ids=["template", "this repo"])
+def test_settings_record_each_session_event_without_waiting_on_it(root: Path) -> None:
+    hooks = json.loads((root / ".claude" / "settings.json").read_text())["hooks"]
+    command = '"$CLAUDE_PROJECT_DIR"/.claude/hooks/session-events.sh'
+    runs_on = {
+        event: entry.get("matcher")
+        for event, entries in hooks.items()
+        for entry in entries
+        for hook in entry["hooks"]
+        if hook["command"] == command and hook.get("async") is True
+    }
+    assert runs_on == SESSION_HOOK_RUNS_ON
+    assert os.access(SESSION_EVENTS, os.X_OK)
+    delivers = [
+        hook
+        for entry in hooks["Stop"]
+        for hook in entry["hooks"]
+        if hook["command"] == f"{command} deliver"
+    ]
+    assert len(delivers) == 1
+    assert "async" not in delivers[0]  # Stop's decision counts only from a hook it waits for
 
 
 @pytest.mark.parametrize("root", [TEMPLATE, PROJECT_ROOT], ids=["template", "this repo"])

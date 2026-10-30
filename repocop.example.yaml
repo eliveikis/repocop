@@ -26,22 +26,6 @@ logs_dir: ~/.local/share/repocop/logs
 host: 127.0.0.1
 port: 8765
 
-# Claude Code CLI executable (resolved from PATH if not absolute).
-claude_bin: claude
-
-# Claude sessions use your Claude Code subscription login by default (`claude auth login`), even when
-# ANTHROPIC_API_KEY is set in the environment. Set this to bill an API key instead. The main page
-# shows which one is in use. Prefer REPOCOP_ANTHROPIC_API_KEY over writing the key here.
-# anthropic_api_key: sk-ant-...
-
-# The model a branch review runs on (the Review action on a requirement's page, run by Codex).
-# Unset: Codex's own default.
-# review_model: gpt-6.1-sol
-
-# How hard the reviewer thinks, at a level its model offers (Codex: low, medium, high, xhigh, …).
-# Higher is slower and uses more of your plan. Blank: whatever your own Codex configuration sets.
-review_effort: high
-
 # Bootstrap template applied during onboarding. Defaults to this repository's templates/default-repo.
 # Relative paths in a config file are resolved against the config file's own directory.
 # template_dir: /path/to/templates/default-repo

@@ -1,0 +1,15 @@
+<article class="card">
+  <div class="card-head">
+    {% if card.page %}<a class="card-name" href="{{ url_for('requirement_page', repository_id=card.repository.id, file_name=card.page) }}">{{ card.name }}</a>{% else %}<span class="card-name">{{ card.name }}</span>{% endif %}
+    <span class="card-repository">{{ card.repository.name }}</span>
+  </div>
+  {% if card.waits_on %}<p class="card-detail">Waits on {% for name, page in card.waits_on %}{% if not loop.first %}, {% endif %}{% if page %}<a href="{{ url_for('requirement_page', repository_id=card.repository.id, file_name=page) }}">{{ name }}</a>{% else %}<code>{{ name }}</code>{% endif %}{% endfor %}</p>{% endif %}
+  {% if card.branches %}
+  <ul class="card-branches">
+    {% for branch in card.branches %}<li><code>{{ branch.name }}</code>{% if branch.ahead is not none %} · {{ branch.ahead }} commit{{ "" if branch.ahead == 1 else "s" }} · {% if branch.on_origin %}on origin{% else %}not on origin yet{% endif %}{% else %} · not fetched yet{% endif %}{% if branch.pull_request %} · <a href="{{ branch.pull_request }}" target="_blank" rel="noopener noreferrer">pull request</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  {% set key, shown = "r:%d:%s" % (card.repository.id, card.name), card.sessions %}{% include "partials/sessions.html" %}
+  {% if card.delivered_at %}<p class="card-detail">Delivered {{ card.delivered_at | ago }}</p>{% endif %}
+</article>

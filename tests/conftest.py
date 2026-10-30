@@ -6,18 +6,20 @@ Everything lives under pytest's tmp_path, and git identity is pinned so commits 
 
 from __future__ import annotations
 
-import contextlib
 import json
 import os
 import shlex
 import shutil
-import signal
+import socket
 import sqlite3
 import subprocess
-import time
+import tempfile
+import threading
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
@@ -25,16 +27,13 @@ from fastapi.testclient import TestClient
 from repocop import db
 from repocop.config import FORMER_NAME, Settings
 from repocop.main import create_app
-from repocop.services import bootstrap, claude, requirements
-from repocop.services.repositories import Repository
-from repocop.services.requirements import Requirement
-from tests.fakes.fake_claude import FakeClaudeFactory
-from tests.fakes.fake_codex import FakeCodex
+from repocop.services import bootstrap
 from tests.fakes.fake_gh import FakeGh
 
-FAKE_CLAUDE_CLI = Path(__file__).parent / "fakes" / "claude-cli"
 # First on PATH in every test: holds `gh` and `codex`.
 FAKE_BIN = Path(__file__).parent / "fakes" / "bin"
+# The awks the template's scripts must work with: Debian's default, and GNU awk held to POSIX.
+AWKS = {"mawk": ["mawk"], "posix-awk": ["gawk", "--posix"]}
 
 
 def run_git(*args: str, cwd: Path) -> str:
@@ -70,40 +69,84 @@ def add_requirement(
     return str(path)
 
 
-def recorded_requirement(
-    conn: sqlite3.Connection,
-    settings: Settings,
-    repository: Repository,
-    file_name: str = "bulk-user-import.md",
-    text: str = "Import users.\n",
-) -> Requirement:
-    """A requirement its developer wrote and committed in the repository's todo folder, recorded
-    as its first task records it."""
-    add_requirement(repository.primary_path, file_name, text)
-    found = requirements.find(conn, settings, repository, file_name)
-    assert found is not None
-    return requirements.record(conn, found)
+SESSION = "5f0c2a1e-7d3b-4c9a-9e21-0b6f4d8a2c11"
+NOW = datetime.now(UTC).replace(microsecond=0)
+# This process's start time, as /proc shows it: a session recorded with it is still running.
+OWN_START = (
+    Path("/proc/self/stat").read_text().rpartition(") ")[2].split()[19]
+    if Path("/proc/self/stat").exists()
+    else None
+)
 
 
-def process_gone(pid: int | None, timeout: float = 5.0) -> bool:
-    """Whether the process has ended within `timeout` (a zombie waiting to be reaped counts)."""
-    assert pid is not None
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        try:
-            state = Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[0]
-        except FileNotFoundError:
-            return True
-        if state == "Z":
-            return True
-        time.sleep(0.05)
-    return False
+def record_session(checkout: Path, *events: dict[str, Any], session: str = SESSION) -> Path:
+    """Append events to a session's log in `checkout`'s git folder, as its hook does: each
+    event's `ago` is how many minutes before NOW it happened, and by default it was in the
+    checkout, on `main`, by this still running process. Returns the log."""
+    folder = checkout / ".git" / "repocop" / "sessions"
+    folder.mkdir(parents=True, exist_ok=True)
+    log = folder / f"{session}.jsonl"
+    with log.open("a") as file:
+        for event in events:
+            fields = dict(event)
+            at = NOW - timedelta(minutes=fields.pop("ago", 0))
+            line = {
+                "v": 1,
+                "at": at.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+                "session": session,
+                "cwd": str(checkout),
+                "branch": "main",
+                "pid": os.getpid(),
+                "pid_start": OWN_START,
+                **fields,
+            }
+            file.write(json.dumps(line) + "\n")
+    return log
 
 
-def kill_process(pid: int | None) -> None:
-    if pid is not None:
-        with contextlib.suppress(ProcessLookupError):
-            os.kill(pid, signal.SIGKILL)
+class Inbox:
+    """A session's inbox socket, as Claude Code listens on it: it keeps every line it gets."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = path
+        self.lines: list[dict[str, Any]] = []
+        self._server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self._server.bind(str(path))
+        self._server.listen()
+        self._thread = threading.Thread(target=self._serve, daemon=True)
+        self._thread.start()
+
+    def _serve(self) -> None:
+        while True:
+            try:
+                connection, _ = self._server.accept()
+            except OSError:
+                return
+            with connection:
+                data = b""
+                while chunk := connection.recv(4096):
+                    data += chunk
+            self.lines += [json.loads(line) for line in data.splitlines() if line]
+
+    def received(self) -> list[dict[str, Any]]:
+        """What it has got by now, once the sender has finished."""
+        self._thread.join(timeout=0.2)
+        return self.lines
+
+    def close(self) -> None:
+        self._server.close()
+
+
+@pytest.fixture
+def inbox_socket() -> Iterator[Inbox]:
+    """A socket named after this test's process, in a short folder only this user can write,
+    as Claude Code makes them."""
+    folder = Path(tempfile.mkdtemp(prefix="cc-socks-"))
+    folder.chmod(0o700)
+    inbox = Inbox(folder / f"{os.getpid()}.sock")
+    yield inbox
+    inbox.close()
+    shutil.rmtree(folder)
 
 
 def push_commit(remote: Path, workdir: Path, name: str = "upstream.txt") -> str:
@@ -120,9 +163,10 @@ def push_commit(remote: Path, workdir: Path, name: str = "upstream.txt") -> str:
 
 @pytest.fixture(autouse=True)
 def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep git, GitHub and RepoCop config hermetic for every test.
+    """Keep git, GitHub, RepoCop config and any agent session running the tests out of every test.
 
-    The working directory moves to tmp_path too, so a real ./repocop.yaml can't leak in.
+    The working directory moves to tmp_path too, so a real ./repocop.yaml can't leak in, and
+    Claude Code's variables, such as its socket, are dropped.
     `gh` and `codex` are the fakes, each of which fails unless the test asked for it with its
     fixture, `fake_gh` or `fake_codex`.
     """
@@ -142,7 +186,7 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("GIT_COMMITTER_NAME", "Test")
     monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.invalid")
     for key in list(os.environ):
-        if key.startswith(("REPOCOP_", f"{FORMER_NAME.upper()}_", "ANTHROPIC_")):
+        if key.startswith(("REPOCOP_", f"{FORMER_NAME.upper()}_", "CLAUDE_")):
             monkeypatch.delenv(key)
 
 
@@ -213,28 +257,7 @@ def settings(host: HostLayout, template_dir: Path) -> Settings:
         database_path=host.database_path,
         logs_dir=host.data_dir / "logs",
         template_dir=template_dir,
-        claude_bin=str(FAKE_CLAUDE_CLI),
     )
-
-
-@pytest.fixture(autouse=True)
-def _no_real_claude(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make any use of the real SDK client fail, except in tests marked `claude`."""
-    if "claude" in request.keywords:
-        return
-
-    def refuse(*args: object, **kwargs: object) -> None:
-        raise AssertionError(
-            "the default test suite never calls Claude; use the fake_claude fixture"
-        )
-
-    monkeypatch.setattr(claude, "ClaudeSDKClient", refuse)
-
-
-@pytest.fixture
-def fake_claude() -> FakeClaudeFactory:
-    """Stands in for the Claude SDK client; keeps every session it made (tests/fakes)."""
-    return FakeClaudeFactory()
 
 
 @pytest.fixture
@@ -246,13 +269,18 @@ def fake_gh(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeGh:
     return FakeGh(directory)
 
 
-@pytest.fixture
-def fake_codex(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> FakeCodex:
-    """Stands in for the Codex CLI: signed in, and its reviews find nothing (tests/fakes)."""
-    directory = tmp_path / "codex"
-    directory.mkdir()
-    monkeypatch.setenv("FAKE_CODEX_DIR", str(directory))
-    return FakeCodex(directory)
+@pytest.fixture(params=sorted(AWKS))
+def awk(request: pytest.FixtureRequest, tmp_path: Path) -> Path:
+    """A folder to put first on PATH, whose `awk` is one of AWKS."""
+    command = AWKS[request.param]
+    if shutil.which(command[0]) is None:
+        pytest.skip(f"{command[0]} isn't installed")
+    folder = tmp_path / "bin"
+    folder.mkdir()
+    shim = folder / "awk"
+    shim.write_text(f'#!/bin/sh\nexec {" ".join(command)} "$@"\n')
+    shim.chmod(0o755)
+    return folder
 
 
 @pytest.fixture
@@ -271,9 +299,9 @@ def git_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Callable[[], l
 
 
 @pytest.fixture
-def client(settings: Settings, fake_claude: FakeClaudeFactory) -> Iterator[TestClient]:
-    """The app on the throwaway host, started (database migrated), with Claude faked."""
-    with TestClient(create_app(settings, claude_client=fake_claude)) as test_client:
+def client(settings: Settings) -> Iterator[TestClient]:
+    """The app on the throwaway host, started (database migrated)."""
+    with TestClient(create_app(settings)) as test_client:
         yield test_client
 
 
@@ -332,13 +360,3 @@ def github_checkout(
     monkeypatch.setenv("GIT_SSH_COMMAND", str(ssh))
     run_git("remote", "set-url", "origin", GITHUB_REMOTE, cwd=primary_checkout)
     return primary_checkout
-
-
-def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
-    """Skip tests marked `claude` unless REPOCOP_TEST_REAL_CLAUDE=1."""
-    if os.environ.get("REPOCOP_TEST_REAL_CLAUDE") == "1":
-        return
-    skip = pytest.mark.skip(reason="set REPOCOP_TEST_REAL_CLAUDE=1 to run real-CLI tests")
-    for item in items:
-        if "claude" in item.keywords:
-            item.add_marker(skip)

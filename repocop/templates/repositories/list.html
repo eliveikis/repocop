@@ -4,18 +4,33 @@
 {% block title %}Repositories · RepoCop{% endblock %}
 
 {% block toasts %}
+{% if fetched_all is not none %}<p class="toast">Fetched {{ fetched_all.fetched }} of {{ fetched_all.of }} repositories.</p>{% endif %}
 {% if registration %}{% set repo = registration.repository %}<p class="toast">{% if registration.outcome == "cloned" %}Cloned {{ repo.name }} into {{ repo.primary_path }}.{% elif registration.outcome == "found_on_disk" %}Registered the existing checkout at {{ repo.primary_path }}.{% else %}{{ repo.name }} is already registered.{% endif %}</p>{% endif %}
 {% endblock %}
 
 {% block content %}
 <h1>Repositories</h1>
 
-{% set auth = claude_auth %}
-<p class="claude-auth claude-auth-{{ 'problem' if auth.problem else auth.kind }}"{% if auth.problem %} role="alert"{% endif %}>
-  {% if auth.problem %}Claude: {{ auth.problem }}{% elif auth.kind == "subscription" %}Claude: your Claude subscription ({{ auth.plan | capitalize if auth.plan else "plan unknown" }}{% if auth.account %}, {{ auth.account }}{% endif %}){% else %}Claude: an API key from RepoCop's configuration{% endif %}
-</p>
-
 {% if repositories %}
+{% include "partials/board.html" %}
+
+<section id="checkouts" aria-labelledby="checkouts-heading">
+<div class="section-head">
+  <h2 id="checkouts-heading">Checkouts</h2>
+  <form method="post" action="{{ url_for('fetch_all_repositories') }}"><button type="submit">Fetch all</button></form>
+</div>
+{% if fetched_all and fetched_all.failures %}
+<ul class="fetch-failures" role="alert">
+  {% for repo, failure in fetched_all.failures %}<li>{{ repo.name }}: {{ failure }}</li>
+  {% endfor %}
+</ul>
+{% endif %}
+{% if fetched_all and fetched_all.offers %}
+<ul class="notice fetch-offers">
+  {% for repo, offered in fetched_all.offers %}<li>{{ repo.name }}: origin's default branch is now <code>{{ offered }}</code>, but it compares with <code>{{ repo.default_branch }}</code>. <a href="{{ url_for('repository_page', repository_id=repo.id) }}">Change it on its page</a></li>
+  {% endfor %}
+</ul>
+{% endif %}
 <div class="table-scroll">
 <table class="repositories">
   <thead>
@@ -24,8 +39,8 @@
   <tbody>
     {% for repo, status, waiting, checkout, remote in repositories %}
     <tr>
-      <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a></td>
-      <td>{% include "partials/repository_status.html" %}</td>
+      <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a>{% set key, shown = "o:%d" % repo.id, board.others.get(repo.id, ()) %}{% include "partials/sessions.html" %}</td>
+      <td>{% include "partials/repository_status.html" %}{% set count = offered.get(repo.id) %}{% if count %} <a href="{{ url_for('template_sync_page', repository_id=repo.id) }}">{{ count }} file{{ "" if count == 1 else "s" }} to sync</a>{% endif %}</td>
       <td class="checkout">{% if checkout.error %}<span class="error-text">{{ checkout.error }}</span>{% elif checkout.state %}{% set state = checkout.state %}{% include "partials/checkout_state.html" %}{% else %}—{% endif %}</td>
       <td>{% include "partials/repository_remote.html" %}</td>
       <td class="paths">{% include "partials/repository_paths.html" %}</td>
@@ -35,8 +50,9 @@
 </table>
 </div>
 <details class="help"><summary>How this works</summary>
-  <p>Ahead and behind are as of each checkout's last fetch.</p>
+  <p>Ahead and behind are as of each checkout's last fetch. Fetch all fetches every checkout that's there, side by side, each as its own Fetch does: only <code>origin</code>'s remote-tracking branches change.</p>
 </details>
+</section>
 {% else %}
 <div class="empty-state">
   <p>No repositories registered yet. Add one by its remote URL, or by the name of a checkout already in <code>{{ settings.repos_root }}</code>.</p>
@@ -54,14 +70,15 @@
     <label>Name <span class="hint">defaults to the repository's name; needed without a URL</span>
       <input name="name" value="{{ form.name }}">
     </label>
-    <button type="submit" class="primary">Add</button>
+    <button type="submit" class="primary">Continue</button>
   </form>
   <details class="help"><summary>How this works</summary>
     <p>
       Clones into <code>{{ settings.repos_root }}/&lt;name&gt;</code> unless a checkout of this remote is
       already there. Cloning a large repository can take a while. With only a name, the checkout
       already at <code>{{ settings.repos_root }}/&lt;name&gt;</code> is added, using its
-      <code>origin</code> remote.
+      <code>origin</code> remote. Nothing is cloned or recorded until the next step, which asks
+      for its default branch.
     </p>
   </details>
 </section>

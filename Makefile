@@ -35,7 +35,7 @@ typecheck: ## Static type check
 
 check: lint typecheck test ## Everything CI runs — run before declaring work done
 
-doctor: ## Verify host prerequisites (python, uv, git, claude)
+doctor: ## Verify host prerequisites (python, uv, git, and the optional gh)
 	@./scripts/doctor.sh
 
 clean: ## Remove caches and build artifacts (keeps data/)

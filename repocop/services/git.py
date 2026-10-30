@@ -28,6 +28,7 @@ from repocop.errors import RepoCopError
 LOCAL_TIMEOUT_S = 60.0
 MAX_NEW_FILES_IN_DIFF = 100
 NETWORK_TIMEOUT_S = 600.0
+ASK_TIMEOUT_S = 60.0  # how long asking a remote about its branches may take
 TERMINATE_GRACE_S = 5.0
 
 _USER = r"[A-Za-z0-9][A-Za-z0-9._-]*"
@@ -185,17 +186,55 @@ def remote_url(path: Path) -> str | None:
         return None
 
 
-def default_branch(path: Path) -> str:
-    """The branch `origin/HEAD` points to, or else the checked-out branch."""
-    with contextlib.suppress(GitError):
+@dataclass(frozen=True)
+class RemoteBranches:
+    """A remote's branches, and the one its HEAD names: its default branch."""
+
+    default: str | None  # None when the remote's HEAD names no branch, as an empty one's doesn't
+    branches: tuple[str, ...]  # sorted
+
+
+def remote_branches(remote: str, *, cwd: Path, timeout: float = ASK_TIMEOUT_S) -> RemoteBranches:
+    """`remote`'s branches and default branch, asked of the remote itself: `origin` of the
+    checkout at `cwd`, or a URL. Read-only: nothing is fetched or written."""
+    if remote != "origin":
+        check_remote_url(remote)
+    args = ["ls-remote", "--symref", remote, "HEAD", "refs/heads/*"]
+    default, branches = None, []
+    for line in _run(args, cwd=cwd, timeout=timeout, network=True).splitlines():
+        target, _, ref = line.partition("\t")
+        if ref == "HEAD" and target.startswith("ref: refs/heads/"):
+            default = target.removeprefix("ref: refs/heads/")
+        elif ref.startswith("refs/heads/"):
+            branches.append(ref.removeprefix("refs/heads/"))
+    return RemoteBranches(default, tuple(sorted(branches)))
+
+
+def tracked_branches(path: Path) -> RemoteBranches:
+    """`origin`'s branches and default branch as the checkout last fetched them, from its
+    remote-tracking branches and `origin/HEAD`, without asking `origin`."""
+    default = None
+    with contextlib.suppress(GitError):  # origin/HEAD is unset
         ref = _run(["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], cwd=path)
-        return ref.removeprefix("origin/")
-    branch = _run(["branch", "--show-current"], cwd=path)
-    if not branch:
-        raise GitError(
-            f"can't tell the default branch of {path}: HEAD is detached and origin/HEAD is unset"
-        )
-    return branch
+        default = ref.removeprefix("origin/")
+    listing = _run(["for-each-ref", "--format=%(refname)", "refs/remotes/origin"], cwd=path)
+    branches = [
+        ref.removeprefix("refs/remotes/origin/")
+        for ref in listing.splitlines()
+        if ref != "refs/remotes/origin/HEAD"
+    ]
+    return RemoteBranches(default, tuple(sorted(branches)))
+
+
+def is_branch_name(name: str, *, cwd: Path) -> bool:
+    """Whether git takes `name` as a branch's name."""
+    if not name or name.startswith("-"):
+        return False
+    try:
+        _run(["check-ref-format", f"refs/heads/{name}"], cwd=cwd)
+    except GitError:
+        return False
+    return True
 
 
 def current_branch(path: Path) -> str | None:
@@ -279,11 +318,6 @@ def has_changes(path: Path, file: str) -> bool:
     return bool(_run(["status", "--porcelain", "--untracked-files=all", "--", file], cwd=path))
 
 
-def commits_since(path: Path, base: str) -> int:
-    """How many commits HEAD has that `base` doesn't."""
-    return int(_run(["rev-list", "--count", f"{base}..HEAD"], cwd=path))
-
-
 def files_changed_since(path: Path, base: str) -> list[str]:
     """Paths whose committed content differs between `base` and HEAD, sorted."""
     listing = _run(["diff", "--name-only", "-z", base, "HEAD", "--"], cwd=path, strip=False)
@@ -358,19 +392,6 @@ def resolve(path: Path, ref: str) -> str:
         return _run(["rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}"], cwd=path)
     except GitError:
         raise GitError(f"{ref} isn't a commit in {path}") from None
-
-
-def read_file(path: Path, ref: str, file: str) -> bytes | None:
-    """The bytes of `file` as committed at `ref`, or None if it isn't there."""
-    entry = _run(["ls-tree", ref, "--", file], cwd=path)
-    if not entry:
-        return None
-    if entry.split()[1] != "blob":
-        raise GitError(f"{file} is a folder at {ref}, not a file")
-    data = _run(
-        ["cat-file", "blob", f"{ref}:{file}"], cwd=path, strip=False, errors="surrogateescape"
-    )
-    return data.encode("utf-8", "surrogateescape")
 
 
 def read_files(path: Path, ref: str, files: list[str]) -> dict[str, bytes | None]:
@@ -451,19 +472,6 @@ def commit_paths(path: Path, files: list[str], message: str) -> None:
     _run(["commit", "--quiet", "--message", message, "--only", "--", *files], cwd=path)
 
 
-def move(path: Path, old: str, new: str) -> None:
-    """Rename a tracked file (`git mv`), staging the rename."""
-    _run(["mv", "--", old, new], cwd=path)
-
-
-def is_tracked(path: Path, file: str) -> bool:
-    try:
-        _run(["ls-files", "--error-unmatch", "--", file], cwd=path)
-    except GitError:
-        return False
-    return True
-
-
 def branch_exists(path: Path, branch: str) -> bool:
     """True if the checkout's repository has a local branch named `branch`."""
     try:
@@ -492,10 +500,69 @@ def delete_branch(path: Path, branch: str) -> None:
     _run(["branch", "-D", "--", branch], cwd=path)
 
 
+def branch_tips(path: Path) -> dict[str, str]:
+    """The commit each local branch and each of `origin`'s branches as last fetched points to, by
+    full ref name: `refs/heads/<branch>` and `refs/remotes/origin/<branch>`. `origin/HEAD` is
+    left out, since it only names another of them."""
+    listing = _run(
+        ["for-each-ref", "--format=%(objectname) %(refname)", "refs/heads", "refs/remotes/origin"],
+        cwd=path,
+    )
+    tips: dict[str, str] = {}
+    for line in listing.splitlines():
+        sha, _, ref = line.partition(" ")
+        if ref != "refs/remotes/origin/HEAD":
+            tips[ref] = sha
+    return tips
+
+
+def commits_ahead(path: Path, tips: list[str], base: str) -> dict[str, int]:
+    """How many commits each of `tips` has that `base` lacks, by tip, from one walk of the
+    history whatever the number of tips."""
+    if not tips:
+        return {}
+    listing = _run(["rev-list", "--parents", *dict.fromkeys(tips), f"^{base}", "--"], cwd=path)
+    parents = {sha: rest for sha, *rest in (line.split() for line in listing.splitlines())}
+    counts: dict[str, int] = {}
+    for tip in tips:
+        seen: set[str] = set()
+        stack = [tip] if tip in parents else []
+        while stack:
+            commit = stack.pop()
+            if commit not in seen:
+                seen.add(commit)
+                stack.extend(parent for parent in parents[commit] if parent in parents)
+        counts[tip] = len(seen)
+    return counts
+
+
+def on_origin(path: Path, tips: list[str]) -> set[str]:
+    """Those of `tips` whose every commit is on one of `origin`'s branches as last fetched."""
+    if not tips:
+        return set()
+    missing = set(
+        _run(
+            ["rev-list", *dict.fromkeys(tips), "--not", "--remotes=origin", "--"], cwd=path
+        ).splitlines()
+    )
+    return {tip for tip in tips if tip not in missing}
+
+
 def files_at(path: Path, treeish: str, folder: str) -> list[str]:
-    """Paths of the files under `folder` in `treeish` (e.g. HEAD), ignoring the working tree."""
-    listing = _run(["ls-tree", "-r", "--name-only", treeish, "--", folder], cwd=path)
-    return listing.splitlines()
+    """Paths of the files under `folder` in `treeish` (e.g. HEAD), ignoring the working tree, as
+    they are rather than as git would quote them.
+
+    Only what the checkout already has is read. A partial clone that lacks a tree under `folder`
+    refuses the listing rather than download it, as it otherwise would.
+    """
+    listing = ["ls-tree", "-r", "-z", "--name-only", treeish, "--", folder]
+    try:
+        output = _run_binary(listing, cwd=path)
+    except GitError as exc:
+        raise GitError(
+            f"couldn't list {folder} at {treeish} in what the checkout already has: {exc}"
+        ) from None
+    return [name.decode("utf-8", "replace") for name in output.split(b"\0") if name]
 
 
 def _run(
