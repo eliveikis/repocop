@@ -39,7 +39,8 @@
       "Bash(gh auth status:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
-      "Bash(gh repo view:*)"
+      "Bash(gh repo view:*)",
+      "Bash(git switch:*)"
     ],
     "ask": [
       "Bash(uv add:*)",

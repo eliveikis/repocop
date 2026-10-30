@@ -167,6 +167,8 @@ def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None
         "git branch --show-current",
         "git rev-parse",
         "git log",
+        "git switch",
+        "git worktree list",
         "make check",
         ".reviews/review.sh",
         "gh auth status",

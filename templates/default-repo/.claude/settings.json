@@ -26,7 +26,9 @@
       "Bash(gh auth status:*)",
       "Bash(gh pr list:*)",
       "Bash(gh pr view:*)",
-      "Bash(gh repo view:*)"
+      "Bash(gh repo view:*)",
+      "Bash(git switch:*)",
+      "Bash(git worktree list:*)"
     ],
     "ask": [
       "Bash(git push:*)",
