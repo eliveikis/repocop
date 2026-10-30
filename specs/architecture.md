@@ -162,7 +162,7 @@ A requirement is in the first stage that applies:
 
 **Read-only.** Nothing in RepoCop creates, edits or commits a requirement file. The repository's page says where to add one, and a requirement's page shows its text as the file holds it, from its folder or the archive, with an "Open in editor" link to that file.
 
-**The developer's agent does the work.** RepoCop runs no coding agent. For an active requirement, its page names the branch to do the work on, the requirement's name (`bulk-user-import`), so the board finds it, and gives the line that runs each of the repository's workflows on it in the developer's own agent: `/implement specs/changes/todo/bulk-user-import.md`. The workflows are the skills committed at HEAD as `.claude/skills/<name>/SKILL.md`. Each line has a Copy button, which the shell's script shows; where the clipboard can't be written, as on a page served neither from the machine itself nor over HTTPS, it selects the line instead, and without the script the line is copied by hand. The agent runs wherever the developer starts it, in the primary checkout or a worktree of their own, such as agent view's, and RepoCop doesn't start, manage or track it.
+**The developer's agent does the work.** RepoCop runs no coding agent. For an active requirement, its page names the branch to do the work on, the requirement's name (`bulk-user-import`), so the board finds it, and gives the line that runs each of the repository's workflows on it in the developer's own agent: `/implement specs/changes/todo/bulk-user-import.md`. The workflows are the skills committed at HEAD as `.claude/skills/<name>/SKILL.md`. Each line has a Copy button, which the shell's script shows; where the clipboard can't be written, as on a page served neither from the machine itself nor over HTTPS, it selects the line instead, and without the script the line is copied by hand. The agent runs wherever the developer starts it, in the primary checkout or a worktree of their own, such as agent view's, and RepoCop doesn't start, manage or track it. The line runs on any branch, since the template's `/implement` puts itself on the requirement's branch first.
 
 ```mermaid
 sequenceDiagram
@@ -172,8 +172,8 @@ sequenceDiagram
     participant G as Git and GitHub
     D->>R: open a requirement's page
     R-->>D: the branch to work on, and each workflow's line
-    D->>A: paste the line, on that branch
-    A->>G: commits, then opens a pull request
+    D->>A: paste the line
+    A->>G: commits on that branch, then opens a pull request
     D->>R: Fetch, then the board
     R->>G: read branches and open pull requests
     R-->>D: the requirement in progress, then in review
