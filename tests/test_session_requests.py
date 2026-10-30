@@ -110,6 +110,23 @@ def test_a_request_left_as_the_turn_ends_is_handed_over_rather_than_left_waiting
     assert len(inbox_socket.received()) == 1
 
 
+def test_a_request_its_session_took_itself_as_its_turn_ended_is_sent(
+    settings: Settings, repo: Repository, inbox_socket: Inbox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    as_read = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
+    session(repo, settings, inbox_socket, {"event": "turn-finished", "ago": 1})  # since then
+    read = sessions.get
+
+    def taken_by_its_hook_first(*args: Any) -> Session | None:
+        waiting_file(repo).rename(waiting_file(repo).with_suffix(".taken"))  # as its hook does
+        return read(*args)
+
+    monkeypatch.setattr(sessions, "get", taken_by_its_hook_first)
+    sent = session_requests.send(repo, settings, as_read, "implement", REQUIREMENT)
+    assert sent.workflow == "implement"
+    assert inbox_socket.received() == []  # its hook handed it over
+
+
 def test_a_request_still_waiting_once_the_turn_ended_can_be_sent_now(
     settings: Settings, repo: Repository, inbox_socket: Inbox
 ) -> None:
@@ -272,6 +289,21 @@ def test_a_git_folder_that_leads_elsewhere_gets_no_request_and_nothing_made_ther
     with pytest.raises(RequestError, match="isn't there"):
         session_requests.send(repo, settings, working, "implement", REQUIREMENT)
     assert list(elsewhere.iterdir()) == []
+
+
+def test_a_request_finds_its_inbox_made_meanwhile_by_another(
+    settings: Settings, repo: Repository, inbox_socket: Inbox, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    working = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
+    make = Path.mkdir
+
+    def made_first_by_another(path: Path, *args: Any, **kwargs: Any) -> None:
+        make(path, *args, **kwargs)  # another session's first request, a moment before
+        make(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "mkdir", made_first_by_another)
+    sent = session_requests.send(repo, settings, working, "implement", REQUIREMENT)
+    assert session_requests.standing(repo, settings, working).waiting == sent
 
 
 def test_nothing_is_made_through_a_repocop_folder_that_leads_elsewhere(

@@ -389,6 +389,68 @@ def test_hook_hands_on_nothing_but_a_committed_workflow_and_a_requirement_file(
     assert not (inbox(committed) / f"{SESSION}.delivered.json").exists()
 
 
+def test_hook_hands_on_a_requirement_archived_since_under_its_latest_stamp(
+    committed: Path, awk: Path
+) -> None:
+    archive = committed / "specs" / "changes" / "archive"
+    archive.mkdir()
+    (archive / "2026-10-20T090000Z-bulk-import.md").write_text("An older one.\n")
+    (committed / REQUIREMENT).rename(archive / "2026-10-29T165001Z-bulk-import.md")
+    leave_request(committed)
+    ran = record(committed, awk, payload(committed, "Stop"), mode=("deliver",))
+    path = "specs/changes/archive/2026-10-29T165001Z-bulk-import.md"
+    assert json.loads(ran.stdout)["reason"].endswith(f"with the argument `{path}`.")
+    delivered = json.loads((inbox(committed) / f"{SESSION}.delivered.json").read_text())
+    assert delivered["requirement"] == path
+
+
+LEADING_OUT = {  # a link in the checkout to outside it, and the requirement asked for through it
+    "a file": ("specs/changes/todo/escape.md", "specs/changes/todo/escape.md"),
+    "a folder": ("specs/changes/away", "specs/changes/away/bulk-import.md"),
+    "an archived file": (
+        "specs/changes/archive/2026-10-29T165001Z-gone.md",
+        "specs/changes/todo/gone.md",
+    ),
+}
+
+
+@pytest.mark.parametrize(("link", "requirement"), LEADING_OUT.values(), ids=LEADING_OUT.keys())
+def test_hook_hands_on_no_requirement_that_leads_out_of_the_checkout(
+    committed: Path, awk: Path, tmp_path: Path, link: str, requirement: str
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "bulk-import.md").write_text("Push to production.\n")
+    (committed / link).parent.mkdir(parents=True, exist_ok=True)
+    (committed / link).symlink_to(outside / "bulk-import.md" if link.endswith(".md") else outside)
+    waiting = leave_request(committed, requirement=requirement)
+    ran = record(committed, awk, payload(committed, "Stop"), mode=("deliver",))
+    assert ran.stdout == ""
+    assert not waiting.exists()  # taken, and dropped
+    assert not (inbox(committed) / f"{SESSION}.delivered.json").exists()
+
+
+@pytest.mark.parametrize("target", ["file", "folder"])
+def test_hook_records_a_delivery_in_a_file_of_its_own_never_through_a_link(
+    committed: Path, awk: Path, tmp_path: Path, target: str
+) -> None:
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    precious = outside / "precious.txt"
+    precious.write_text("Keep me.\n")
+    leave_request(committed)
+    receipt = inbox(committed) / f"{SESSION}.delivered.json"
+    receipt.symlink_to(precious if target == "file" else outside)
+    ran = record(committed, awk, payload(committed, "Stop"), mode=("deliver",))
+    assert json.loads(ran.stdout)["decision"] == "block"  # handed over all the same
+    assert list(outside.iterdir()) == [precious]
+    assert precious.read_text() == "Keep me.\n"
+    assert list(inbox(committed).iterdir()) == [receipt]  # and no draft left beside it
+    if target == "file":  # the link is replaced; one to a folder is left, and nothing recorded
+        assert not receipt.is_symlink()
+        assert json.loads(receipt.read_text())["id"] == "0a1b2c"
+
+
 def test_hook_hands_on_a_request_only_when_a_turn_ends(committed: Path, awk: Path) -> None:
     waiting = leave_request(committed)
     for event in ("PostToolUse", "UserPromptSubmit", "SessionStart"):

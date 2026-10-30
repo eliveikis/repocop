@@ -16,7 +16,8 @@
 # once: a workflow and the requirement to run it on, left there by RepoCop's requirement page on
 # the developer's click. The request is taken once, by renaming it, and checked first: the
 # workflow must be a skill committed in the session's checkout, and the requirement a file there,
-# and nothing else in it is passed on. A taken request is recorded as delivered beside it.
+# not a link and in no folder leading out of it, and nothing else in it is passed on. A taken
+# request is recorded as delivered beside it.
 #
 # Needs only sh, awk and git.
 at=$(date -u +%Y-%m-%dT%H:%M:%S.%NZ)
@@ -142,6 +143,22 @@ logs="$common/repocop/sessions"
 log="$logs/$session.jsonl"
 inbox="$common/repocop/inbox"
 
+# Whether $1, a path relative to the checkout, names a file in it: not a link, in a folder that
+# doesn't lead out of it.
+in_checkout() {
+  [ -f "$project/$1" ] && [ ! -L "$project/$1" ] || return 1
+  case $1 in
+  */*) holder=$project/${1%/*} ;;
+  *) holder=$project ;;
+  esac
+  real_project=$(cd -P "$project" 2>/dev/null && pwd -P) || return 1
+  real_holder=$(cd -P "$holder" 2>/dev/null && pwd -P) || return 1
+  case $real_holder/ in
+  "$real_project"/*) return 0 ;;
+  esac
+  return 1
+}
+
 # The request waiting for this session, handed to it: printed as Stop's decision to carry on.
 deliver() {
   [ "$hook" = Stop ] && [ -f "$inbox/$session.json" ] || return 0
@@ -183,9 +200,16 @@ EOF
     requirement_path=$found
     requirement=$(printf '%s' "$found" | sed 's/["\\]/\\&/g')
   fi
+  in_checkout "$requirement_path" || return 0
   git -C "$project" cat-file -e "HEAD:.claude/skills/$workflow/SKILL.md" 2>/dev/null || return 0
-  printf '{"v":1,"id":"%s","workflow":"%s","requirement":"%s","at":"%s"}\n' \
-    "$id" "$workflow" "$requirement" "$at" >"$inbox/$session.delivered.json"
+  # Recorded delivered: written whole, then renamed into place, never written through a link there.
+  receipt="$inbox/$session.delivered.json"
+  if draft=$(mktemp "$receipt.XXXXXX" 2>/dev/null); then
+    printf '{"v":1,"id":"%s","workflow":"%s","requirement":"%s","at":"%s"}\n' \
+      "$id" "$workflow" "$requirement" "$at" >"$draft"
+    [ -d "$receipt" ] || mv -f "$draft" "$receipt" 2>/dev/null
+    rm -f "$draft"
+  fi
   printf '{"decision":"block","reason":"The developer asks, from RepoCop: run the `%s` skill with the argument `%s`."}\n' \
     "$workflow" "$requirement"
 }

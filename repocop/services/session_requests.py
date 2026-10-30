@@ -17,6 +17,7 @@ import json
 import os
 import socket
 import uuid
+from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path, PurePosixPath
@@ -131,7 +132,8 @@ def send(
         return request
     waiting = folder / f"{session.id}.json"
     _write(waiting, request, exclusive=True)
-    # It may have finished its turn since it was read, and its hook may have looked already.
+    # It may have finished its turn since it was read, and its hook may have looked already, or
+    # taken the request itself.
     now = sessions.get(repository, settings, session.id)
     if now is not None and now.state is State.WAITING and unreachable(now) is None:
         _take_and_hand_over(repository, settings, folder, now, requirement)
@@ -151,7 +153,10 @@ def send_waiting(
     folder = _inbox(repository, settings)
     if folder is None:
         raise RequestError(f"{repository.name}'s checkout isn't there")
-    return _take_and_hand_over(repository, settings, folder, session, requirement)
+    sent = _take_and_hand_over(repository, settings, folder, session, requirement)
+    if sent is None:
+        raise RequestError(GONE)
+    return sent
 
 
 def cancel(repository: Repository, settings: Settings, session: Session) -> None:
@@ -178,8 +183,9 @@ def _inbox(repository: Repository, settings: Settings, *, make: bool = False) ->
     folder = common
     for part in INBOX.parts:
         folder = folder / part
-        if make and not folder.exists() and not folder.is_symlink():
-            folder.mkdir()
+        if make:
+            with suppress(FileExistsError):  # made meanwhile, or something else is there
+                folder.mkdir()
         if (
             folder.is_symlink()
             or not folder.is_dir()
@@ -200,16 +206,16 @@ def _check(repository: Repository, settings: Settings, workflow: str, requiremen
 
 def _take_and_hand_over(
     repository: Repository, settings: Settings, folder: Path, session: Session, requirement: str
-) -> Request:
+) -> Request | None:
     """Take the request waiting for the session, once, check it again, as anyone could have
     written it, and hand it over through its socket. A request that fails the check is
-    dropped; one that never reached the session waits again."""
+    dropped; one that never reached the session waits again. None when none waits any more."""
     waiting = folder / f"{session.id}.json"
     taking = folder / f"{session.id}.taking.{uuid.uuid4()}"
     try:
         waiting.rename(taking)
     except FileNotFoundError:
-        raise RequestError(GONE) from None
+        return None
     request = _read(taking)
     try:
         if request is None:
