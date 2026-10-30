@@ -31,7 +31,20 @@ if ! git rev-parse --verify --quiet "$base^{commit}" >/dev/null; then
   exit 1
 fi
 branch=$(git branch --show-current)
-if [ -n "$branch" ] && [ "$branch" = "${base##*/}" ]; then
+# The base's own branch, by its whole name: a remote's branch without the remote, or a local one.
+case $(git rev-parse --symbolic-full-name "$base" 2>/dev/null) in
+refs/remotes/*/*)
+  base_branch=$(git rev-parse --symbolic-full-name "$base")
+  base_branch=${base_branch#refs/remotes/}
+  base_branch=${base_branch#*/}
+  ;;
+refs/heads/*)
+  base_branch=$(git rev-parse --symbolic-full-name "$base")
+  base_branch=${base_branch#refs/heads/}
+  ;;
+*) base_branch= ;;
+esac
+if [ -n "$branch" ] && [ "$branch" = "$base_branch" ]; then
   echo "This is $base's own branch: review a branch made from it." >&2
   exit 1
 fi

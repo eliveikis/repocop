@@ -9,7 +9,7 @@ argument-hint: "[path-to-requirement.md]  (defaults to the branch's requirement)
 
 The requirement the branch delivers: `$ARGUMENTS`
 
-With no path, it is the branch's requirement: the change in `specs/changes/todo/` the branch belongs to, or in the archive beside it once the branch has archived it (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so, ask for the path, and change nothing. Name the requirement you picked before you start.
+With no path, it is the branch's requirement: the change in `specs/changes/todo/` the branch belongs to, or in the archive beside it once the branch has archived it (`.claude/rules/specs.md` › A branch's requirement). A path given that the branch has archived since is found there too, under its name stamped with when. If it belongs to none, say so, ask for the path, and change nothing. Name the requirement you picked before you start.
 
 ## Preconditions (stop and report if any fail, changing nothing)
 

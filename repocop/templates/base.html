@@ -43,7 +43,7 @@
   </div>
 </div>
 <div class="toasts" role="status">{% block toasts %}{% endblock %}</div>
-<div hidden hx-get="{{ url_for('session_lists') }}" hx-trigger="every 2s" hx-swap="none" hx-include="[name='shown']"></div>
+<div hidden hx-post="{{ url_for('session_lists') }}" hx-trigger="every 2s" hx-swap="none" hx-include="[name='shown']"></div>
 <dialog id="jump" class="jump" aria-label="Jump to a repository, requirement or sync">
   <input id="jump-input" class="jump-input" name="q" type="text" autocomplete="off" spellcheck="false"
     role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="jump-listbox"

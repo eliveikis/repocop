@@ -169,16 +169,24 @@ def cancel(repository: Repository, settings: Settings, session: Session) -> None
 
 
 def _inbox(repository: Repository, settings: Settings, *, make: bool = False) -> Path | None:
-    """The repository's inbox folder, inside its git common folder, or None."""
+    """The repository's inbox folder, inside its git common folder, or None. With `make`, each
+    folder on the way is made, but only once the one before it is known to be a real folder in
+    the git folder, so nothing is ever made anywhere else."""
     common = sessions.common_dir(repository, settings)
     if common is None:
         return None
-    folder = common / INBOX
-    if make:
-        folder.mkdir(parents=True, exist_ok=True)
-    if not folder.is_dir() or not folder.resolve().is_relative_to(common):
-        return None
-    return folder
+    folder = common
+    for part in INBOX.parts:
+        folder = folder / part
+        if make and not folder.exists() and not folder.is_symlink():
+            folder.mkdir()
+        if (
+            folder.is_symlink()
+            or not folder.is_dir()
+            or folder.resolve().parent != (folder.parent.resolve())
+        ):
+            return None
+    return folder if folder.resolve().is_relative_to(common) else None
 
 
 def _check(repository: Repository, settings: Settings, workflow: str, requirement: str) -> None:

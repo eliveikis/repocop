@@ -171,3 +171,21 @@ def test_review_refuses_without_codex_installed(checkout: Path, tmp_path: Path) 
     assert result.returncode != 0
     assert "Codex isn't installed" in result.stderr
     assert saved(checkout) == []
+
+
+def test_review_tells_a_base_branch_by_its_whole_name(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
+    run_git("push", "-q", "origin", "HEAD:refs/heads/release/stable", cwd=checkout)
+    run_git("fetch", "-q", "origin", cwd=checkout)
+    run_git("remote", "set-head", "origin", "release/stable", cwd=checkout)
+    run_git("switch", "-q", "-c", "release/stable", "origin/release/stable", cwd=checkout)
+    (checkout / "fix.py").write_text("print('fix')\n")
+    run_git("add", "fix.py", cwd=checkout)
+    run_git("commit", "-qm", "Fix", cwd=checkout)
+    refused = review(checkout)
+    assert refused.returncode != 0
+    assert "origin/release/stable's own branch" in refused.stderr
+    run_git("switch", "-q", "-c", "stable", cwd=checkout)  # another branch, by its last part
+    assert review(checkout).returncode == 0
+    assert len(fake_codex.reviews) == 1

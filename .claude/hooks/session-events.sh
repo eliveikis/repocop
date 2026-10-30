@@ -170,7 +170,19 @@ EOF
   case $requirement_path in
   /* | ../* | */../* | */.. | *\\* | *'`'*) return 0 ;; # outside, or a mark that ends the line
   esac
-  [ -f "$project/$requirement_path" ] || return 0
+  if [ ! -f "$project/$requirement_path" ]; then
+    # Archived since it was asked for, as completing a change does: the archive beside its
+    # folder holds it under its name, or that name stamped with when, the latest stamp winning.
+    archive="$project/${requirement_path%/*/*}/archive"
+    name=${requirement_path##*/}
+    found=
+    for archived in "$archive/$name" "$archive"/[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z-"$name"; do
+      [ -f "$archived" ] && found=${archived#"$project/"}
+    done
+    [ -n "$found" ] || return 0
+    requirement_path=$found
+    requirement=$(printf '%s' "$found" | sed 's/["\\]/\\&/g')
+  fi
   git -C "$project" cat-file -e "HEAD:.claude/skills/$workflow/SKILL.md" 2>/dev/null || return 0
   printf '{"v":1,"id":"%s","workflow":"%s","requirement":"%s","at":"%s"}\n' \
     "$id" "$workflow" "$requirement" "$at" >"$inbox/$session.delivered.json"

@@ -141,7 +141,7 @@ def test_every_page_keeps_its_sessions_current_and_the_refresh_runs_no_git(
 ) -> None:
     html = client.get("/").text  # each repository's log folder is known from here on
     poll = re.search(
-        r'<div hidden hx-get="([^"]+)" hx-trigger="every 2s" hx-swap="none" '
+        r'<div hidden hx-post="([^"]+)" hx-trigger="every 2s" hx-swap="none" '
         r"hx-include=\"\[name='shown'\]\"></div>",
         html,
     )
@@ -150,7 +150,7 @@ def test_every_page_keeps_its_sessions_current_and_the_refresh_runs_no_git(
     record(registered, {"event": "working", "branch": "spike"}, session="two")
     before = len(git_calls())
     shown = ["r:1:bulk-import", "p:1:bulk-import", "r:1:search", "o:1", "a:1", "r:999:x", "x"]
-    fresh = client.get(poll[1], params={"shown": shown}).text
+    fresh = client.post(poll[1], data={"shown": shown}).text
     assert len(git_calls()) == before
     for key in ("r:1:bulk-import", "p:1:bulk-import", "r:1:search", "o:1", "a:1"):
         assert re.search(
@@ -163,6 +163,10 @@ def test_every_page_keeps_its_sessions_current_and_the_refresh_runs_no_git(
     assert sessions_in(fresh, "r:1:search").strip() == ""
     assert "<code>spike</code>" in sessions_in(fresh, "o:1")
     assert '<div id="nav-sessions" hx-swap-oob="true">' in fresh
+    fleet = [f"r:1:change-{number}" for number in range(2000)]  # as many as a big board shows
+    lists = client.post(poll[1], data={"shown": fleet})
+    assert lists.status_code == 200
+    assert 'value="r:1:change-1999"' in lists.text
 
 
 def test_a_repository_whose_default_branch_lacks_the_recorder_says_so(

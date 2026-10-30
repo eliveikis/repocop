@@ -259,3 +259,32 @@ def test_a_delivered_request_whose_workflow_hasnt_started_in_minutes_is_late(
     assert not session_requests.standing(repo, settings, idle).late
     later = datetime.now(UTC) + timedelta(minutes=4)
     assert session_requests.standing(repo, settings, idle, now=later).late
+
+
+def test_a_git_folder_that_leads_elsewhere_gets_no_request_and_nothing_made_there(
+    settings: Settings, repo: Repository, inbox_socket: Inbox, tmp_path: Path
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (repo.primary_path / ".git" / "repocop").mkdir(exist_ok=True)
+    (repo.primary_path / ".git" / "repocop" / "inbox").symlink_to(elsewhere)
+    working = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
+    with pytest.raises(RequestError, match="isn't there"):
+        session_requests.send(repo, settings, working, "implement", REQUIREMENT)
+    assert list(elsewhere.iterdir()) == []
+
+
+def test_nothing_is_made_through_a_repocop_folder_that_leads_elsewhere(
+    settings: Settings, repo: Repository, inbox_socket: Inbox, tmp_path: Path
+) -> None:
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    working = session(repo, settings, inbox_socket, {"event": "working", "ago": 2})
+    folder = repo.primary_path / ".git" / "repocop"
+    for entry in folder.iterdir():  # the session's log, moved out of the way
+        entry.rename(elsewhere / entry.name)
+    folder.rmdir()
+    folder.symlink_to(elsewhere)
+    with pytest.raises(RequestError, match="isn't there"):
+        session_requests.send(repo, settings, working, "implement", REQUIREMENT)
+    assert not (elsewhere / "inbox").exists()
