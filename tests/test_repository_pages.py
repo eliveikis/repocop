@@ -56,14 +56,27 @@ def test_repository_list_shows_empty_state_and_add_form(client: TestClient) -> N
     html = client.get("/").text
     assert "<h1>Repositories</h1>" in html
     assert "No repositories registered yet." in html
-    assert '<a class="button primary" href="#add">Add a repository</a>' in html
-    assert '<section id="add"' in html
-    assert 'action="http://testserver/repositories"' in html
-    assert 'name="remote_url"' in html
+    new = "http://testserver/repositories/new"
+    assert f'<a class="button primary" href="{new}">Add a repository</a>' in html
+    assert f'<a class="nav-add" href="{new}">Add repository</a>' in html
+    form = client.get("/repositories/new").text
+    assert 'action="http://testserver/repositories"' in form
+    assert 'name="remote_url"' in form
 
 
-def test_repository_list_labels_host_path_ownership(client: TestClient, settings: Settings) -> None:
-    html = client.get("/").text
+def test_repository_list_offers_adding_a_repository_at_its_head(
+    client: TestClient, remote_repo: Path
+) -> None:
+    html = add(client, str(remote_repo))
+    head = re.search(r'<div class="page-head">(.*?)</div>\n</div>', html, re.DOTALL)
+    assert head
+    assert '<a class="button primary" href="http://testserver/repositories/new">' in head[1]
+    assert "Fetch all" in head[1]
+    assert '<a class="nav-add" href="http://testserver/repositories/new">' in html
+
+
+def test_add_page_labels_host_path_ownership(client: TestClient, settings: Settings) -> None:
+    html = client.get("/repositories/new").text
     assert "human-owned" in html
     assert "RepoCop-owned" in html
     assert str(settings.repos_root) in html
@@ -76,14 +89,15 @@ def test_add_repository_clones_and_lists_it(
     html = add(client, str(remote_repo))
     assert f"Cloned sample into {settings.repos_root / 'sample'}." in html
     assert row_names(html) == ["sample"]
-    assert str(remote_repo) in html
     assert 'class="status status-behind"' in html
+    assert str(remote_repo) in client.get("/repositories/1").text
 
 
 def test_add_repository_labels_the_repository_paths_by_owner(
     client: TestClient, settings: Settings, remote_repo: Path
 ) -> None:
-    html = add(client, str(remote_repo))
+    add(client, str(remote_repo))
+    html = client.get("/repositories/1").text
     primary = f"<code>{settings.repos_root / 'sample'}</code> "
     worktrees = f"<code>{settings.worktrees_root / 'sample'}</code> "
     assert f'{primary}<span class="owner owner-human">human-owned</span>' in html
@@ -100,10 +114,10 @@ def test_add_repository_registers_an_existing_checkout(
 def test_add_repository_by_name_registers_an_existing_checkout(
     client: TestClient, remote_repo: Path, primary_checkout: Path
 ) -> None:
-    assert 'name="remote_url" required' not in client.get("/").text
+    assert 'name="remote_url" required' not in client.get("/repositories/new").text
     html = add(client, "", name="sample")
     assert f"Registered the existing checkout at {primary_checkout}." in html
-    assert f"<code>{remote_repo}</code>" in html
+    assert f"<code>{remote_repo}</code>" in client.get("/repositories/1").text
 
 
 def test_a_remote_on_a_host_links_to_the_repositorys_page_there(
@@ -112,7 +126,6 @@ def test_a_remote_on_a_host_links_to_the_repositorys_page_there(
     run_git("remote", "set-url", "origin", "git@github.com:owner/repo.git", cwd=primary_checkout)
     add(client, "", name="sample")
     link = '<a href="https://github.com/owner/repo"><code>git@github.com:owner/repo.git</code></a>'
-    assert link in client.get("/").text
     assert link in client.get("/repositories/1").text
 
 
@@ -125,7 +138,6 @@ def test_a_remote_shows_as_the_checkouts_origin_has_it_now(
     add(client, "", name="sample")
     run_git("remote", "set-url", "origin", "git@github.com:owner/repo.git", cwd=primary_checkout)
     link = '<a href="https://github.com/owner/repo"><code>git@github.com:owner/repo.git</code></a>'
-    assert link in client.get("/").text
     assert link in client.get("/repositories/1").text
     assert "https://github.com/owner/repo.git" not in client.get("/repositories/1").text
 
@@ -135,13 +147,11 @@ def test_a_missing_checkouts_remote_shows_as_it_was_registered(
 ) -> None:
     add(client, str(remote_repo))
     (settings.repos_root / "sample").rename(tmp_path / "moved-away")
-    assert f"<td><code>{remote_repo}</code></td>" in client.get("/").text
     assert f"<dd><code>{remote_repo}</code></dd>" in client.get("/repositories/1").text
 
 
 def test_a_local_remote_is_not_a_link(client: TestClient, remote_repo: Path) -> None:
     add(client, str(remote_repo))
-    assert f"<td><code>{remote_repo}</code></td>" in client.get("/").text
     assert f"<dd><code>{remote_repo}</code></dd>" in client.get("/repositories/1").text
 
 
@@ -395,11 +405,10 @@ def test_fetch_only_runs_on_a_post(client: TestClient, remote_repo: Path) -> Non
 def test_repository_pages_link_the_checkout_to_the_editor(
     linked: TestClient, settings: Settings, remote_repo: Path
 ) -> None:
-    listed = add(linked, str(remote_repo))
+    add(linked, str(remote_repo))
+    page = linked.get("/repositories/1").text
     link = f'<a href="editor://open{settings.repos_root / "sample"}/">Open in editor</a>'
-    assert f'<span class="owner owner-human">human-owned</span> {link}' in listed
-    assert link in linked.get("/repositories/1").text
-    assert listed.count("Open in editor") == 1
+    assert f'<span class="owner owner-human">human-owned</span> {link}' in page
 
 
 def test_repository_pages_have_no_editor_link_without_the_setting(

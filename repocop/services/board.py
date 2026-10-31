@@ -70,6 +70,7 @@ class Card:
     waits_on: tuple[tuple[str, str | None], ...] = ()  # undelivered needs: name, page file
     sessions: tuple[Session, ...] = ()  # those working on it, the latest first
     delivered_at: datetime | None = None
+    held_up: bool = False  # a dependency problem keeps it from being ordered
 
 
 @dataclass(frozen=True)
@@ -78,6 +79,7 @@ class Note:
 
     repository: Repository
     text: str
+    about_sessions: bool = False  # it says why sessions aren't shown, not why cards can't be
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,8 @@ class Board:
     with_pull_requests: bool  # whether GitHub was asked for pull requests
     # Each repository's sessions that work on no requirement with a card, by repository id.
     others: Mapping[int, tuple[Session, ...]] = field(default_factory=dict)
+    # What keeps each repository's changes from being ordered, by repository id.
+    problems: Mapping[int, tuple[backlog.Problem, ...]] = field(default_factory=dict)
 
     @property
     def columns(self) -> tuple[tuple[Stage, tuple[Card, ...]], ...]:
@@ -100,6 +104,24 @@ class Board:
         if stage is Stage.DELIVERED:
             return tuple(sorted(found, key=lambda card: card.delivered_at or _EPOCH, reverse=True))
         return found
+
+    def counts(self, repository_id: int) -> tuple[tuple[Stage, int], ...]:
+        """How many of the repository's cards are in each stage, in the board's order."""
+        mine = [card.stage for card in self.cards if card.repository.id == repository_id]
+        return tuple((stage, mine.count(stage)) for stage in Stage)
+
+    def apart_from(self, stages: Iterable[Stage]) -> dict[int, tuple[Session, ...]]:
+        """Each repository's sessions that work on no requirement with a card in `stages`, the
+        latest first."""
+        shown = set(stages)
+        apart = {repository_id: list(found) for repository_id, found in self.others.items()}
+        for card in self.cards:
+            if card.stage not in shown:
+                apart.setdefault(card.repository.id, []).extend(card.sessions)
+        return {
+            repository_id: tuple(sorted(found, key=lambda s: s.since, reverse=True))
+            for repository_id, found in apart.items()
+        }
 
 
 _EPOCH = datetime.fromtimestamp(0, UTC)
@@ -121,18 +143,20 @@ def read(
         notes += unread
     cards: list[Card] = []
     others: dict[int, tuple[Session, ...]] = {}
+    problems: dict[int, tuple[backlog.Problem, ...]] = {}
     for repository in shown:
         working = sessions.of(repository, settings)
         try:
-            found, more = _cards(settings, repository, pulls.get(repository.id, {}), working)
+            found, more, wrong = _cards(settings, repository, pulls.get(repository.id, {}), working)
         except RepoCopError as exc:
             notes.append(Note(repository, str(exc)))
-            found, more = [], []
+            found, more, wrong = [], [], ()
         cards += found
         notes += more
+        problems[repository.id] = wrong
         shown_on = {card.name for card in found}
         others[repository.id] = tuple(s for s in working if s.requirement not in shown_on)
-    return Board(tuple(cards), tuple(notes), with_pull_requests, others)
+    return Board(tuple(cards), tuple(notes), with_pull_requests, others, problems)
 
 
 def belongs(branch: str, names: Iterable[str]) -> bool:
@@ -146,7 +170,7 @@ def _cards(
     repository: Repository,
     pulls: Mapping[str, str],
     working: Iterable[Session],
-) -> tuple[list[Card], list[Note]]:
+) -> tuple[list[Card], list[Note], tuple[backlog.Problem, ...]]:
     checkout = repositories.require_checkout(repository, settings)
     todo, archived_here = requirements.change_files(settings, repository)
     default = repositories.origin_default(repository)
@@ -171,6 +195,7 @@ def _cards(
                 f"{default} lacks the hook that records agent sessions, so its sessions aren't "
                 "shown. A template sync brings it, and sessions on branches made before that "
                 "sync record nothing.",
+                about_sessions=True,
             )
         )
     archived_there: list[str] = []
@@ -232,8 +257,19 @@ def _cards(
         else:
             stage = Stage.TO_DO
         waits_on = tuple((need.name, ordered.pages.get(need.name)) for need in change.waits_on)
-        cards.append(Card(repository, change.name, change.file, stage, branches, waits_on, on_it))
-    return cards, notes
+        cards.append(
+            Card(
+                repository,
+                change.name,
+                change.file,
+                stage,
+                branches,
+                waits_on,
+                on_it,
+                held_up=change in ordered.apart,
+            )
+        )
+    return cards, notes, ordered.problems
 
 
 def _branch(

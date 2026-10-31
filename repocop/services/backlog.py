@@ -23,7 +23,6 @@ from dataclasses import dataclass
 from repocop.config import Settings
 from repocop.services import requirements
 from repocop.services.repositories import Repository
-from repocop.services.requirements import Detail, Requirement, RequirementError
 
 ID_PREFIX = re.compile(r"req-[0-9]+-")
 LIST_START = re.compile(r"depends-on:[ \t]*")
@@ -117,29 +116,6 @@ class Backlog:
 
     def problems_of(self, change: Change) -> tuple[Problem, ...]:
         return tuple(problem for problem in self.problems if change.name in problem.names)
-
-
-@dataclass(frozen=True)
-class Entry:
-    """A row of a repository's requirements list."""
-
-    requirement: Requirement
-    detail: Detail | None  # None when its file can't be read inside the checkout
-    waits_on: tuple[Need, ...] = ()
-
-
-@dataclass(frozen=True)
-class Listing:
-    """A repository's requirements, grouped by what they wait on."""
-
-    levels: tuple[tuple[Entry, ...], ...]  # can start now, then one more away, ...
-    apart: tuple[Entry, ...]  # held up by a problem
-    problems: tuple[Problem, ...]
-    pages: Mapping[str, str]  # the file name each change's page is found by, by change name
-
-    @property
-    def entries(self) -> tuple[Entry, ...]:
-        return (*(e for level in self.levels for e in level), *self.apart)
 
 
 def name_of(file_name: str) -> str:
@@ -258,40 +234,6 @@ def of(settings: Settings, repository: Repository) -> Backlog:
     """The repository's backlog, read from its requirements folder and the archive beside it."""
     todo, archived = requirements.change_files(settings, repository)
     return order(todo, archived)
-
-
-def listing(settings: Settings, repository: Repository) -> Listing:
-    """Every requirement in the repository's requirements folder, grouped by what it waits on.
-    Each group is by file name."""
-    in_folder = {r.file_name: r for r in requirements.in_folder(settings, repository)}
-    ordered = of(settings, repository)
-
-    def entries(changes: Iterable[Change]) -> tuple[Entry, ...]:
-        found = []
-        for change in changes:
-            if requirement := in_folder.get(change.file):
-                found.append(_entry(settings, repository, requirement, change.waits_on))
-        return tuple(found)
-
-    return Listing(
-        tuple(entries(level) for level in ordered.levels),
-        entries(ordered.apart),
-        ordered.problems,
-        ordered.pages,
-    )
-
-
-def _entry(
-    settings: Settings,
-    repository: Repository,
-    requirement: Requirement,
-    waits_on: tuple[Need, ...] = (),
-) -> Entry:
-    try:
-        detail = requirements.detail(settings, repository, requirement)
-    except RequirementError:
-        detail = None
-    return Entry(requirement, detail, waits_on)
 
 
 def _match(

@@ -1,8 +1,9 @@
 <article class="card">
   <div class="card-head">
     {% if card.page %}<a class="card-name" href="{{ url_for('requirement_page', repository_id=card.repository.id, file_name=card.page) }}">{{ card.name }}</a>{% else %}<span class="card-name">{{ card.name }}</span>{% endif %}
-    <span class="card-repository">{{ card.repository.name }}</span>
+    {% if not scope %}<span class="card-repository">{{ card.repository.name }}</span>{% endif %}
   </div>
+  {% if card.held_up %}<p class="card-detail"><span class="badge">can't be ordered</span></p>{% endif %}
   {% if card.waits_on %}<p class="card-detail">Waits on {% for name, page in card.waits_on %}{% if not loop.first %}, {% endif %}{% if page %}<a href="{{ url_for('requirement_page', repository_id=card.repository.id, file_name=page) }}">{{ name }}</a>{% else %}<code>{{ name }}</code>{% endif %}{% endfor %}</p>{% endif %}
   {% if card.branches %}
   <ul class="card-branches">

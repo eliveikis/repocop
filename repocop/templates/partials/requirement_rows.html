@@ -1,8 +1,0 @@
-{% for entry in entries %}
-{% set r = entry.requirement %}{% set d = entry.detail %}
-<tr>
-  <td><a href="{{ url_for('requirement_page', repository_id=repository.id, file_name=r.file_name) }}">{{ r.name }}</a></td>
-  <td>{% if d %}{{ d.location }}{% if d.uncommitted %} <span class="badge">uncommitted</span>{% endif %}{% else %}can't be read{% endif %}</td>
-  {% if blocking %}<td class="blocked-by">{% if held_up %}<span class="badge">can't be ordered</span>{% endif %}{% for need in entry.waits_on %}{% if not loop.first or held_up %}, {% endif %}{% set name = need.name %}{% include "partials/change_name.html" %}{% endfor %}</td>{% endif %}
-</tr>
-{% endfor %}

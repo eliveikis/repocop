@@ -9,16 +9,17 @@
 {% endblock %}
 
 {% block content %}
-<h1>Repositories</h1>
+<div class="page-head">
+  <h1>Repositories</h1>
+  {% if repositories %}
+  <div class="actions">
+    <form method="post" action="{{ url_for('fetch_all_repositories') }}"><button type="submit">Fetch all</button></form>
+    <a class="button primary" href="{{ url_for('new_repository') }}">Add repository</a>
+  </div>
+  {% endif %}
+</div>
 
 {% if repositories %}
-{% include "partials/board.html" %}
-
-<section id="checkouts" aria-labelledby="checkouts-heading">
-<div class="section-head">
-  <h2 id="checkouts-heading">Checkouts</h2>
-  <form method="post" action="{{ url_for('fetch_all_repositories') }}"><button type="submit">Fetch all</button></form>
-</div>
 {% if fetched_all and fetched_all.failures %}
 <ul class="fetch-failures" role="alert">
   {% for repo, failure in fetched_all.failures %}<li>{{ repo.name }}: {{ failure }}</li>
@@ -31,65 +32,37 @@
   {% endfor %}
 </ul>
 {% endif %}
+<section id="fleet" aria-label="Each repository">
 <div class="table-scroll">
 <table class="repositories">
   <thead>
-    <tr><th>Name</th><th>Status</th><th>Checkout</th><th>Remote</th><th>Paths</th></tr>
+    <tr><th>Name</th><th>Template</th><th>Requirements</th><th>Checkout</th></tr>
   </thead>
   <tbody>
     {% for repo, status, waiting, checkout, remote in repositories %}
     <tr>
-      <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a>{% set key, shown = "o:%d" % repo.id, board.others.get(repo.id, ()) %}{% include "partials/sessions.html" %}</td>
+      <td class="name"><a href="{{ url_for('repository_page', repository_id=repo.id) }}">{{ repo.name }}</a>{% set key, shown = "o:%d" % repo.id, apart.get(repo.id, ()) %}{% include "partials/sessions.html" %}</td>
       <td>{% include "partials/repository_status.html" %}{% set count = offered.get(repo.id) %}{% if count %} <a href="{{ url_for('template_sync_page', repository_id=repo.id) }}">{{ count }} file{{ "" if count == 1 else "s" }} to sync</a>{% endif %}</td>
-      <td class="checkout">{% if checkout.error %}<span class="error-text">{{ checkout.error }}</span>{% elif checkout.state %}{% set state = checkout.state %}{% include "partials/checkout_state.html" %}{% else %}—{% endif %}</td>
-      <td>{% include "partials/repository_remote.html" %}</td>
-      <td class="paths">{% include "partials/repository_paths.html" %}</td>
+      <td>{% set oob = false %}{% include "partials/work_counts.html" %}</td>
+      <td class="checkout">{% if checkout.error %}<span class="error-text">{{ checkout.error }}</span>{% elif checkout.state %}{% set state = checkout.state %}{% include "partials/checkout_state.html" %}{% if state.fetched_at %}<div class="hint">fetched {{ state.fetched_at | ago }}</div>{% endif %}{% else %}—{% endif %}</td>
     </tr>
     {% endfor %}
   </tbody>
 </table>
 </div>
 <details class="help"><summary>How this works</summary>
-  <p>Ahead and behind are as of each checkout's last fetch. Fetch all fetches every checkout that's there, side by side, each as its own Fetch does: only <code>origin</code>'s remote-tracking branches change.</p>
+  <p>Requirements counts each repository's requirements by stage; its page shows them. Ahead and behind are as of each checkout's last fetch. Fetch all fetches every checkout that's there, side by side, each as its own Fetch does: only <code>origin</code>'s remote-tracking branches change. A repository's remote and paths are on its page.</p>
 </details>
+</section>
+
+<section id="active" aria-labelledby="active-heading">
+  <h2 id="active-heading">Active now</h2>
+  {% include "partials/board.html" %}
 </section>
 {% else %}
 <div class="empty-state">
   <p>No repositories registered yet. Add one by its remote URL, or by the name of a checkout already in <code>{{ settings.repos_root }}</code>.</p>
-  <a class="button primary" href="#add">Add a repository</a>
+  <a class="button primary" href="{{ url_for('new_repository') }}">Add a repository</a>
 </div>
 {% endif %}
-
-<section id="add" aria-labelledby="add-heading">
-  <h2 id="add-heading">Add repository</h2>
-  {% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
-  <form class="add-repository" method="post" action="{{ url_for('add_repository') }}">
-    <label>Remote URL <span class="hint">leave blank to add a checkout that's already there</span>
-      <input name="remote_url" value="{{ form.remote_url }}" placeholder="git@github.com:owner/repo.git">
-    </label>
-    <label>Name <span class="hint">defaults to the repository's name; needed without a URL</span>
-      <input name="name" value="{{ form.name }}">
-    </label>
-    <button type="submit" class="primary">Continue</button>
-  </form>
-  <details class="help"><summary>How this works</summary>
-    <p>
-      Clones into <code>{{ settings.repos_root }}/&lt;name&gt;</code> unless a checkout of this remote is
-      already there. Cloning a large repository can take a while. With only a name, the checkout
-      already at <code>{{ settings.repos_root }}/&lt;name&gt;</code> is added, using its
-      <code>origin</code> remote. Nothing is cloned or recorded until the next step, which asks
-      for its default branch.
-    </p>
-  </details>
-</section>
-
-<section class="host-paths" aria-labelledby="host-paths-heading">
-  <h2 id="host-paths-heading">Host paths</h2>
-  <dl>
-    <dt>Primary checkouts <span class="owner owner-human">human-owned</span></dt>
-    <dd><code>{{ settings.repos_root }}</code></dd>
-    <dt>Agent worktrees <span class="owner owner-repocop">RepoCop-owned</span></dt>
-    <dd><code>{{ settings.worktrees_root }}</code></dd>
-  </dl>
-</section>
 {% endblock %}

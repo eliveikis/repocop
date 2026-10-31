@@ -1,23 +1,39 @@
-<section id="board" class="board" aria-labelledby="board-heading"{% if not board.with_pull_requests %} hx-get="{{ url_for('board_panel') }}" hx-trigger="load" hx-swap="outerHTML"{% endif %}>
-  <div class="section-head">
-    <h2 id="board-heading">Requirements</h2>
-    {% if not board.with_pull_requests %}<span class="hint">Pull requests not read yet. <a href="{{ url_for('list_repositories').include_query_params(pull_requests='true') }}">Read them from GitHub</a></span>{% endif %}
+{# Requirements by stage: the `stages` of `board`, as the repository `scope`'s own or, without one, every repository's, with pull requests read after the page renders. #}
+{% set here = url_for('repository_page', repository_id=scope.id) if scope else url_for('list_repositories') %}
+{% set refresh = url_for('board_panel').include_query_params(repository=scope.id) if scope else url_for('board_panel') %}
+<div id="board" class="board"{% if not board.with_pull_requests %} hx-get="{{ refresh }}" hx-trigger="load" hx-swap="outerHTML"{% endif %}>
+  {% if not board.with_pull_requests %}<p class="hint">Pull requests not read yet. <a href="{{ here.include_query_params(pull_requests='true') }}">Read them from GitHub</a></p>{% endif %}
+  {% set problems = board.problems.get(scope.id, ()) if scope else () %}
+  {% if problems %}
+  <div class="error" role="alert">
+    <p>These dependencies need fixing before the changes they hold up can be ordered:</p>
+    <ul>{% for problem in problems %}<li>{{ problem }}</li>{% endfor %}</ul>
   </div>
-  {% if board.notes %}
+  {% endif %}
+  {# A repository's own page says why its sessions aren't shown where it shows them. #}
+  {% set notes = board.notes | rejectattr("about_sessions") | list if scope else board.notes %}
+  {% if notes %}
   <ul class="board-notes">
-    {% for note in board.notes %}<li>{{ note.repository.name }}: {{ note.text }}</li>
+    {% for note in notes %}<li>{% if not scope %}{{ note.repository.name }}: {% endif %}{{ note.text }}</li>
     {% endfor %}
   </ul>
   {% endif %}
-  <div class="board-columns">
-    {% for stage, cards in board.columns %}
+  <div class="board-columns columns-{{ stages | length }}">
+    {% for stage in stages %}{% set cards = board.stage(stage) %}
     <section class="board-column" data-stage="{{ stage.slug }}" aria-labelledby="stage-{{ stage.slug }}">
       <h3 id="stage-{{ stage.slug }}">{{ stage }} <span class="count">{{ cards | length }}</span></h3>
-      {% for card in cards %}{% include "partials/board_card.html" %}{% else %}<p class="empty">None</p>{% endfor %}
+      {% set first = cards[:5] if stage == "Delivered" else cards %}
+      {% for card in first %}{% include "partials/board_card.html" %}{% else %}<p class="empty">None</p>{% endfor %}
+      {% if cards | length > first | length %}
+      <details class="more"><summary>{{ cards | length - first | length }} more</summary>
+        {% for card in cards[first | length:] %}{% include "partials/board_card.html" %}{% endfor %}
+      </details>
+      {% endif %}
     </section>
     {% endfor %}
   </div>
   <details class="help"><summary>How this works</summary>
-    <p>Each requirement in each repository is in the first stage that applies, read from the repository itself and GitHub, however the work was done. Delivered: archived in the past week, in the checkout or on the default branch on <code>origin</code> as last fetched. In review: a branch named after it has an open pull request. In progress: such a branch has commits that default branch lacks. To do: everything else in its requirements folder. A branch is named after a requirement when its name is the requirement's, alone or after its last <code>/</code>, as <code>bulk-import</code> and <code>agent/bulk-import</code> are for <code>bulk-import.md</code>. Branches are as of each checkout's last fetch: Fetch all brings them up to date.</p>
+    <p>{% if not scope %}Only requirements in progress or in review show here, from every repository; each repository's page shows all of its own. {% endif %}Each requirement is in the first stage that applies, read from the repository itself and GitHub, however the work was done. Delivered: archived in the past week, in the checkout or on the default branch on <code>origin</code> as last fetched. In review: a branch named after it has an open pull request. In progress: such a branch has commits that default branch lacks, or a session works on it. To do: everything else in its requirements folder, in the order they can start. A branch is named after a requirement when its name is the requirement's, alone or after its last <code>/</code>, as <code>bulk-import</code> and <code>agent/bulk-import</code> are for <code>bulk-import.md</code>. Branches are as of the checkout's last fetch.</p>
   </details>
-</section>
+</div>
+{% if counts_oob %}{% set oob = true %}{% for repo in registered %}{% include "partials/work_counts.html" %}{% endfor %}{% endif %}

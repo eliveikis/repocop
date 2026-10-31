@@ -1,5 +1,6 @@
-"""The fleet board on the main page: every requirement in every repository by its stage, read
-from the repository and GitHub however the work was done, and Fetch all."""
+"""The board: each repository's requirements by their stage on its page, read from the
+repository and GitHub however the work was done; the work in progress or in review across the
+fleet on the main page, with each repository's counts; and Fetch all."""
 
 import re
 import shutil
@@ -15,6 +16,7 @@ from tests.conftest import add_requirement, push_commit, run_git
 from tests.fakes.fake_gh import FakeGh
 
 PULL = "https://github.com/owner/sample/pull/7"
+PAGE = "/repositories/1"  # sample's page, with its board
 
 
 def checkout(settings: Settings) -> Path:
@@ -88,7 +90,7 @@ def test_board_shows_each_requirement_by_its_stage(registered: Path, client: Tes
     add_requirement(registered, f"{stamp(2)}shipped.md", folder="specs/changes/archive")
     commit_on_branch(registered, "local-work", "work.txt")
     commit_on_branch(registered, "xtodo-one", "other.txt")  # ends with its name, but isn't its
-    html = client.get("/").text
+    html = client.get(PAGE).text
     assert columns(html) == {
         "to-do": ["todo-one", "waits"],
         "in-progress": ["local-work"],
@@ -99,7 +101,24 @@ def test_board_shows_each_requirement_by_its_stage(registered: Path, client: Tes
     assert "2 days ago" in card(html, "shipped")
     page = "http://testserver/repositories/1/requirements/local-work.md"
     assert f'<a class="card-name" href="{page}">local-work</a>' in card(html, "local-work")
-    assert "sample" in card(html, "local-work")
+    assert "card-repository" not in html  # every card is its own
+
+
+def test_main_page_shows_only_the_active_work_and_counts_each_repositorys_stages(
+    registered: Path, client: TestClient
+) -> None:
+    add_requirement(registered, "todo-one.md")
+    add_requirement(registered, "local-work.md")
+    add_requirement(registered, f"{stamp(2)}shipped.md", folder="specs/changes/archive")
+    commit_on_branch(registered, "local-work", "work.txt")
+    html = client.get("/").text
+    assert columns(html) == {"in-progress": ["local-work"], "in-review": []}
+    assert '<span class="card-repository">sample</span>' in card(html, "local-work")
+    counts = (
+        '<span class="work-counts" id="work-1"><a href="http://testserver/repositories/1'
+        '#requirements">1 to do · 1 in progress · 1 delivered this week</a></span>'
+    )
+    assert counts in html
 
 
 def test_board_names_each_branch_with_its_commits_and_whether_origin_has_them(
@@ -135,7 +154,7 @@ def test_board_shows_a_change_delivered_on_origin_and_only_this_week(
     add_requirement(pusher, f"{stamp(0.1)}landed.md", folder="specs/changes/archive")
     run_git("push", "-q", "origin", "main", cwd=pusher)
     client.post("/repositories/1/fetch")
-    html = client.get("/").text
+    html = client.get(PAGE).text
     assert columns(html) == {
         "to-do": [],
         "in-progress": [],
@@ -154,7 +173,7 @@ def test_board_takes_a_change_origin_archived_as_delivered_whatever_the_checkout
     add_requirement(pusher, f"{stamp(30)}landed-long-ago.md", folder="specs/changes/archive")
     run_git("push", "-q", "origin", "main", cwd=pusher)
     client.post("/repositories/1/fetch")
-    html = client.get("/").text
+    html = client.get(PAGE).text
     assert columns(html)["to-do"] == ["waits"]  # landed-long-ago is delivered, though too old
     assert "Waits on" not in card(html, "waits")
 
@@ -163,7 +182,8 @@ def test_board_skips_an_archive_stamp_that_isnt_a_time(
     registered: Path, client: TestClient
 ) -> None:
     add_requirement(registered, "2026-13-01T120000Z-odd.md", folder="specs/changes/archive")
-    response = client.get("/")
+    add_requirement(registered, "todo-one.md")
+    response = client.get(PAGE)
     assert response.status_code == 200
     assert columns(response.text)["delivered"] == []
 
@@ -174,7 +194,7 @@ def test_board_counts_a_change_archived_in_the_checkout_and_on_origin_once(
     add_requirement(registered, f"{stamp(1)}shipped.md", folder="specs/changes/archive")
     add_requirement(registered, "waits.md", needs("shipped"))
     run_git("push", "-q", "origin", "main", cwd=registered)  # archived on origin's main as well
-    html = client.get("/").text
+    html = client.get(PAGE).text
     assert columns(html)["delivered"] == ["shipped"]
     assert "Waits on" not in card(html, "waits")
 
@@ -185,7 +205,7 @@ def test_board_says_to_fetch_first_and_shows_no_branch_state_without_origins_def
     add_requirement(registered, "local-work.md")
     commit_on_branch(registered, "local-work", "a.txt")
     run_git("update-ref", "-d", "refs/remotes/origin/main", cwd=registered)
-    html = client.get("/").text
+    html = client.get(PAGE).text
     assert columns(html)["to-do"] == ["local-work"]
     assert "<code>local-work</code>" not in card(html, "local-work")
     notes = re.search(r'<ul class="board-notes">(.*?)</ul>', html, re.DOTALL)
@@ -238,18 +258,26 @@ def test_main_page_shows_the_board_before_github_answers(
     assert columns(html)["in-progress"] == ["pushed-work"]
     assert 'hx-get="http://testserver/board" hx-trigger="load"' in html
     assert 'href="http://testserver/?pull_requests=true"' in html  # without JavaScript
+    own = client.get(PAGE).text
+    assert len(fake_gh.calls) == calls
+    assert 'hx-get="http://testserver/board?repository=1" hx-trigger="load"' in own
+    assert 'href="http://testserver/repositories/1?pull_requests=true"' in own
 
 
 @pytest.mark.usefixtures("on_github")
 def test_board_moves_a_requirement_with_an_open_pull_request_to_in_review(
     client: TestClient, fake_gh: FakeGh
 ) -> None:
-    for page in ("/board", "/?pull_requests=true"):
+    for page in ("/board?repository=1", f"{PAGE}?pull_requests=true"):
         html = client.get(page).text
         assert columns(html)["in-review"] == ["pushed-work"], page
         assert columns(html)["to-do"] == ["forked-work"], page  # a fork's pull request isn't its
         assert f'<a href="{PULL}"' in card(html, "pushed-work")
         assert "hx-get" not in html.partition('id="board"')[2].partition(">")[0]
+    fleet = client.get("/board").text
+    assert columns(fleet) == {"in-progress": [], "in-review": ["pushed-work"]}
+    counts = '<span class="work-counts" id="work-1" hx-swap-oob="true"><a href='
+    assert counts in fleet and ">1 to do · 1 in review</a>" in fleet
     asked = {tuple(call[:2]) for call in fake_gh.calls}
     assert asked <= {("auth", "status"), ("pr", "list")}  # reading changes nothing on GitHub
 
