@@ -50,11 +50,16 @@ def configure_editor(client: TestClient, settings: Settings) -> None:
     app.state.settings = settings.model_copy(update={"editor_url": "editor://open{path}/"})
 
 
-def requirements_table(client: TestClient) -> str:
-    """The requirements list on the repository's page, or "" when the page has none."""
-    html = client.get("/repositories/1").text
-    table = re.search(r'<table class="requirements">.*?</table>', html, re.DOTALL)
-    return table[0] if table else ""
+def to_do(client: TestClient, query: str = "") -> str:
+    """The To do column of the board on the repository's page, or "" when the page has none."""
+    html = client.get(f"/repositories/1{query}").text
+    column = re.search(r'<section class="board-column" data-stage="to-do".*?</section>', html, re.S)
+    return column[0] if column else ""
+
+
+def card_names(column: str) -> list[str]:
+    """The names of the cards in a board's column, in its order."""
+    return re.findall(r'class="card-name"[^>]*>([^<]*)<', column)
 
 
 def section(html: str, section_id: str) -> str:
@@ -102,34 +107,19 @@ def test_repository_list_links_each_repository_to_its_page(client: TestClient) -
 
 
 @pytest.mark.usefixtures("registered")
-def test_repository_page_lists_requirements_with_their_state_and_no_kind(
+def test_repository_page_shows_its_requirements_on_its_board_and_no_kind(
     client: TestClient, settings: Settings
 ) -> None:
     hand_made(settings)
     hand_made(settings, "loose-idea.md", "No heading here.\n")
     (checkout(settings) / "specs/changes/todo/draft.md").write_text("Not committed yet.\n")
-    table = requirements_table(client)
-    assert f"<td>{LINK}</td>" in table
-    assert "<td>active</td>" in table
-    assert '<td>active <span class="badge">uncommitted</span></td>' in table
-    assert "Kind" not in table and "feature" not in table
-    assert "No heading here." not in table
-    assert "Blocked by" not in table  # nothing waits on anything, so nothing is said of it
-    html = client.get("/repositories/1").text
-    assert "No requirements yet." not in html
-    assert "unblocked</" not in html
-
-
-@pytest.mark.usefixtures("registered")
-def test_repository_page_lists_requirements_by_file_name(
-    client: TestClient, settings: Settings
-) -> None:
-    hand_made(settings, "search-notes.md")
-    hand_made(settings, "audit-log.md")
-    hand_made(settings)
-    table = requirements_table(client)
-    assert table.index(">audit-log<") < table.index(">bulk-user-import<")
-    assert table.index(">bulk-user-import<") < table.index(">search-notes<")
+    column = to_do(client)
+    assert card_names(column) == ["bulk-user-import", "draft", "loose-idea"]  # by file name
+    assert f'<a class="card-name" href="http://testserver{PAGE}">bulk-user-import</a>' in column
+    assert "Kind" not in column and "feature" not in column
+    assert "No heading here." not in column
+    assert "Waits on" not in column  # nothing waits on anything, so nothing is said of it
+    assert "No requirements yet." not in client.get("/repositories/1").text
 
 
 # ---------------------------------------------------------------- a requirement's page
@@ -267,7 +257,7 @@ def test_a_requirement_whose_file_name_needs_escaping_links_to_its_own_page(
 ) -> None:
     hand_made(settings, "fix #42 at 50%?.md", "Something.\n")
     page_url = "http://testserver/repositories/1/requirements/fix%20%2342%20at%2050%25%3F.md"
-    link = re.search(r'<a href="([^"]*)">fix #42 at 50%\?</a>', requirements_table(client))
+    link = re.search(r'<a class="card-name" href="([^"]*)">fix #42 at 50%\?</a>', to_do(client))
     assert link and link[1] == page_url
     assert "<h1>fix #42 at 50%?</h1>" in client.get(page_url).text
 
@@ -278,10 +268,8 @@ def test_a_requirement_that_cant_be_read_is_listed_as_such_and_its_page_says_why
 ) -> None:
     hand_made(settings, "search-notes.md")
     (checkout(settings) / "specs/changes/todo/latin-1.md").write_bytes(b"caf\xe9\n")
-    listing = client.get("/repositories/1")
-    assert listing.status_code == 200
-    row = re.search(r"<tr>\s*<td><a [^>]*>latin-1</a></td>.*?</tr>", listing.text, re.DOTALL)
-    assert row and "<td>can't be read</td>" in row[0]
+    assert client.get("/repositories/1").status_code == 200
+    assert card_names(to_do(client)) == ["latin-1", "search-notes"]
     page = client.get("/repositories/1/requirements/latin-1.md")
     assert page.status_code == 200
     assert "latin-1.md can&#39;t be read" in page.text
@@ -296,11 +284,6 @@ def needs(*names: str, text: str = "Something.") -> str:
     return f"---\ndepends-on:\n{listed}---\n{text}\n"
 
 
-def row_names(table: str) -> list[str]:
-    """The names in the requirements list, in its order."""
-    return re.findall(r'<td><a href="[^"]*/requirements/[^"]*">([^<]*)</a>', table)
-
-
 @pytest.mark.usefixtures("registered")
 def test_repository_page_lists_requirements_in_the_order_they_can_start(
     client: TestClient, settings: Settings
@@ -311,40 +294,14 @@ def test_repository_page_lists_requirements_in_the_order_they_can_start(
     hand_made(settings, "audit.md", needs("bulk-user-import", "search-notes"))
     (checkout(settings) / "specs/changes/archive").mkdir()
     run_git("mv", "specs/changes/todo/export.md", "specs/changes/archive/", cwd=checkout(settings))
-    table = requirements_table(client)
-    assert row_names(table) == ["search-notes", "bulk-user-import", "audit"]
-    assert "rowgroup" not in table
-    audit = table[table.index("audit.md") :]
-    blocked_by = re.search(r"<td class=\"blocked-by\">(.*?)</td>", audit, re.DOTALL)
-    assert blocked_by
-    assert LINK in blocked_by[1]
-    assert ">search-notes</a>" in blocked_by[1]
-
-
-@pytest.mark.usefixtures("registered")
-def test_repository_page_can_show_only_the_unblocked(
-    client: TestClient, settings: Settings
-) -> None:
-    hand_made(settings, "search-notes.md")
-    hand_made(settings, "audit.md", needs("search-notes"))
-    html = client.get("/repositories/1?ready=true").text
-    table = re.search(r'<table class="requirements">.*?</table>', html, re.DOTALL)
-    assert table
-    assert row_names(table[0]) == ["search-notes"]
-    assert 'href="http://testserver/repositories/1">all</a>' in html
-    assert 'ready=true">unblocked</a>' in client.get("/repositories/1").text
-
-
-@pytest.mark.usefixtures("registered")
-def test_repository_page_offers_the_way_out_of_the_filter_once_nothing_is_blocked(
-    client: TestClient, settings: Settings
-) -> None:
-    hand_made(settings, "export.md")
-    hand_made(settings, "search-notes.md")
-    (checkout(settings) / "specs/changes/archive").mkdir()
-    run_git("mv", "specs/changes/todo/export.md", "specs/changes/archive/", cwd=checkout(settings))
-    html = client.get("/repositories/1?ready=true").text
-    assert 'href="http://testserver/repositories/1">all</a> · <strong>unblocked</strong>' in html
+    column = to_do(client)
+    assert card_names(column) == ["search-notes", "bulk-user-import", "audit"]
+    audit = column[column.index("audit.md") :]
+    waits_on = re.search(r'<p class="card-detail">Waits on (.*?)</p>', audit, re.DOTALL)
+    assert waits_on
+    assert '<a href="http://testserver/repositories/1/requirements/' in waits_on[1]
+    assert ">bulk-user-import</a>" in waits_on[1]
+    assert ">search-notes</a>" in waits_on[1]
 
 
 @pytest.mark.usefixtures("registered")
@@ -356,10 +313,9 @@ def test_repository_page_shows_dependency_problems_and_lists_their_changes_apart
     hand_made(settings, "search-notes.md")
     html = client.get("/repositories/1").text
     assert "<li>audit: needs &#34;nope&#34;, which matches no change</li>" in html
-    table = requirements_table(client)
-    assert row_names(table) == ["search-notes", "audit", "report"]
-    held_up = """<td class="blocked-by"><span class="badge">can't be ordered</span>"""
-    assert table.count(held_up) == 2
+    column = to_do(client)
+    assert card_names(column) == ["search-notes", "audit", "report"]
+    assert column.count("""<span class="badge">can't be ordered</span>""") == 2
 
 
 @pytest.mark.usefixtures("registered")

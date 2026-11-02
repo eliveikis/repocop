@@ -1,0 +1,3 @@
+{# How many of the repository `repo`'s requirements are in each stage of `board`, linked to its page; swapped in place when `oob`. #}
+{% set counts = board.counts(repo.id) | selectattr(1) | list %}
+<span class="work-counts" id="work-{{ repo.id }}"{% if oob %} hx-swap-oob="true"{% endif %}>{% if counts %}<a href="{{ url_for('repository_page', repository_id=repo.id) }}#requirements">{% for stage, count in counts %}{% if not loop.first %} · {% endif %}{{ count }} {{ stage | lower }}{% if stage == "Delivered" %} this week{% endif %}{% endfor %}</a>{% else %}—{% endif %}</span>

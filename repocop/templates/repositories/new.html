@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% set crumbs = [
+  ("Repositories", url_for('list_repositories')),
+  ("Add repository", url_for('new_repository')),
+] %}
+
+{% block title %}Add repository · RepoCop{% endblock %}
+
+{% block content %}
+<h1>Add repository</h1>
+
+{% if error %}<p class="error" role="alert">{{ error }}</p>{% endif %}
+<form class="add-repository" method="post" action="{{ url_for('add_repository') }}">
+  <label>Remote URL <span class="hint">leave blank to add a checkout that's already there</span>
+    <input name="remote_url" value="{{ form.remote_url }}" placeholder="git@github.com:owner/repo.git" autofocus>
+  </label>
+  <label>Name <span class="hint">defaults to the repository's name; needed without a URL</span>
+    <input name="name" value="{{ form.name }}">
+  </label>
+  <div class="actions">
+    <button type="submit" class="primary">Continue</button>
+    <a class="button" href="{{ url_for('list_repositories') }}">Cancel</a>
+  </div>
+</form>
+<details class="help"><summary>How this works</summary>
+  <p>
+    Clones into <code>{{ settings.repos_root }}/&lt;name&gt;</code> unless a checkout of this remote is
+    already there. Cloning a large repository can take a while. With only a name, the checkout
+    already at <code>{{ settings.repos_root }}/&lt;name&gt;</code> is added, using its
+    <code>origin</code> remote. Nothing is cloned or recorded until the next step, which asks
+    for its default branch.
+  </p>
+</details>
+
+<section class="host-paths" aria-labelledby="host-paths-heading">
+  <h2 id="host-paths-heading">Host paths</h2>
+  <dl>
+    <dt>Primary checkouts <span class="owner owner-human">human-owned</span></dt>
+    <dd><code>{{ settings.repos_root }}</code></dd>
+    <dt>Agent worktrees <span class="owner owner-repocop">RepoCop-owned</span></dt>
+    <dd><code>{{ settings.worktrees_root }}</code></dd>
+  </dl>
+</section>
+{% endblock %}

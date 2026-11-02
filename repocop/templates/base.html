@@ -22,8 +22,9 @@
       {% endfor %}
     </ul>
     {% else %}
-    <p class="nav-empty">None yet. <a href="{{ url_for('list_repositories') }}#add">Add one</a></p>
+    <p class="nav-empty">None yet.</p>
     {% endif %}
+    <a class="nav-add" href="{{ url_for('new_repository') }}">Add repository</a>
     {% set needs_input = sidebar.needs_input %}{% include "partials/nav_sessions.html" %}
     <p class="nav-foot"><button type="button" class="quiet" data-opens="shortcuts" hidden>Keyboard shortcuts</button></p>
   </nav>

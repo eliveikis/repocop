@@ -79,7 +79,7 @@ def test_a_card_shows_its_sessions_and_a_live_one_puts_it_in_progress(
         },
     )
     record(registered, {"event": "closed", "branch": "search", "reason": "exit"}, session="two")
-    html = client.get("/").text
+    html = client.get("/repositories/1").text
     assert columns(html)["in-progress"] == ["bulk-import"]
     assert columns(html)["to-do"] == ["search"]  # a closed session isn't work going on
     on_card = sessions_in(card(html, "bulk-import"), "r:1:bulk-import")

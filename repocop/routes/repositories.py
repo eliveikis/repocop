@@ -1,6 +1,7 @@
-"""Repository pages: the main page with the fleet's board and the registry, adding a repository
-and choosing its default branch, fetching one repository or all of them, each repository's page
-and changing its default branch, and removing a completed template sync's branch."""
+"""Repository pages: the main page with the fleet's active work and each repository's standing,
+adding a repository and choosing its default branch, fetching one repository or all of them, each
+repository's page with its board, changing its default branch, and removing a completed template
+sync's branch."""
 
 import contextlib
 import sqlite3
@@ -14,7 +15,6 @@ from repocop.config import Settings
 from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RepositoryDep, SettingsDep
 from repocop.services import (
-    backlog,
     board,
     pull_requests,
     repositories,
@@ -23,10 +23,12 @@ from repocop.services import (
     tasks,
     template_sync,
 )
+from repocop.services.board import Stage
 from repocop.services.repositories import Outcome, Registration, Repository, Status
 from repocop.services.tasks import Task
 
 CHANGED_FILES_SHOWN = 100  # a checkout's changed files listed on its page; the rest are counted
+ACTIVE = (Stage.IN_PROGRESS, Stage.IN_REVIEW)  # the stages the main page shows across the fleet
 
 router = APIRouter()
 
@@ -40,7 +42,8 @@ def list_repositories(
     outcome: Outcome | None = None,
     pull_requests: bool = False,
 ) -> HTMLResponse:
-    """The main page. Its board shows at once, and its pull requests are read after it, unless
+    """The main page: the requirements in progress or in review in any repository, and each
+    repository's standing. It shows at once, and pull requests are read after it, unless
     `pull_requests` asks for them now, as a browser without JavaScript does."""
     registration = None
     if registered is not None and outcome is not None:
@@ -52,12 +55,28 @@ def list_repositories(
 
 
 @router.get("/board", response_class=HTMLResponse)
-def board_panel(request: Request, conn: ConnectionDep, settings: SettingsDep) -> HTMLResponse:
-    """The fleet's board, with each repository's open pull requests read from GitHub now."""
-    listed = repositories.list_all(conn)
-    context = {"board": board.read(settings, listed, with_pull_requests=True)}
+def board_panel(
+    request: Request, conn: ConnectionDep, settings: SettingsDep, repository: int | None = None
+) -> HTMLResponse:
+    """A board with open pull requests read from GitHub now: the repository's own, or else the
+    fleet's active work, with each repository's counts to swap into the main page."""
+    if repository is None:
+        listed = repositories.list_all(conn)
+        context = _fleet_board(listed, board.read(settings, listed, with_pull_requests=True))
+        context["counts_oob"] = True
+    else:
+        found = repositories.get(conn, repository)
+        if found is None:
+            raise HTTPException(status_code=404, detail="repository not found")
+        context = _own_board(found, board.read(settings, [found], with_pull_requests=True))
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(request, "partials/board.html", context)
+
+
+@router.get("/repositories/new", response_class=HTMLResponse)
+def new_repository(request: Request, settings: SettingsDep) -> HTMLResponse:
+    """The form that adds a repository by its remote URL or the name of its checkout."""
+    return _render_new(request, settings)
 
 
 @router.post("/repositories", response_class=HTMLResponse)
@@ -85,7 +104,7 @@ def add_repository(
             registration = proposed
     except RepoCopError as exc:
         form = {"remote_url": remote_url, "name": name}
-        return _render_list(request, conn, settings, error=str(exc), form=form, status_code=400)
+        return _render_new(request, settings, error=str(exc), form=form, status_code=400)
     target = request.url_for("list_repositories").include_query_params(
         registered=registration.repository.id, outcome=registration.outcome.value
     )
@@ -120,10 +139,12 @@ def repository_page(
     repository: RepositoryDep,
     fetched: bool = False,
     removed: str | None = None,
-    ready: bool = False,
     origin_default: str | None = None,
     default_branch_set: bool = False,
+    pull_requests: bool = False,
 ) -> HTMLResponse:
+    """A repository's page. Its board shows at once, and its pull requests are read after it,
+    unless `pull_requests` asks for them now, as a browser without JavaScript does."""
     return _render_repository(
         request,
         conn,
@@ -131,9 +152,9 @@ def repository_page(
         repository,
         fetched=fetched,
         removed=removed,
-        ready=ready,
         origin_default=origin_default,
         default_branch_set=default_branch_set,
+        with_pull_requests=pull_requests,
     )
 
 
@@ -205,17 +226,12 @@ def _render_repository(
     fetch_error: str | None = None,
     removed: str | None = None,
     sync_error: str | None = None,
-    ready: bool = False,
     origin_default: str | None = None,
     default_branch_set: bool = False,
     default_branch_error: str | None = None,
+    with_pull_requests: bool = False,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
-    listing = None
-    try:
-        listing = backlog.listing(settings, repository)
-    except RepoCopError as exc:
-        error = error or str(exc)
     status = repositories.status(repository, settings)
     waiting = _waiting(conn, settings, repository, status)
     origin_branches = None
@@ -247,7 +263,9 @@ def _render_repository(
         "changed_shown": CHANGED_FILES_SHOWN,
         "fetched": fetched,
         "fetch_error": fetch_error,
-        "listing": listing,
+        **_own_board(
+            repository, board.read(settings, [repository], with_pull_requests=with_pull_requests)
+        ),
         "sessions": sessions.of(repository, settings),
         "recorded": (
             sessions.recorder_on_origin(repository, settings)
@@ -255,7 +273,6 @@ def _render_repository(
             else None
         ),
         "todo_dir": requirements.todo_dir(repository),
-        "ready": ready,
         "syncs": tasks.list_for_repository(conn, repository, workflow=template_sync.WORKFLOW),
         "sync_states": template_sync.states(conn, settings, repository),
         "removed": removed,
@@ -287,14 +304,48 @@ def _checkout(repository: Repository, settings: Settings, status: Status) -> dic
     return shown
 
 
+def _own_board(repository: Repository, read: board.Board) -> dict[str, Any]:
+    """What a repository's page shows of its board: every stage, as only its own."""
+    return {"board": read, "stages": tuple(Stage), "scope": repository}
+
+
+def _fleet_board(listed: list[Repository], read: board.Board) -> dict[str, Any]:
+    """What the main page shows of the fleet's board: the active stages of every repository, and
+    each repository's sessions on none of their requirements."""
+    return {
+        "board": read,
+        "stages": ACTIVE,
+        "scope": None,
+        "apart": read.apart_from(ACTIVE),
+        "registered": listed,
+    }
+
+
+def _render_new(
+    request: Request,
+    settings: Settings,
+    *,
+    error: str | None = None,
+    form: dict[str, str] | None = None,
+    status_code: int = 200,
+) -> HTMLResponse:
+    templates: Jinja2Templates = request.app.state.templates
+    context = {
+        "settings": settings,
+        "error": error,
+        "form": form or {"remote_url": "", "name": ""},
+    }
+    return templates.TemplateResponse(
+        request, "repositories/new.html", context, status_code=status_code
+    )
+
+
 def _render_list(
     request: Request,
     conn: sqlite3.Connection,
     settings: Settings,
     *,
     registration: Registration | None = None,
-    error: str | None = None,
-    form: dict[str, str] | None = None,
     with_pull_requests: bool = False,
     fetched_all: dict[str, Any] | None = None,
     status_code: int = 200,
@@ -311,15 +362,14 @@ def _render_list(
             with contextlib.suppress(RepoCopError):  # a plan that can't be read offers nothing
                 offered[repo.id] = len(repositories.template_plan(repo, settings).offered)
     registered = [repo for repo, *_ in listed]
+    read = board.read(settings, registered, with_pull_requests=with_pull_requests)
     context = {
         "settings": settings,
         "repositories": listed,
         "offered": offered,
-        "board": board.read(settings, registered, with_pull_requests=with_pull_requests),
+        **_fleet_board(registered, read),
         "fetched_all": fetched_all,
         "registration": registration,
-        "error": error,
-        "form": form or {"remote_url": "", "name": ""},
     }
     return templates.TemplateResponse(
         request, "repositories/list.html", context, status_code=status_code
