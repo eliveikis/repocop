@@ -9,18 +9,18 @@ argument-hint: "[path-to-requirement.md] [scope note]  (defaults to the branch's
 
 Implement: `$ARGUMENTS`
 
-With no path, implement the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so, ask for the path, and change nothing. Name the requirement you picked before you start.
+With no path, implement the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so, ask for the path, and change nothing.
 
 ## Preconditions (stop and report if any fail, changing nothing)
 
 - The requirement file exists.
-- `git status --porcelain --untracked-files=all` lists nothing but the requirement file itself, so nothing unrelated comes onto its branch.
+- `git status --porcelain --branch --untracked-files=all`, your first command, lists nothing but the requirement file itself, so nothing unrelated comes onto its branch. Its first line, `## <branch>`, names the current branch.
 
 ## Its branch
 
-Work on the requirement's branch, named by the requirement's name (`.claude/rules/specs.md` › A branch's requirement). Pick it before anything else, and say which of these you did:
+Work on the requirement's branch, named by the requirement's name (`.claude/rules/specs.md` › A branch's requirement). Pick it before reading or planning anything, from the current branch the precondition's status named, and start your reply with the requirement, the branch and which of these you did, such as `Implementing bulk-import.md on bulk-import, made off main.`:
 
-1. **The current branch** (`git branch --show-current`), when it belongs to the requirement: stay on it.
+1. **The current branch**, when it belongs to the requirement: stay on it.
 2. Else **its existing branch**, named exactly the requirement's name, here (`git rev-parse --verify --quiet refs/heads/<name>`) or on `origin` as last fetched (`git rev-parse --verify --quiet refs/remotes/origin/<name>`). When another worktree has it checked out (`git worktree list --porcelain`), stop, name that worktree, and change nothing. Else switch to it: `git switch <name>`.
 3. Else **a new branch** by that name, made off the current branch: `git switch -c <name>`.
 
@@ -30,7 +30,7 @@ Never work on the repository's default branch (`git rev-parse --abbrev-ref origi
 
 1. **Understand.** Read the requirement, `CLAUDE.md`, `.claude/rules/*`, `specs/index.md`, and the authoritative specs it lists. Identify the acceptance criteria still to meet, narrowed by the scope note if one was given. Judge what's already met from the repo itself, such as existing tests, not from marks in the change. If the requirement contradicts itself, the specs, or what's already in the repo in a way you can't settle, stop and ask a specific question instead of guessing.
 2. **Plan.** Write a short numbered plan: files to touch, how each step will be checked, and the AC it satisfies. If the remaining work is too large to deliver well in one run, plan a coherent slice that later work builds on, and say what remains.
-3. **Check first.** Before building a piece, write the check that shows it's done: automated where `.claude/rules/test-policy.md` says a test is worth it (in code, a failing test: make it pass, then refactor), otherwise a named manual check (tone, accuracy, how a piece reads or looks).
+3. **Check first.** Don't run the check command before you start: the work before this leaves it green. Before building a piece, write the check that shows it's done: automated where `.claude/rules/test-policy.md` says a test is worth it (in code, a failing test: make it pass, then refactor), otherwise a named manual check (tone, accuracy, how a piece reads or looks). While building, run only the tests the piece touches; the full check runs once, in step 5.
 4. **Keep it small.** Follow the repo's existing patterns. Don't add dependencies, abstraction layers or other new structure, or anything out of scope (see the spec's scope boundaries).
 5. **Verify.** Run the check command documented in `CLAUDE.md` (e.g. `make check`) until it is fully green, and make the manual checks from step 3. Don't claim success on a partial run. If the repo documents no check command, say so.
 6. **Record.** Don't edit or move the requirement file: it's the human's statement of the work. If it proves wrong or incomplete, say what should change in your report. When a design decision was made or changed, update the authoritative spec it belongs to (`specs/architecture.md` or `specs/<area>.md`) right away, so the specs never lag the work. If the choice is significant and hard to reverse, also write a decision record in `specs/decisions/` (`.claude/rules/specs.md`). A criterion counts as met only when a test or a concrete manual step demonstrates it. When every criterion is met, say the change is fully delivered.
@@ -39,6 +39,7 @@ Never work on the repository's default branch (`git rev-parse --abbrev-ref origi
 
 ## Final report
 
+- The branch the work is on
 - Each acceptance criterion: met, with the test or manual check that shows it, or not yet, and why
 - What was deliberately left out or deferred
 - Check result, with the test count if the repo has tests, and the manual checks made
