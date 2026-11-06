@@ -1,4 +1,5 @@
-{# Asking a requirement's live sessions to run a workflow on it: fetched again whenever `asking_shows`, the digest of what it shows, changes, keeping each entry whose own `data-shows` digest stays the same. #}
+{# Asking a requirement's live sessions to run a workflow on it: fetched again whenever `asking_shows`, the digest of what it shows, changes, keeping each entry whose own `data-shows` digest stays the same. Shown only for an active requirement, whose `asks` aren't None. #}
+{% if asks is not none %}
 <section id="ask" aria-labelledby="ask-heading" data-asking-shows="{{ asking_shows }}" data-src="{{ url_for('requirement_asks', repository_id=repository.id, file_name=requirement.file_name) }}"{% if not asks %} hidden{% endif %}>
 <h2 id="ask-heading">Ask a session</h2>
 <ul class="asks">
@@ -31,3 +32,4 @@
   <p>Asks the session to run the workflow on {{ requirement.name }}, and nothing else. A session that has completed its turn gets it at once and starts on it; one at work gets it when its turn ends, and the request waits until then, so it can be cancelled. Its own hook hands it over, so it shows in the session wherever it runs.</p>
 </details>
 </section>
+{% endif %}

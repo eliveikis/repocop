@@ -318,6 +318,7 @@ socket=$(printf '%s' "${CLAUDE_CODE_MESSAGING_SOCKET-}" | sed 's/[\\"]/\\&/g')
 mkdir -p "$logs" 2>/dev/null || exit 0
 line=$(printf '{"v":1,"at":"%s","session":"%s","event":"%s","cwd":"%s","branch":%s,"pid":%s,"pid_start":%s,"socket":%s%s}' \
   "$at" "$session" "$event" "$cwd" "$branch" "$pid" "$pid_start" "$socket" "$extra")
-printf '%s\n' "$line" >>"$log" 2>/dev/null
-[ "$event" = workflow ] && printf '%s\n' "$line" >>"$history" 2>/dev/null
+# Never through a link: what is there could lead anywhere.
+[ -L "$log" ] || printf '%s\n' "$line" >>"$log" 2>/dev/null
+[ "$event" != workflow ] || [ -L "$history" ] || printf '%s\n' "$line" >>"$history" 2>/dev/null
 exit 0

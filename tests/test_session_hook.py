@@ -492,3 +492,17 @@ def test_hook_keeps_every_workflow_run_in_a_history_no_start_removes(
     os.utime(history, (time.time() - 30 * 86400,) * 2)
     record(checkout, awk, payload(checkout, "SessionStart", source="resume"))
     assert history.read_text().count('"workflow":"implement"') == 1
+
+
+def test_hook_never_writes_a_history_or_a_log_through_a_link(
+    checkout: Path, awk: Path, tmp_path: Path
+) -> None:
+    folder = checkout / ".git" / "repocop"
+    (folder / "sessions").mkdir(parents=True)
+    elsewhere = tmp_path / "someone-elses"
+    elsewhere.write_text("")
+    (folder / "history.jsonl").symlink_to(elsewhere)
+    log_of(checkout).symlink_to(elsewhere)
+    run = payload(checkout, "UserPromptExpansion", command_name="implement", command_args="x")
+    record(checkout, awk, run)
+    assert elsewhere.read_text() == ""
