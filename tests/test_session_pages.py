@@ -55,10 +55,10 @@ def sidebar(html: str) -> str:
     return found[0]
 
 
-def put_the_recorder_on_origin(repo: Path) -> None:
+def put_the_recorder_on_origin(repo: Path, hook_says: str = "") -> None:
     hook = repo / HOOK
-    hook.parent.mkdir(parents=True)
-    hook.write_text("#!/bin/sh\n")
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(f"#!/bin/sh\n{hook_says}\n")
     settings = '{"hooks": {"Stop": [{"hooks": [{"command": "' + HOOK + '"}]}]}}\n'
     (repo / ".claude" / "settings.json").write_text(settings)
     run_git("add", ".claude", cwd=repo)
@@ -318,3 +318,57 @@ def test_a_completed_session_whose_process_isnt_running_says_so(
     listed = sessions_in(client.get(PAGE).text, "p:1:bulk-import")
     assert listed.count("Completed</span>") == 2
     assert listed.count("Completed</span>: asleep or ended") == 1
+
+
+# ---------------------------------------------------------------- a requirement's history
+
+
+def history_section(html: str) -> str:
+    found = re.search(r'<section id="history".*?</section>', html, re.DOTALL)
+    assert found, "no history"
+    return found[0]
+
+
+def test_a_requirements_page_shows_the_workflows_run_on_it_newest_first_escaped(
+    client: TestClient, registered: Path
+) -> None:
+    empty = history_section(client.get(PAGE).text)
+    assert "once a session starts one on it" in empty
+    path = "specs/changes/todo/bulk-import.md"
+    record(
+        registered,
+        {"event": "workflow", "ago": 90, "workflow": "review-requirement", "argument": path},
+        {"event": "closed", "ago": 80},
+        session="5f0c2a1e-first",
+    )
+    record(
+        registered,
+        {"event": "workflow", "ago": 9, "workflow": "review-branch", "branch": "<b>/bulk-import"},
+        {"event": "workflow", "ago": 5, "workflow": "address-review", "branch": "bulk-import"},
+        {"event": "workflow", "ago": 1, "workflow": "implement", "branch": "search"},
+        session="9a7d3b44-second",
+    )
+    history = history_section(client.get(PAGE).text)
+    assert re.findall(r"<td><code>([^<]+)</code></td>", history) == [
+        "address-review",
+        "bulk-import",
+        "9a7d3b44",
+        "review-branch",
+        "&lt;b&gt;/bulk-import",
+        "9a7d3b44",
+        "review-requirement",
+        "main",
+        "5f0c2a1e",
+    ]
+    assert "<td><code>implement</code></td>" not in history  # it ran on search
+    assert "once a session starts one on it" not in history
+
+
+def test_a_history_says_when_the_default_branchs_hook_doesnt_keep_it_yet(
+    client: TestClient, registered: Path
+) -> None:
+    lasts = "only as long as their session's log"
+    put_the_recorder_on_origin(registered)
+    assert lasts in history_section(client.get(PAGE).text)
+    put_the_recorder_on_origin(registered, hook_says='history="$common/repocop/history.jsonl"')
+    assert lasts not in history_section(client.get(PAGE).text)

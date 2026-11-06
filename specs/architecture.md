@@ -8,6 +8,7 @@ Root design file. It covers *how* the system works; *why* is in [product.md](pro
 repository owns knowledge         → CLAUDE.md, .claude/, specs/ live in each repo
 the developer's agent does work   → in their own agent tool; RepoCop runs no coding agent
 sessions report themselves        → each repo's hook logs events in <git common dir>/repocop/sessions/
+a requirement's history lasts     → the same hook keeps every workflow run in <git common dir>/repocop/history.jsonl
 a click asks a session            → a workflow and a requirement, handed over by its own hook or socket
 RepoCop shows and syncs           → the board from each repo and GitHub; SQLite: registry, template syncs
 worktree owns isolated changes    → 1 template sync ↔ 1 branch ↔ 1 worktree under <worktrees_root>/<repo>/
@@ -31,7 +32,7 @@ flowchart TD
         git["git.py<br/>ONLY place that runs git"]
         tasksvc["tasks.py<br/>sync records, status + events, workflows"]
         prs["pull_requests.py<br/>push a sync's branch, open its PR"]
-        sess["sessions.py<br/>read session logs: state, requirement"]
+        sess["sessions.py<br/>read session logs and history: state, requirement, runs"]
         asks["session_requests.py<br/>ask a session to run a workflow"]
         nav["navigation.py<br/>sidebar, session lists, switcher"]
         github["github.py<br/>ONLY place that runs gh"]
@@ -41,7 +42,7 @@ flowchart TD
     primary[/"Primary checkout<br/>human-owned"/]
     worktree[/"Sync worktree<br/>RepoCop-owned"/]
     hub["GitHub<br/>pull requests"]
-    logs[/"Session logs<br/>written by the repo's hook"/]
+    logs[/"Session logs and history<br/>written by the repo's hook"/]
     agent["Developer's agent session"]
 
     browser -->|"HTTP; session lists every 2 s"| routes
@@ -188,7 +189,7 @@ sequenceDiagram
 
 ## Session events
 
-RepoCop shows the developer's agent sessions as they work, however and wherever they were started, without launching anything: each session reports itself. The repo template's hook, `.claude/hooks/session-events.sh`, runs in every Claude Code session that runs the repository's project hooks, in the primary checkout or any worktree, from a terminal, VS Code or agent view. It is registered `async` in the template's merged settings, so it never delays or fails a session, and it needs only `sh`, `awk` and `git`. It appends one line per event to `<git common dir>/repocop/sessions/<session id>.jsonl`: a folder every worktree of the repository shares, on the developer's machine, out of every commit. When a session starts, it removes the logs that have gone a week without an event; RepoCop never deletes one.
+RepoCop shows the developer's agent sessions as they work, however and wherever they were started, without launching anything: each session reports itself. The repo template's hook, `.claude/hooks/session-events.sh`, runs in every Claude Code session that runs the repository's project hooks, in the primary checkout or any worktree, from a terminal, VS Code or agent view. It is registered `async` in the template's merged settings, so it never delays or fails a session, and it needs only `sh`, `awk` and `git`. It appends one line per event to `<git common dir>/repocop/sessions/<session id>.jsonl`: a folder every worktree of the repository shares, on the developer's machine, out of every commit. When a session starts, it removes the logs that have gone a week without an event; RepoCop never deletes one. Each `workflow` line it also appends, the same line, to `<git common dir>/repocop/history.jsonl`, the repository's history of workflow runs, which nothing removes ([A requirement's history](#a-requirements-history)).
 
 **The format** is RepoCop's own, so another agent's hook can write it. One JSON object per line:
 
@@ -234,6 +235,10 @@ Each shows how long it has been in its state, the workflow it last started, and 
 **Reading costs little.** Each repository's git common folder is asked of git once, and kept in memory. From then on, a page or a refresh lists the folder and skips logs not written in the past day, however many the rest are, since a session quiet for hours may still be live. It reads each the first time from its end back to its latest workflow, at most 1 MiB, and from then on only what is appended to it, so an unchanged log costs only the look at its size and time the listing took. A log is opened only as a regular file, never through a link and without waiting on a pipe. A log that is another file at its path, told by its first bytes, is read anew. Events are taken in by their time, and one older than the event that last set the state, or the workflow, leaves it as it is. A line that can't be read is skipped. Its process is looked at each time, since it can end without a word. A log is read only as a regular file inside the folder, never through a link. Any local process can write one, so what it says is shown escaped.
 
 **Refreshing.** The shell asks for the session lists every page shows every 2 s, with one request naming each list on the page in its body, however many there are, as a big board holds more than an address can, and swaps each into place, the sidebar's included. The request is a `POST`, as its body carries the names, and it changes nothing. It makes no git call and doesn't read GitHub, whose pull requests the board reads once per page load. A card's stage is as of the page load.
+
+### A requirement's history
+
+A requirement's page lists the workflows run on it, newest first, so the developer sees which steps it has had, such as a review asked for, or addressed, before asking for the next: each with the workflow, when it started, its branch, and its session. The runs are those in the repository's history, and those in its sessions' logs, every one whatever its age, which reach back before the hook kept a history: a run in both is the same session's at the same time, and counts once. A run is on a requirement by the rule a session's workflow is: its argument's path names it, or else it was for the requirement of the first branch its session was on from its start that belongs to one, as far as the session's log, while it is there, or else the run's own branch tells. Each file is read only as a regular file inside the folder, never through a link, and read again only once it has changed; what it says is shown escaped. The page reads the hook on the default branch on `origin`, as last fetched, once: when it doesn't keep the history yet, the page says runs show only as long as their session's log, and that a template sync brings the hook that keeps them. The 2 s refresh doesn't carry the history.
 
 ## Session requests
 

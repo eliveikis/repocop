@@ -8,7 +8,9 @@ and from whether its process still runs, and its requirement from the workflow i
 else its branch. That workflow shows while the session works on what it was for. Once a
 repository's git common folder is known, reading costs no git call: a log is first read from its
 end back to its latest workflow, at most READ_BACK bytes, then only what is appended to it, and a
-line that can't be read is skipped. Any local process can write a log,
+line that can't be read is skipped. A requirement's runs come from the repository's history of
+workflow runs, `<git common dir>/repocop/history.jsonl`, which nothing removes, and from every
+session log, each read again only once it has changed. Any local process can write a log,
 so its path must stay in the folder, it is never read through a link, and what it says is shown
 escaped.
 """
@@ -38,6 +40,7 @@ CHUNK = 64 * 1024  # how much of a log is read at a time
 READ_BACK = 1024 * 1024  # how far back from its end a log is first read, for its latest workflow
 IDENTITY_BYTES = 256  # the first bytes of a log, which tell it from another file at its path
 LOGS = PurePosixPath("repocop", "sessions")  # in the repository's git common folder
+HISTORY = PurePosixPath("repocop", "history.jsonl")  # every workflow run, in the same folder
 # The hook the repo template ships, which records sessions, and the settings that run it.
 RECORDER = ".claude/hooks/session-events.sh"
 RECORDER_SETTINGS = ".claude/settings.json"
@@ -52,6 +55,8 @@ _COMMON_DIRS_GUARD = threading.Lock()
 READINGS_KEPT = 5000  # the most logs whose reading is kept, so only what's appended is read
 _READINGS: dict[Path, _Reading] = {}
 _READINGS_GUARD = threading.Lock()
+_RUNS: dict[Path, tuple[tuple[int, int, int, int], list[_Ran]]] = {}  # each file's, as last read
+_RUNS_GUARD = threading.Lock()
 
 
 class State(StrEnum):
@@ -104,6 +109,26 @@ class Session:
 
 
 @dataclass(frozen=True)
+class Run:
+    """A workflow a session started."""
+
+    session: str
+    at: datetime
+    workflow: str
+    argument: str  # the first line of its argument, "" when it had none
+    branch: str | None  # the branch it started on
+
+
+@dataclass(frozen=True)
+class _Ran:
+    """A run, with each branch its session was on from its start until its next run, the first
+    first: as much as the file it was read from tells of what it was for."""
+
+    run: Run
+    branches: tuple[str | None, ...]
+
+
+@dataclass(frozen=True)
 class _Event:
     at: datetime
     event: str
@@ -151,7 +176,7 @@ def of(repository: Repository, settings: Settings, *, now: datetime | None = Non
     now = now or datetime.now(UTC)
     pages = _requirement_pages(repository)
     found = []
-    for log, listed in _recent_logs(folder, now):
+    for log, listed in _logs(folder, written_since=(now - SHOWN_FOR).timestamp()):
         reading = _reading(log, listed)
         latest = reading.latest if reading else None
         if reading and latest and now - latest.at <= SHOWN_FOR:
@@ -163,6 +188,41 @@ def of(repository: Repository, settings: Settings, *, now: datetime | None = Non
 def for_requirement(found: Iterable[Session], name: str) -> tuple[Session, ...]:
     """Those of `found` that work on the requirement called `name`."""
     return tuple(session for session in found if session.requirement == name)
+
+
+def runs(repository: Repository, settings: Settings, name: str) -> list[Run]:
+    """The workflows run on the requirement called `name`, the newest first: those the
+    repository's history keeps, and those in its sessions' logs, which reach back before the
+    history did, each once. A run is on the requirement its argument's path names, or else on the
+    requirement of the first branch its session was on from its start that belongs to one, as
+    far as its session's log, while it is there, or else the history tells."""
+    common = common_dir(repository, settings)
+    if common is None:
+        return []
+    found: dict[tuple[str, datetime], _Ran] = {}
+    history = common / HISTORY
+    if history.parent.resolve().is_relative_to(common):
+        for ran in _runs_in(history, None):
+            found.setdefault((ran.run.session, ran.run.at), ran)
+    folder = common / LOGS
+    if folder.is_dir() and folder.resolve().is_relative_to(common):
+        for log, _ in _logs(folder, written_since=0):
+            for ran in _runs_in(log, log.name.removesuffix(".jsonl")):
+                found[ran.run.session, ran.run.at] = ran  # its log tells more of what it was for
+    pages = _requirement_pages(repository)
+    picked = [ran.run for ran in found.values() if _run_was_for(repository, ran, pages) == name]
+    return sorted(picked, key=lambda run: run.at, reverse=True)
+
+
+def history_kept_on_origin(repository: Repository, settings: Settings) -> bool | None:
+    """Whether the hook on the default branch on `origin`, as last fetched, keeps the history of
+    workflow runs. None when it can't be read."""
+    try:
+        checkout = repositories.require_checkout(repository, settings)
+        hook = git.read_files(checkout, repositories.origin_default(repository), [RECORDER])
+    except RepoCopError:
+        return None
+    return HISTORY.name.encode() in (hook[RECORDER] or b"")
 
 
 def recorder_on_origin(repository: Repository, settings: Settings) -> bool | None:
@@ -200,11 +260,10 @@ def common_dir(repository: Repository, settings: Settings) -> Path | None:
     return found
 
 
-def _recent_logs(folder: Path, now: datetime) -> list[tuple[Path, os.stat_result]]:
-    """The folder's logs written in the past day, each with what a look at it found, however
-    many there are: a session that hasn't written for hours may still be live. A link is never
-    read: it could lead anywhere."""
-    oldest = (now - SHOWN_FOR).timestamp()
+def _logs(folder: Path, *, written_since: float) -> list[tuple[Path, os.stat_result]]:
+    """The folder's logs written since `written_since`, a POSIX time, each with what a look at it
+    found, however many there are: a session that hasn't written for hours may still be live. A
+    link is never read: it could lead anywhere."""
     found = []
     for entry in folder.iterdir():
         name = entry.name
@@ -214,7 +273,7 @@ def _recent_logs(folder: Path, now: datetime) -> list[tuple[Path, os.stat_result
             stat = entry.lstat()
         except OSError:
             continue
-        if S_ISREG(stat.st_mode) and stat.st_mtime >= oldest:
+        if S_ISREG(stat.st_mode) and stat.st_mtime >= written_since:
             found.append((entry, stat))
     return found
 
@@ -352,7 +411,60 @@ def _fold(reading: _Reading, events: list[_Event], end: int, written: int) -> _R
     )
 
 
-def _event(line: bytes, session: str) -> _Event | None:
+def _runs_in(file: Path, session: str | None) -> list[_Ran]:
+    """The runs `file` records: a log of the session `session`, each run with the branches its
+    session went on to, or, with None, the history, each run with the branch it started on. Read
+    again only once the file has changed, only as a regular file and never through a link."""
+    try:
+        flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(file, flags)
+    except OSError:
+        return []
+    with os.fdopen(descriptor, "rb") as opened:
+        stat = os.fstat(opened.fileno())
+        if not S_ISREG(stat.st_mode):
+            return []
+        seen = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
+        with _RUNS_GUARD:
+            known = _RUNS.get(file)
+        if known and known[0] == seen:
+            return known[1]
+        lines = opened.read(stat.st_size).split(b"\n")
+    events = sorted(
+        (event for line in lines if (event := _event(line, session))), key=lambda e: e.at
+    )
+    found: list[_Ran] = []
+    for event in events:
+        if event.event == "workflow" and (workflow := event.text("workflow")):
+            run = Run(
+                event.fields["session"],
+                event.at,
+                workflow,
+                event.text("argument") or "",
+                event.branch,
+            )
+            found.append(_Ran(run, (event.branch,)))
+        elif session is not None and found and event.branch not in found[-1].branches:
+            found[-1] = _Ran(found[-1].run, (*found[-1].branches, event.branch))
+    with _RUNS_GUARD:
+        if len(_RUNS) >= READINGS_KEPT:
+            _RUNS.clear()
+        _RUNS[file] = (seen, found)
+    return found
+
+
+def _run_was_for(
+    repository: Repository, ran: _Ran, pages: dict[str, tuple[str, str]]
+) -> str | None:
+    """The name of the requirement `ran` was for, if it can be told."""
+    if ran.run.argument and (named := _named(repository, ran.run.argument, pages)):
+        return named[0]
+    found = (_belongs(branch, pages) for branch in ran.branches)
+    return next((named[0] for named in found if named), None)
+
+
+def _event(line: bytes, session: str | None) -> _Event | None:
+    """The event `line` records for the session `session`, or for any session with None."""
     try:
         found = json.loads(line.decode("utf-8", "replace"))
     except (ValueError, RecursionError):  # not JSON, or nested too deep to read
@@ -360,7 +472,10 @@ def _event(line: bytes, session: str) -> _Event | None:
     if not isinstance(found, dict):
         return None
     fields = {key: _clean(value) for key, value in found.items()}
-    if fields.get("v") != FORMAT or fields.get("session") != session:
+    named = fields.get("session")
+    if fields.get("v") != FORMAT or not isinstance(named, str):
+        return None
+    if (session is None and not SESSION_ID.fullmatch(named)) or session not in (None, named):
         return None
     event, cwd = fields.get("event"), fields.get("cwd")
     if not isinstance(event, str) or event not in EVENTS or not isinstance(cwd, str):

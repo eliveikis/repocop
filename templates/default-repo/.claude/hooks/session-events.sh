@@ -9,7 +9,9 @@
 # and always exits 0, so it never delays or fails the session. Hooks run side by side and finish
 # in any order, so a line's time is when its hook started, to the nanosecond where `date` can say:
 # that, not where it lands in the log, orders it. A session's start removes the logs and requests
-# that have gone a week untouched, and its end the request still waiting for it.
+# that have gone a week untouched, and its end the request still waiting for it. Each workflow's
+# line also goes in <git common dir>/repocop/history.jsonl, the repository's history of workflow
+# runs, which nothing removes.
 #
 # With `deliver`, on Stop, it instead hands this session the request waiting for it in
 # <git common dir>/repocop/inbox/<session id>.json, if there is one, so it carries on with it at
@@ -142,6 +144,7 @@ common=$(git -C "$project" rev-parse --path-format=absolute --git-common-dir 2>/
 logs="$common/repocop/sessions"
 log="$logs/$session.jsonl"
 inbox="$common/repocop/inbox"
+history="$common/repocop/history.jsonl"
 
 # Whether $1, a path relative to the checkout, names a file in it: not a link, in a folder that
 # doesn't lead out of it.
@@ -313,6 +316,8 @@ socket=$(printf '%s' "${CLAUDE_CODE_MESSAGING_SOCKET-}" | sed 's/[\\"]/\\&/g')
 [ -n "$socket" ] && socket="\"$socket\"" || socket=null
 
 mkdir -p "$logs" 2>/dev/null || exit 0
-printf '{"v":1,"at":"%s","session":"%s","event":"%s","cwd":"%s","branch":%s,"pid":%s,"pid_start":%s,"socket":%s%s}\n' \
-  "$at" "$session" "$event" "$cwd" "$branch" "$pid" "$pid_start" "$socket" "$extra" >>"$log" 2>/dev/null
+line=$(printf '{"v":1,"at":"%s","session":"%s","event":"%s","cwd":"%s","branch":%s,"pid":%s,"pid_start":%s,"socket":%s%s}' \
+  "$at" "$session" "$event" "$cwd" "$branch" "$pid" "$pid_start" "$socket" "$extra")
+printf '%s\n' "$line" >>"$log" 2>/dev/null
+[ "$event" = workflow ] && printf '%s\n' "$line" >>"$history" 2>/dev/null
 exit 0

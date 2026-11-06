@@ -188,6 +188,8 @@ def _context(
         "error": error,
         "card_name": name,
         "sessions": working,
+        "runs": sessions.runs(repository, settings, name),
+        "history_kept": sessions.history_kept_on_origin(repository, settings),
         "standings": standings,
         "asks": [
             (

@@ -326,3 +326,62 @@ def test_a_workflow_shows_only_while_its_session_works_on_what_it_was_for(
         "address-review",
         "plants",
     )
+
+
+def keep_in_history(repo: Repository, log: Path, *, remove_log: bool) -> None:
+    """Keep the log's workflow lines in the repository's history, as the hook does, and remove
+    the log as a week without an event does."""
+    history = repo.primary_path / ".git" / "repocop" / "history.jsonl"
+    lines = [line for line in log.read_text().splitlines() if '"event": "workflow"' in line]
+    with history.open("a") as file:
+        file.writelines(f"{line}\n" for line in lines)
+    if remove_log:
+        log.unlink()
+
+
+def test_a_requirements_runs_come_from_its_history_and_its_sessions_logs_each_once(
+    settings: Settings, repo: Repository
+) -> None:
+    add_requirement(repo.primary_path, "bulk-import.md")
+    add_requirement(repo.primary_path, "search.md")
+    path = "specs/changes/todo/bulk-import.md"
+    review = {"event": "workflow", "ago": 9000, "workflow": "review-requirement", "argument": path}
+    gone = write(repo, review, {"event": "closed", "ago": 8999}, session="gone")
+    keep_in_history(repo, gone, remove_log=True)  # its log was removed a week on
+    unnamed = {"event": "workflow", "ago": 50, "workflow": "implement", "argument": "x"}
+    lost = write(repo, unnamed, {"event": "turn-finished", "ago": 40, "branch": "bulk-import"})
+    keep_in_history(repo, lost, remove_log=True)  # started on main, and its log is gone
+    kept = write(
+        repo,
+        {"event": "workflow", "ago": 30, "workflow": "review-branch", "branch": "bulk-import"},
+        session="kept",
+    )
+    keep_in_history(repo, kept, remove_log=False)
+    write(
+        repo,
+        {"event": "workflow", "ago": 20, "workflow": "implement", "argument": "bulk-import"},
+        {"event": "turn-finished", "ago": 15, "branch": "agent/bulk-import"},
+        {"event": "workflow", "ago": 10, "workflow": "review-requirement", "branch": "search"},
+        session="before",  # from before the hook kept a history
+    )
+    found = sessions.runs(repo, settings, "bulk-import")
+    assert [(run.session, run.workflow, run.branch) for run in found] == [
+        ("before", "implement", "main"),
+        ("kept", "review-branch", "bulk-import"),
+        ("gone", "review-requirement", "main"),
+    ]
+    assert found[-1].at == NOW - timedelta(minutes=9000)
+    assert [run.session for run in sessions.runs(repo, settings, "search")] == ["before"]
+
+
+def test_a_history_that_leads_outside_the_git_folder_is_never_read(
+    settings: Settings, repo: Repository, tmp_path: Path
+) -> None:
+    add_requirement(repo.primary_path, "bulk-import.md")
+    elsewhere = write(
+        repo,
+        {"event": "workflow", "workflow": "implement", "branch": "bulk-import"},
+        session="elsewhere",
+    ).rename(tmp_path / "elsewhere.jsonl")
+    (repo.primary_path / ".git" / "repocop" / "history.jsonl").symlink_to(elsewhere)
+    assert sessions.runs(repo, settings, "bulk-import") == []

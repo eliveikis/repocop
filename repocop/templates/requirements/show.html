@@ -43,6 +43,27 @@
 {% set key, shown = "p:%d:%s" % (repository.id, card_name), sessions %}{% include "partials/sessions.html" %}
 </section>
 
+<section id="history" aria-labelledby="history-heading">
+<h2 id="history-heading">History</h2>
+{% if history_kept == false %}<p class="notice">The hook on the default branch doesn't keep a history yet, so runs show only as long as their session's log, about a week after its last event. A template sync brings the hook that keeps them.</p>{% endif %}
+{% if runs %}
+<div class="table-scroll">
+<table class="runs">
+  <thead><tr><th>Workflow</th><th>Started</th><th>Branch</th><th>Session</th></tr></thead>
+  <tbody>
+  {% for run in runs %}<tr><td><code>{{ run.workflow }}</code></td><td>{{ run.at | ago }}</td><td>{% if run.branch %}<code>{{ run.branch }}</code>{% endif %}</td><td><code>{{ run.session[:8] }}</code></td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+</div>
+{% else %}
+<p class="hint">No workflow has run on {{ requirement.name }} yet. Runs show here once a session starts one on it.</p>
+{% endif %}
+<details class="help"><summary>How this works</summary>
+  <p>Every workflow a session started on {{ requirement.name }}: one whose argument names its path, or that ran on its branch, or started on another and then made its own, as <code>implement</code> does. The repository's hook keeps each run, on this machine, in its git folder, out of every commit, so a run stays here after its session has closed.</p>
+</details>
+</section>
+
 {% if active %}{% include "requirements/asks.html" %}{% endif %}
 
 {% if active %}

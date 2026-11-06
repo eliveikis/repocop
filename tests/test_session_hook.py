@@ -468,3 +468,27 @@ def test_a_sessions_end_removes_the_request_still_waiting_for_it(
     waiting = leave_request(committed)
     record(committed, awk, payload(committed, "SessionEnd", reason="exit"))
     assert not waiting.exists()
+
+
+def test_hook_keeps_every_workflow_run_in_a_history_no_start_removes(
+    checkout: Path, awk: Path
+) -> None:
+    history = checkout / ".git" / "repocop" / "history.jsonl"
+    record(
+        checkout,
+        awk,
+        payload(checkout, "SessionStart", source="startup"),
+        payload(
+            checkout,
+            "UserPromptExpansion",
+            command_name="implement",
+            command_args="specs/changes/todo/x.md",
+        ),
+        payload(checkout, "Stop"),
+    )
+    [run] = [json.loads(line) for line in history.read_text().splitlines()]
+    [logged] = [event for event in events(checkout) if event["event"] == "workflow"]
+    assert run == logged
+    os.utime(history, (time.time() - 30 * 86400,) * 2)
+    record(checkout, awk, payload(checkout, "SessionStart", source="resume"))
+    assert history.read_text().count('"workflow":"implement"') == 1
