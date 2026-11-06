@@ -42,6 +42,16 @@ def requirement_page(
     return _render(request, conn, settings, requirement, notice=notice)
 
 
+@router.get(REQUIREMENT_PATH + "/asks", response_class=HTMLResponse)
+def requirement_asks(
+    request: Request, conn: ConnectionDep, settings: SettingsDep, requirement: RequirementDep
+) -> HTMLResponse:
+    """What asking the requirement's live sessions shows, as its page shows it now."""
+    templates: Jinja2Templates = request.app.state.templates
+    context = _context(conn, settings, requirement)
+    return templates.TemplateResponse(request, "requirements/asks.html", context)
+
+
 @router.post(REQUESTS_PATH, response_class=HTMLResponse)
 def ask_session(
     request: Request,
@@ -129,6 +139,21 @@ def _render(
     status_code: int = 200,
 ) -> HTMLResponse:
     templates: Jinja2Templates = request.app.state.templates
+    context = _context(conn, settings, requirement, error=error)
+    context["notice"] = notice
+    return templates.TemplateResponse(
+        request, "requirements/show.html", context, status_code=status_code
+    )
+
+
+def _context(
+    conn: sqlite3.Connection,
+    settings: Settings,
+    requirement: Requirement,
+    *,
+    error: str | None = None,
+) -> dict[str, Any]:
+    """What the requirement's page shows, as it is now."""
     repository = _repository_of(conn, requirement)
     detail = None
     workflows: list[str] = []
@@ -148,7 +173,8 @@ def _render(
     name = backlog.name_of(requirement.file_name)
     working = sessions.for_requirement(sessions.of(repository, settings), name)
     standings = {s.id: session_requests.standing(repository, settings, s) for s in working}
-    context: dict[str, Any] = {
+    active = detail is not None and detail.location is Location.ACTIVE
+    return {
         "repository": repository,
         "requirement": requirement,
         "detail": detail,
@@ -159,21 +185,25 @@ def _render(
         "workflow_lines": [
             tasks.workflow_line(workflow, requirement.path) for workflow in workflows
         ],
-        "notice": notice,
         "error": error,
         "card_name": name,
         "sessions": working,
+        "runs": sessions.runs(repository, settings, name),
+        "history_kept": sessions.history_kept_on_origin(repository, settings),
         "standings": standings,
         "asks": [
-            (session, session_requests.unreachable(session), standings[session.id])
+            (
+                session,
+                session_requests.unreachable(session),
+                standings[session.id],
+                session_requests.asking_shows(session, standings[session.id]),
+            )
             for session in working
-            if session.live
+            if session.live and active
         ],
+        "asking_shows": session_requests.asking_all_shows(working, standings),
         "change": change,
         "blocks": ordered.blocks(change) if ordered and change else (),
         "change_problems": ordered.problems_of(change) if ordered and change else (),
         "pages": ordered.pages if ordered else {},
     }
-    return templates.TemplateResponse(
-        request, "requirements/show.html", context, status_code=status_code
-    )

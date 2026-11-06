@@ -11,7 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from repocop.config import Settings
-from tests.conftest import Inbox, add_requirement, record_session, run_git
+from tests.conftest import OWN_START, Inbox, add_requirement, record_session, run_git
 from tests.test_board import card, columns
 
 HOOK = ".claude/hooks/session-events.sh"
@@ -55,10 +55,10 @@ def sidebar(html: str) -> str:
     return found[0]
 
 
-def put_the_recorder_on_origin(repo: Path) -> None:
+def put_the_recorder_on_origin(repo: Path, hook_says: str = "") -> None:
     hook = repo / HOOK
-    hook.parent.mkdir(parents=True)
-    hook.write_text("#!/bin/sh\n")
+    hook.parent.mkdir(parents=True, exist_ok=True)
+    hook.write_text(f"#!/bin/sh\n{hook_says}\n")
     settings = '{"hooks": {"Stop": [{"hooks": [{"command": "' + HOOK + '"}]}]}}\n'
     (repo / ".claude" / "settings.json").write_text(settings)
     run_git("add", ".claude", cwd=repo)
@@ -98,7 +98,7 @@ def test_a_session_on_no_requirement_shows_under_its_repository(
     assert "Other sessions" in others
     assert "<code>spike/try-a-thing</code>" in others
     assert "agent/bulk-import" not in others  # it shows on bulk-import's card
-    assert "Waiting for instruction" in sessions_in(card(html, "bulk-import"), "r:1:bulk-import")
+    assert "Completed" in sessions_in(card(html, "bulk-import"), "r:1:bulk-import")
 
 
 def test_requirement_and_repository_pages_show_their_sessions_escaped(
@@ -154,7 +154,7 @@ def test_every_page_keeps_its_sessions_current_and_the_refresh_runs_no_git(
     assert len(git_calls()) == before
     for key in ("r:1:bulk-import", "p:1:bulk-import", "r:1:search", "o:1", "a:1"):
         assert re.search(
-            rf'id="[^"]+" hx-swap-oob="true">\s*<input type="hidden" name="shown" '
+            rf'id="[^"]+" hx-swap-oob="true"[^>]*>\s*<input type="hidden" name="shown" '
             rf'value="{key}">',
             fresh,
         ), key
@@ -199,6 +199,26 @@ def skilled(registered: Path) -> Path:
 def ask_section(html: str) -> str:
     found = re.search(r'<section id="ask".*?</section>', html, re.DOTALL)
     return found[0] if found else ""
+
+
+def asking_shows(html: str) -> str:
+    """The digest of what the page's section asking sessions shows, as that section holds it."""
+    found = re.search(r'<section id="ask"[^>]* data-asking-shows="([^"]+)"', html)
+    assert found, "no section asking sessions"
+    return found[1]
+
+
+def listed_asking_shows(html: str) -> str:
+    """The same digest, as the requirement page's session list holds it now."""
+    found = re.search(r'<div class="sessions"[^>]* data-asking-shows="([^"]+)"', html)
+    assert found, "no digest in the session list"
+    return found[1]
+
+
+def entry_shows(html: str, session: str) -> str:
+    found = re.search(rf'<li class="ask" id="ask-{session}" data-shows="([^"]+)"', html)
+    assert found, f"no entry for {session}"
+    return found[1]
 
 
 def test_a_requirements_page_offers_each_live_session_its_committed_workflows_and_nothing_else(
@@ -261,3 +281,94 @@ def test_a_request_is_refused_for_an_uncommitted_workflow_or_another_requirement
     elsewhere = client.post(f"{PAGE}/sessions/two/requests", data={"workflow": "implement"})
     assert elsewhere.status_code == 404
     assert inbox_socket.received() == []
+
+
+def test_asking_a_session_is_fetched_again_once_what_it_shows_changes(
+    client: TestClient, skilled: Path, inbox_socket: Inbox
+) -> None:
+    on_it = {"branch": "bulk-import", "socket": str(inbox_socket.path)}
+    record(skilled, {"event": "working", "ago": 3, **on_it})
+    record(skilled, {"event": "turn-finished", "ago": 5, **on_it}, session="two")
+    page = client.get(PAGE).text
+    assert listed_asking_shows(page) == asking_shows(page)
+    assert WORKING in ask_section(page)
+    poll = {"shown": ["p:1:bulk-import"]}
+    unchanged = client.post("/navigation/sessions", data=poll).text
+    assert listed_asking_shows(unchanged) == asking_shows(page)  # nothing to fetch
+
+    record(skilled, {"event": "turn-finished", "ago": 1, **on_it})
+    changed = client.post("/navigation/sessions", data=poll).text
+    assert listed_asking_shows(changed) != asking_shows(page)
+    fetched = client.get(f"{PAGE}/asks").text
+    assert asking_shows(fetched) == listed_asking_shows(changed)
+    assert '<span class="status status-completed">Completed</span>' in ask_section(fetched)
+    assert f'action="http://testserver{PAGE}/sessions/one/requests/send"' not in fetched
+    assert entry_shows(fetched, "one") != entry_shows(page, "one")
+    assert entry_shows(fetched, "two") == entry_shows(page, "two")  # kept as it is
+
+
+def test_a_completed_session_whose_process_isnt_running_says_so(
+    client: TestClient, registered: Path
+) -> None:
+    if OWN_START is None:
+        pytest.skip("a process's end is only told where /proc shows processes")
+    ended = {"pid_start": str(int(OWN_START) + 1)}  # its id, reused by another process
+    record(registered, {"event": "turn-finished", "branch": "bulk-import", **ended})
+    record(registered, {"event": "turn-finished", "branch": "bulk-import"}, session="two")
+    listed = sessions_in(client.get(PAGE).text, "p:1:bulk-import")
+    assert listed.count("Completed</span>") == 2
+    assert listed.count("Completed</span>: asleep or ended") == 1
+
+
+# ---------------------------------------------------------------- a requirement's history
+
+
+def history_section(html: str) -> str:
+    found = re.search(r'<section id="history".*?</section>', html, re.DOTALL)
+    assert found, "no history"
+    return found[0]
+
+
+def test_a_requirements_page_shows_the_workflows_run_on_it_newest_first_escaped(
+    client: TestClient, registered: Path
+) -> None:
+    empty = history_section(client.get(PAGE).text)
+    assert "once a session starts one on it" in empty
+    path = "specs/changes/todo/bulk-import.md"
+    record(
+        registered,
+        {"event": "workflow", "ago": 90, "workflow": "review-requirement", "argument": path},
+        {"event": "closed", "ago": 80},
+        session="5f0c2a1e-first",
+    )
+    record(
+        registered,
+        {"event": "workflow", "ago": 9, "workflow": "review-branch", "branch": "<b>/bulk-import"},
+        {"event": "workflow", "ago": 5, "workflow": "address-review", "branch": "bulk-import"},
+        {"event": "workflow", "ago": 1, "workflow": "implement", "branch": "search"},
+        session="9a7d3b44-second",
+    )
+    history = history_section(client.get(PAGE).text)
+    assert re.findall(r"<td><code>([^<]+)</code></td>", history) == [
+        "address-review",
+        "bulk-import",
+        "9a7d3b44",
+        "review-branch",
+        "&lt;b&gt;/bulk-import",
+        "9a7d3b44",
+        "review-requirement",
+        "main",
+        "5f0c2a1e",
+    ]
+    assert "<td><code>implement</code></td>" not in history  # it ran on search
+    assert "once a session starts one on it" not in history
+
+
+def test_a_history_says_when_the_default_branchs_hook_doesnt_keep_it_yet(
+    client: TestClient, registered: Path
+) -> None:
+    lasts = "only as long as their session's log"
+    put_the_recorder_on_origin(registered)
+    assert lasts in history_section(client.get(PAGE).text)
+    put_the_recorder_on_origin(registered, hook_says='history="$common/repocop/history.jsonl"')
+    assert lasts not in history_section(client.get(PAGE).text)
