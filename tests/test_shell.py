@@ -75,16 +75,22 @@ def test_every_page_has_a_sidebar_with_the_repositories_and_nothing_else(
 
 
 @pytest.mark.usefixtures("requirement")
-def test_every_page_loads_only_the_vendored_htmx_and_the_shell_script(client: TestClient) -> None:
+def test_every_page_loads_the_vendored_htmx_and_the_shell_script_and_only_its_own_besides(
+    client: TestClient,
+) -> None:
     sync(client)
+    own = {REQUIREMENT_PAGE: ["/static/js/requirement.js"]}
+    loaded = set()
     for page in PAGES:
         html = client.get(page).text
         scripts = re.findall(
             r'<script src="http://testserver(/static/[^"]+)" defer></script>', html
         )
-        assert scripts == ["/static/vendor/htmx.min.js", "/static/js/shell.js"], page
+        shell = ["/static/vendor/htmx.min.js", "/static/js/shell.js"]
+        assert scripts == shell + own.get(page, []), page
         assert html.count("<script") == len(scripts), page
-    for path in scripts:
+        loaded.update(scripts)
+    for path in loaded:
         script = client.get(path)
         assert script.status_code == 200
         assert "javascript" in script.headers["content-type"]

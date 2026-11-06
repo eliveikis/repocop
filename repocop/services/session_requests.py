@@ -5,7 +5,7 @@ to run one of the repository's committed workflows on it ("Session requests" in
 A request names only the workflow and the requirement's path, and goes only on the developer's
 click. A session that is working, or needs input, gets it when its turn ends: it waits as
 `<git common dir>/repocop/inbox/<session id>.json`, where it can be cancelled, until the session's
-own hook takes it, once, and records it delivered beside it. A session waiting for an instruction
+own hook takes it, once, and records it delivered beside it. A session that has completed its turn
 gets it at once, through the inbox socket its agent listens on, and starts its next turn with it.
 A socket is taken from the session's log only when it is a socket of this user's, named after
 the session's own process, in a folder no one else can write.
@@ -13,10 +13,12 @@ the session's own process, in a folder no one else can write.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import socket
 import uuid
+from collections.abc import Iterable, Mapping
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -82,12 +84,32 @@ def unreachable(session: Session) -> str | None:
             "Its repository's template doesn't hand sessions requests yet: a template sync "
             "brings it, for sessions started on a branch that has it."
         )
-    if session.state is State.WAITING and session.running is False:
+    if session.state is State.COMPLETED and session.running is False:
         return (
             "Its process isn't running: agent view has put it to sleep, or it ended. Run the line "
             "in it, which wakes it."
         )
     return None
+
+
+def asking_shows(session: Session, standing: Standing) -> str:
+    """A digest of what asking `session` shows: its state, branch and workflow, why it can't be
+    reached, and the request waiting for it. It changes whenever one of them does."""
+    told = (
+        session.id,
+        session.state,
+        session.branch or "",
+        session.workflow or "",
+        unreachable(session) or "",
+        standing.waiting.id if standing.waiting else "",
+    )
+    return _digest(told)
+
+
+def asking_all_shows(found: Iterable[Session], standings: Mapping[str, Standing]) -> str:
+    """A digest of what asking each of the live sessions of `found` shows, in their order, with
+    the standing of their requests by session."""
+    return _digest(asking_shows(each, standings[each.id]) for each in found if each.live)
 
 
 def standing(
@@ -117,7 +139,7 @@ def send(
     requirement: str,
 ) -> Request:
     """Ask the session to run `workflow` on the requirement at `requirement`: at once, through
-    its socket, when it waits for an instruction, else when its turn ends. Refused when it can't
+    its socket, when it has completed its turn, else when its turn ends. Refused when it can't
     be reached, when the workflow isn't a skill committed in the repository, when the path can't
     be told to it as it is, and when another request waits for it already."""
     if reason := unreachable(session):
@@ -127,7 +149,7 @@ def send(
     if folder is None:
         raise RequestError(f"{repository.name}'s checkout isn't there")
     request = Request(str(uuid.uuid4()), workflow, requirement, _now())
-    if session.state is State.WAITING:
+    if session.state is State.COMPLETED:
         _hand_over(folder, session, request)
         return request
     waiting = folder / f"{session.id}.json"
@@ -135,7 +157,7 @@ def send(
     # It may have finished its turn since it was read, and its hook may have looked already, or
     # taken the request itself.
     now = sessions.get(repository, settings, session.id)
-    if now is not None and now.state is State.WAITING and unreachable(now) is None:
+    if now is not None and now.state is State.COMPLETED and unreachable(now) is None:
         _take_and_hand_over(repository, settings, folder, now, requirement)
     return request
 
@@ -148,7 +170,7 @@ def send_waiting(
     committed workflow, and the requirement at `requirement`; one that doesn't is dropped."""
     if reason := unreachable(session):
         raise RequestError(reason)
-    if session.state is not State.WAITING:
+    if session.state is not State.COMPLETED:
         raise RequestError("It's still working: it gets the request when its turn ends.")
     folder = _inbox(repository, settings)
     if folder is None:
@@ -342,6 +364,10 @@ def _read(path: Path) -> Request | None:
     if not all(isinstance(text, str) and text for text in texts) or at.tzinfo is None:
         return None
     return Request(texts[0], texts[1], texts[2], at)
+
+
+def _digest(parts: Iterable[str]) -> str:
+    return hashlib.sha256("\0".join(parts).encode()).hexdigest()[:16]
 
 
 def _now() -> datetime:

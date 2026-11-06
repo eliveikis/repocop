@@ -1,5 +1,5 @@
-{# The sessions a page shows in one place, swapped in place as they change: `key` names the list (see navigation.SessionList), and `shown` holds its sessions. #}
-<div class="sessions" id="{{ key | sessions_id }}"{% if oob %} hx-swap-oob="true"{% endif %}>
+{# The sessions a page shows in one place, swapped in place as they change: `key` names the list (see navigation.SessionList), and `shown` holds its sessions, and `asking_shows`, on a requirement's page, the digest of what asking them shows. #}
+<div class="sessions" id="{{ key | sessions_id }}"{% if oob %} hx-swap-oob="true"{% endif %}{% if asking_shows %} data-asking-shows="{{ asking_shows }}"{% endif %}>
 <input type="hidden" name="shown" value="{{ key }}">
 {% if shown %}
 {% if key.startswith("o:") %}<p class="sessions-heading">Other sessions</p>{% endif %}

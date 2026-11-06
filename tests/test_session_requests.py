@@ -1,5 +1,5 @@
 """Requests to sessions: a workflow and a requirement, sent only to a session that can be
-reached, at once through its socket when it waits for an instruction, else left waiting for its
+reached, at once through its socket when it has completed its turn, else left waiting for its
 turn to end, where it can be cancelled."""
 
 import json

@@ -221,17 +221,17 @@
     copyToast.textContent = text;
     region.append(copyToast);
   }
-  for (const button of document.querySelectorAll("[data-copy]")) {
-    button.hidden = false;
-    button.addEventListener("click", async () => {
-      try {
-        await navigator.clipboard.writeText(button.dataset.copy);
-        showCopyResult(`Copied ${button.dataset.copy}`);
-      } catch {
-        const line = button.parentElement.querySelector("code");
-        if (line) window.getSelection().selectAllChildren(line);
-        showCopyResult(`The clipboard can't be reached from here: the line is selected, so press ${mac ? "⌘C" : "Ctrl+C"}.`);
-      }
-    });
-  }
+  for (const button of document.querySelectorAll("[data-copy]")) button.hidden = false;
+  document.addEventListener("click", async (event) => {
+    const button = event.target.closest("[data-copy]");
+    if (!button) return;
+    try {
+      await navigator.clipboard.writeText(button.dataset.copy);
+      showCopyResult(`Copied ${button.dataset.copy}`);
+    } catch {
+      const line = button.parentElement.querySelector("code");
+      if (line) window.getSelection().selectAllChildren(line);
+      showCopyResult(`The clipboard can't be reached from here: the line is selected, so press ${mac ? "⌘C" : "Ctrl+C"}.`);
+    }
+  });
 })();

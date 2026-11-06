@@ -5,9 +5,10 @@ Each session appends one JSON line per event to `<git common dir>/repocop/sessio
 Hooks finish in any order, so an event's time, when its hook started, orders it, not its place in
 the log. A session shows while it has an event in the past day. Its state comes from its events
 and from whether its process still runs, and its requirement from the workflow it last started or
-else its branch. Once a repository's git common folder is known, reading costs no git call: a log
-is first read from its end back to its latest workflow, at most READ_BACK bytes, then only what
-is appended to it, and a line that can't be read is skipped. Any local process can write a log,
+else its branch. That workflow shows while the session works on what it was for. Once a
+repository's git common folder is known, reading costs no git call: a log is first read from its
+end back to its latest workflow, at most READ_BACK bytes, then only what is appended to it, and a
+line that can't be read is skipped. Any local process can write a log,
 so its path must stay in the folder, it is never read through a link, and what it says is shown
 escaped.
 """
@@ -56,7 +57,7 @@ _READINGS_GUARD = threading.Lock()
 class State(StrEnum):
     WORKING = "Working"
     NEEDS_INPUT = "Needs input"
-    WAITING = "Waiting for instruction"
+    COMPLETED = "Completed"
     STOPPED = "Stopped mid-turn"
     CLOSED = "Closed"
 
@@ -65,13 +66,13 @@ class State(StrEnum):
         return self.value.lower().replace(" ", "-")
 
 
-LIVE = frozenset({State.WORKING, State.NEEDS_INPUT, State.WAITING})
+LIVE = frozenset({State.WORKING, State.NEEDS_INPUT, State.COMPLETED})
 _STATE_OF = {
-    "started": State.WAITING,
+    "started": State.COMPLETED,
     "working": State.WORKING,
     "workflow": State.WORKING,
     "waiting": State.NEEDS_INPUT,
-    "turn-finished": State.WAITING,
+    "turn-finished": State.COMPLETED,
     "closed": State.CLOSED,
 }
 
@@ -85,20 +86,20 @@ class Session:
     last_at: datetime  # its latest event
     cwd: str  # the folder of its latest event
     branch: str | None  # the branch of its latest event
-    workflow: str | None  # the workflow it last started
+    workflow: str | None  # the workflow it last started, while it works on what that was for
     requirement: str | None  # the name of the requirement it works on
     page: str | None  # the file name the requirement's page is found by
     waiting_for: str | None  # while it needs input: "permission" or "answer"
     tool: str | None  # the tool a permission wait is for, when known
     closed: str | None  # how it closed: "exited", "was cleared" or "was logged out"
-    workflow_at: datetime | None = None  # when it last started a workflow
+    workflow_at: datetime | None = None  # when it started that workflow
     pid: int | None = None  # its agent's process, as its latest event names it
     running: bool | None = None  # whether that process still runs; None where it can't be told
     socket: str | None = None  # where its agent takes messages, as its latest event names it
 
     @property
     def live(self) -> bool:
-        """Whether the work goes on: it is working, needs input or waits for an instruction."""
+        """Whether the work goes on: it is working, needs input or has completed its turn."""
         return self.state in LIVE
 
 
@@ -132,6 +133,7 @@ class _Reading:
     workflow: str | None
     argument: str | None  # the latest workflow's, "" when it had none; None with no workflow
     workflow_at: datetime | None
+    workflow_branches: tuple[str | None, ...]  # each branch it was on since, the first first
     waiting_for: str | None
     tool: str | None
     closed: str | None
@@ -269,7 +271,22 @@ def _read_anew(file: BinaryIO, stat: os.stat_result, session: str) -> _Reading:
         position = start
         if any(event.event == "workflow" for event in events):
             break
-    empty = _Reading(_identity(file, stat), end, stat.st_mtime_ns, *[None] * 10)
+    empty = _Reading(
+        file=_identity(file, stat),
+        end=end,
+        written=stat.st_mtime_ns,
+        latest=None,
+        state=None,
+        since=None,
+        state_at=None,
+        workflow=None,
+        argument=None,
+        workflow_at=None,
+        workflow_branches=(),
+        waiting_for=None,
+        tool=None,
+        closed=None,
+    )
     return _fold(empty, found, end, stat.st_mtime_ns)
 
 
@@ -294,13 +311,16 @@ def _fold(reading: _Reading, events: list[_Event], end: int, written: int) -> _R
     event older than the one that last set a field leaves that field as it is."""
     latest, state, since, state_at = reading.latest, reading.state, reading.since, reading.state_at
     workflow, argument, workflow_at = reading.workflow, reading.argument, reading.workflow_at
+    branches = reading.workflow_branches
     waiting_for, tool, closed = reading.waiting_for, reading.tool, reading.closed
     for event in sorted(events, key=lambda event: event.at):
         if latest is None or event.at >= latest.at:
             latest = event
         if event.event == "workflow" and (workflow_at is None or event.at >= workflow_at):
             workflow, argument = event.text("workflow"), event.text("argument") or ""
-            workflow_at = event.at
+            workflow_at, branches = event.at, ()
+        if workflow_at is not None and event.at >= workflow_at and event.branch not in branches:
+            branches = (*branches, event.branch)
         if event.event == "moved" or (state_at is not None and event.at < state_at):
             continue
         new = _STATE_OF[event.event]
@@ -325,6 +345,7 @@ def _fold(reading: _Reading, events: list[_Event], end: int, written: int) -> _R
         workflow,
         argument,
         workflow_at,
+        branches,
         waiting_for,
         tool,
         closed,
@@ -378,13 +399,16 @@ def _session(
 ) -> Session:
     """The session as it stands now: its log's reading, its process looked at again, since it can
     end without a word, and its requirement among those the repository has now."""
-    state, since = reading.state or State.WAITING, reading.since or latest.at
+    state, since = reading.state or State.COMPLETED, reading.since or latest.at
     running = _running(latest)
     if state in (State.WORKING, State.NEEDS_INPUT) and running is False:
         state, since = State.STOPPED, latest.at
     named = _named(repository, reading.argument, pages) if reading.argument else None
-    belongs = pages.get(latest.branch.rpartition("/")[2]) if latest.branch else None
+    belongs = _belongs(latest.branch, pages)
     requirement, page = named or belongs or (None, None)
+    workflow, workflow_at = reading.workflow, reading.workflow_at
+    if not named and _workflow_was_for(reading, pages) != belongs:
+        workflow = workflow_at = None  # it was for other work, before the session moved on
     return Session(
         id=session,
         repository_id=repository.id,
@@ -393,17 +417,32 @@ def _session(
         last_at=latest.at,
         cwd=latest.cwd,
         branch=latest.branch,
-        workflow=reading.workflow,
+        workflow=workflow,
         requirement=requirement,
         page=page,
         waiting_for=reading.waiting_for if state is State.NEEDS_INPUT else None,
         tool=reading.tool if state is State.NEEDS_INPUT else None,
         closed=reading.closed if state is State.CLOSED else None,
-        workflow_at=reading.workflow_at,
+        workflow_at=workflow_at,
         pid=latest.pid,
         running=running,
         socket=latest.text("socket"),
     )
+
+
+def _belongs(branch: str | None, pages: dict[str, tuple[str, str]]) -> tuple[str, str] | None:
+    """(name, page file) of the requirement `branch` belongs to, if it belongs to one."""
+    return pages.get(branch.rpartition("/")[2]) if branch else None
+
+
+def _workflow_was_for(
+    reading: _Reading, pages: dict[str, tuple[str, str]]
+) -> tuple[str, str] | None:
+    """(name, page file) of the requirement a workflow that named none was for: that of the first
+    branch the session was on from its start that belongs to one, as `/implement` starts on the
+    default branch and then makes its own."""
+    found = (_belongs(branch, pages) for branch in reading.workflow_branches)
+    return next((named for named in found if named), None)
 
 
 def _named(

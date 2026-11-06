@@ -7,7 +7,7 @@ A requirement is in the first stage that applies:
   default branch on `origin` as last fetched.
 - In review: a branch that belongs to it has an open pull request.
 - In progress: a branch that belongs to it has commits that default branch lacks, or a session
-  working on it is working, needs input or waits for an instruction.
+  working on it is working, needs input or has completed its turn.
 - To do: anything else in the requirements folder.
 
 A branch belongs to a requirement by its name (the branch rule in `.claude/rules/specs.md`),

@@ -34,7 +34,7 @@ def only(settings: Settings, repo: Repository) -> Session:
 @pytest.mark.parametrize(
     ("events", "state", "minutes"),
     [
-        ([{"event": "started", "ago": 9}], State.WAITING, 9),
+        ([{"event": "started", "ago": 9}], State.COMPLETED, 9),
         ([{"event": "started", "ago": 9}, {"event": "working", "ago": 5}], State.WORKING, 5),
         (
             [
@@ -59,7 +59,7 @@ def only(settings: Settings, repo: Repository) -> Session:
                 {"event": "turn-finished", "ago": 3},
                 {"event": "moved", "ago": 1},
             ],
-            State.WAITING,
+            State.COMPLETED,
             3,
         ),
         ([{"event": "working", "ago": 9}, {"event": "closed", "ago": 2}], State.CLOSED, 2),
@@ -111,7 +111,7 @@ def test_a_closed_session_says_how_it_closed(
     [
         ({"event": "working"}, State.STOPPED),
         ({"event": "waiting", "waiting_for": "answer"}, State.STOPPED),
-        ({"event": "turn-finished"}, State.WAITING),  # asleep, as agent view leaves it
+        ({"event": "turn-finished"}, State.COMPLETED),  # asleep, as agent view leaves it
         ({"event": "closed", "reason": "exit"}, State.CLOSED),
     ],
     ids=["working", "needs-input", "turn-finished", "closed"],
@@ -209,7 +209,7 @@ def test_a_live_session_shows_however_many_newer_sessions_there_are(
         write(repo, {"event": "closed", "ago": 1}, session=f"done-{number}")
     shown = {found.id: found.state for found in sessions.of(repo, settings, now=NOW)}
     assert len(shown) == 251
-    assert shown["quiet"] is State.WAITING
+    assert shown["quiet"] is State.COMPLETED
 
 
 def test_lines_that_cant_be_read_are_skipped(settings: Settings, repo: Repository) -> None:
@@ -228,7 +228,7 @@ def test_lines_that_cant_be_read_are_skipped(settings: Settings, repo: Repositor
             line = {"v": 1, "at": NOW.strftime("%Y-%m-%dT%H:%M:%SZ"), "session": SESSION}
             file.write(json.dumps({**line, "cwd": "/x", **broken}) + "\n")
         file.write('{"v": 1, "at": "' + NOW.strftime("%Y-%m-%dT%H:%M:%SZ") + '", "sess')
-    assert only(settings, repo).state is State.WAITING
+    assert only(settings, repo).state is State.COMPLETED
 
 
 def test_a_log_is_first_read_back_to_its_latest_workflow_and_no_further_than_read_back(
@@ -258,7 +258,7 @@ def test_events_take_their_place_by_their_time_not_where_they_land_in_the_log(
     )
     write(repo, {"event": "turn-finished", "ago": 0.5}, {"event": "workflow", "ago": 4})
     found = only(settings, repo)
-    assert (found.state, found.since) == (State.WAITING, NOW - timedelta(minutes=0.5))
+    assert (found.state, found.since) == (State.COMPLETED, NOW - timedelta(minutes=0.5))
 
 
 def test_a_log_written_anew_is_read_anew(settings: Settings, repo: Repository) -> None:
@@ -266,7 +266,7 @@ def test_a_log_written_anew_is_read_anew(settings: Settings, repo: Repository) -
     assert only(settings, repo).state is State.WORKING
     log.unlink()
     write(repo, {"event": "started", "ago": 9})
-    assert only(settings, repo).state is State.WAITING
+    assert only(settings, repo).state is State.COMPLETED
 
 
 def test_a_log_that_leads_outside_the_folder_is_never_read(
@@ -287,3 +287,42 @@ def test_a_missing_checkout_has_no_sessions(settings: Settings, repo: Repository
     write(repo, {"event": "started"})
     repo.primary_path.rename(repo.primary_path.with_name("moved"))
     assert sessions.of(repo, settings, now=NOW) == []
+
+
+def test_a_workflow_shows_only_while_its_session_works_on_what_it_was_for(
+    settings: Settings, repo: Repository
+) -> None:
+    add_requirement(repo.primary_path, "plants.md")
+    add_requirement(repo.primary_path, "registrations.md")
+    # Started on the default branch, it makes its requirement's own, and is for it.
+    write(
+        repo,
+        {"event": "workflow", "ago": 9, "workflow": "implement", "argument": "plants"},
+        {"event": "working", "ago": 8, "branch": "plants"},
+        {"event": "turn-finished", "ago": 7, "branch": "plants"},
+    )
+    assert (only(settings, repo).workflow, only(settings, repo).requirement) == (
+        "implement",
+        "plants",
+    )
+    # Run on that branch with no argument, it was for plants: moving on leaves it behind.
+    write(
+        repo,
+        {"event": "workflow", "ago": 6, "workflow": "complete-change", "branch": "plants"},
+        {"event": "turn-finished", "ago": 5, "branch": "plants"},
+        {"event": "started", "ago": 3, "branch": "main"},
+        {"event": "turn-finished", "ago": 1, "branch": "registrations"},
+    )
+    found = only(settings, repo)
+    assert (found.requirement, found.workflow, found.workflow_at) == ("registrations", None, None)
+    # One that named its requirement stays with it, wherever the session goes.
+    path = "specs/changes/todo/plants.md"
+    write(
+        repo,
+        {"event": "workflow", "ago": 0.5, "workflow": "address-review", "argument": path},
+        {"event": "turn-finished", "ago": 0.2, "branch": "registrations"},
+    )
+    assert (only(settings, repo).workflow, only(settings, repo).requirement) == (
+        "address-review",
+        "plants",
+    )

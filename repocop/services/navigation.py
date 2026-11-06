@@ -56,10 +56,12 @@ class SessionList:
     """The sessions a page shows in one place, by its key: `r:<repository id>:<requirement>`
     for those working on a requirement, `p:<repository id>:<requirement>` for those with their
     requests, as a requirement's page shows them, `a:<repository id>` for all of a repository's,
-    and `o:<repository id>` for those working on none of the requirements the page shows."""
+    and `o:<repository id>` for those working on none of the requirements the page shows. A `p:`
+    list also holds a digest of what asking its sessions shows, which changes when that does."""
 
     key: str
     sessions: tuple[Session, ...]
+    asking_shows: str | None = None
 
 
 def sidebar(conn: sqlite3.Connection) -> list[Repository]:
@@ -102,10 +104,12 @@ def session_lists(
             picked = tuple(s for s in everyone if s.requirement not in names)
         else:
             picked = tuple(everyone)
-        lists.append(SessionList(key, picked))
+        asking = None
         if kind == "p":
             for session in picked:
                 standings[session.id] = session_requests.standing(repos[repo_id], settings, session)
+            asking = session_requests.asking_all_shows(picked, standings)
+        lists.append(SessionList(key, picked, asking))
     return lists, _needing_input(found), standings
 
 
