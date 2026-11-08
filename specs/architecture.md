@@ -9,6 +9,7 @@ repository owns knowledge         → CLAUDE.md, .claude/, specs/ live in each r
 the developer's agent does work   → in their own agent tool; RepoCop runs no coding agent
 sessions report themselves        → each repo's hook logs events in <git common dir>/repocop/sessions/
 a requirement's history lasts     → the same hook keeps every workflow run in <git common dir>/repocop/history.jsonl
+a review saves its verdict        → the review workflow saves its review in <git common dir>/repocop/reviews/
 a click asks a session            → a workflow and a requirement, handed over by its own hook or socket
 RepoCop shows and syncs           → the board from each repo and GitHub; SQLite: registry, template syncs
 worktree owns isolated changes    → 1 template sync ↔ 1 branch ↔ 1 worktree under <worktrees_root>/<repo>/
@@ -33,6 +34,7 @@ flowchart TD
         tasksvc["tasks.py<br/>sync records, status + events, workflows"]
         prs["pull_requests.py<br/>push a sync's branch, open its PR"]
         sess["sessions.py<br/>read session logs and history: state, requirement, runs"]
+        revs["requirement_reviews.py<br/>saved reviews: ready to implement"]
         asks["session_requests.py<br/>ask a session to run a workflow"]
         nav["navigation.py<br/>sidebar, session lists, switcher"]
         github["github.py<br/>ONLY place that runs gh"]
@@ -43,11 +45,15 @@ flowchart TD
     worktree[/"Sync worktree<br/>RepoCop-owned"/]
     hub["GitHub<br/>pull requests"]
     logs[/"Session logs and history<br/>written by the repo's hook"/]
+    reviews[/"Saved reviews<br/>written by the review workflow"/]
     agent["Developer's agent session"]
 
     browser -->|"HTTP; session lists every 2 s"| routes
-    routes --> repos & board & reqs & tasksvc & sync & prs & sess & nav & asks
-    board --> repos & reqs & git & github & sess
+    routes --> repos & board & reqs & tasksvc & sync & prs & sess & nav & asks & revs
+    board --> repos & reqs & git & github & sess & revs
+    revs --> sess & reqs
+    revs -->|"read, no git"| reviews
+    agent -->|"its review workflow saves one"| reviews
     nav --> sess & asks
     sess --> reqs
     asks --> sess & tasksvc
@@ -155,6 +161,7 @@ A requirement is in the first stage that applies:
 - **No default branch from `origin`.** A repository whose checkout lacks it says to fetch first, and its cards show no branch state. A partial clone that lacks the archive on it is never made to download it: the board says it can't be read. An archive name shaped like a stamp that isn't a time counts as unstamped.
 - **Pull requests** come from one read-only `gh pr list` per repository, with a 15-second timeout, counting only those whose branch is in the registered repository rather than a fork. They are read side by side, after the page renders: htmx swaps in the board with them, and on the main page each repository's counts, so the page never waits for GitHub. Without JavaScript, a link reloads the page with them read. A repository whose pull requests can't be read says why (no `gh`, logged out, not on github.com, no answer in time), and its cards keep the stage they have without them.
 - **Sessions.** A card shows the sessions working on its requirement ([Session events](#session-events)). On the main page, a repository's sessions that work on no requirement with a card there show in its row of the table, as other sessions, so no running work goes unseen; a repository's page lists all of its sessions anyway. A repository whose default branch on `origin` lacks the hook that records sessions gets a note saying a template sync brings it.
+- **Readiness.** A card to do or in progress says whether its requirement's reviews find it ready to implement ([A requirement's review](#a-requirements-review)), with no git call.
 - **Nothing on the board acts.** It only shows: the work is done in the developer's own agent.
 
 ## Requirements and the developer's agent
@@ -239,6 +246,21 @@ Each shows how long it has been in its state, the workflow it last started, and 
 ### A requirement's history
 
 A requirement's page lists the workflows run on it, newest first, so the developer sees which steps it has had, such as a review asked for, or addressed, before asking for the next: each with the workflow, when it started, its branch, and its session. The runs are those in the repository's history, and those in its sessions' logs, every one whatever its age, which reach back before the hook kept a history: a run in both is the same session's at the same time, and counts once. A run is on a requirement by the rule a session's workflow is: its argument's path names it, or else it was for the requirement of the first branch its session was on from its start that belongs to one, as far as the session's log, while it is there, or else the run's own branch tells. Each file is read only as a regular file inside the folder, never through a link, and read again only once it has changed; what it says is shown escaped. The page reads the hook on the default branch on `origin`, as last fetched, once: when it doesn't keep the history yet, the page says runs show only as long as their session's log, and that a template sync brings the hook that keeps them. The 2 s refresh doesn't carry the history.
+
+### A requirement's review
+
+The developer needs to know which requirements are ready to implement: reviewed to the end, with a verdict that clears them, on the text they have now. Only the review knows it finished and what it concluded, so the repo template's `review-requirement` ends by saving its review with `save-review.sh`, beside it in its skill folder: `<git common dir>/repocop/reviews/<requirement's file name>`, on the developer's machine, out of every commit, shared by every worktree, replacing the requirement's last one. Its header, between `---` lines, holds `v` (1), `requirement` (its path from the checkout's top), `verdict` (`yes`, `yes-with-assumptions` or `no`), `blocking` (how many blocking questions it asks), `sha256` (of the requirement's file as reviewed) and `at` (when it was saved); the review follows. The script refuses a path that is absolute, holds `.` or `..` or a control character, isn't Markdown, or leads outside the checkout, a folder on the way that is a link, and an empty review, and writes the file whole, then renames it into place.
+
+A requirement stands in the first of these that applies:
+
+| Standing | When |
+|----------|------|
+| Review unfinished | a review was started on it, by the history's rule for a run's requirement, after its last saved review, or with none saved: it still runs, was stopped, or ran before reviews were saved |
+| Not reviewed | no review is saved |
+| Changed since review | its file in the checkout differs from the one reviewed, as when the review's questions were answered: it is reviewed again |
+| Not ready, Ready with assumptions, Ready | the saved review's verdict: `no`, with its blocking questions counted, `yes-with-assumptions`, `yes` |
+
+Its card shows the standing, and its page, while it is in the folder, the standing, the verdict and when it was saved, and the review itself. RepoCop reads a saved review as it reads the history: only as a regular file in the folder, never through a link, at most 256 KiB, shown escaped, and only one whose `requirement` is the file's own path in the requirements folder.
 
 ## Session requests
 

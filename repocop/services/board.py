@@ -28,8 +28,17 @@ from pathlib import Path, PurePosixPath
 
 from repocop.config import Settings
 from repocop.errors import RepoCopError
-from repocop.services import backlog, git, github, repositories, requirements, sessions
+from repocop.services import (
+    backlog,
+    git,
+    github,
+    repositories,
+    requirement_reviews,
+    requirements,
+    sessions,
+)
 from repocop.services.repositories import Repository
+from repocop.services.requirement_reviews import Readiness
 from repocop.services.sessions import Session
 
 DELIVERED_SHOWN = timedelta(days=7)  # how long a delivered change stays on the board
@@ -71,6 +80,7 @@ class Card:
     sessions: tuple[Session, ...] = ()  # those working on it, the latest first
     delivered_at: datetime | None = None
     held_up: bool = False  # a dependency problem keeps it from being ordered
+    readiness: Readiness | None = None  # to do or in progress: whether reviews find it ready
 
 
 @dataclass(frozen=True)
@@ -244,6 +254,7 @@ def _cards(
     origin_tips = [there for refs in belonging.values() for _, _, there in refs if there]
     ahead = git.commits_ahead(checkout, [*local_tips, *origin_tips], default)
     pushed = git.on_origin(checkout, local_tips)
+    ready = requirement_reviews.of(repository, settings, [change.file for change in changes])
     for change in changes:
         branches = tuple(
             _branch(name, local, there, ahead, pushed, pulls)
@@ -267,6 +278,7 @@ def _cards(
                 waits_on,
                 on_it,
                 held_up=change in ordered.apart,
+                readiness=ready[change.file] if stage in (Stage.TO_DO, Stage.IN_PROGRESS) else None,
             )
         )
     return cards, notes, ordered.problems

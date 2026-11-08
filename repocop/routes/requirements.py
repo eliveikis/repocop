@@ -13,7 +13,15 @@ from fastapi.templating import Jinja2Templates
 from repocop.config import Settings
 from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RequirementDep, SettingsDep
-from repocop.services import backlog, repositories, requirements, session_requests, sessions, tasks
+from repocop.services import (
+    backlog,
+    repositories,
+    requirement_reviews,
+    requirements,
+    session_requests,
+    sessions,
+    tasks,
+)
 from repocop.services.repositories import Repository
 from repocop.services.requirements import Location, Requirement
 from repocop.services.sessions import Session
@@ -174,6 +182,15 @@ def _context(
     working = sessions.for_requirement(sessions.of(repository, settings), name)
     standings = {s.id: session_requests.standing(repository, settings, s) for s in working}
     active = detail is not None and detail.location is Location.ACTIVE
+    runs = sessions.runs(repository, settings, name)
+    reviewed = [run.at for run in runs if run.workflow == requirement_reviews.WORKFLOW]
+    readiness = (
+        requirement_reviews.of_one(
+            repository, settings, requirement.file_name, max(reviewed, default=None)
+        )
+        if active
+        else None
+    )
     return {
         "repository": repository,
         "requirement": requirement,
@@ -188,7 +205,9 @@ def _context(
         "error": error,
         "card_name": name,
         "sessions": working,
-        "runs": sessions.runs(repository, settings, name),
+        "runs": runs,
+        "readiness": readiness,
+        "review_workflow": requirement_reviews.WORKFLOW,
         "history_kept": sessions.history_kept_on_origin(repository, settings),
         "standings": standings,
         "asks": [

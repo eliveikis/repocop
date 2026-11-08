@@ -377,11 +377,11 @@ td.name { font-weight: 500; }
   white-space: nowrap;
 }
 .status::before { content: ""; flex: none; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-.status-ready, .status-completed { background: var(--tone-ok-bg); color: var(--tone-ok-fg); }
-.status-running, .status-working { background: var(--tone-info-bg); color: var(--tone-info-fg); }
-.status-behind, .status-needs-input { background: var(--tone-warn-bg); color: var(--tone-warn-fg); }
+.status-ready, .status-completed, .status-ready-with-assumptions { background: var(--tone-ok-bg); color: var(--tone-ok-fg); }
+.status-running, .status-working, .status-changed-since-review { background: var(--tone-info-bg); color: var(--tone-info-fg); }
+.status-behind, .status-needs-input, .status-not-ready, .status-review-unfinished { background: var(--tone-warn-bg); color: var(--tone-warn-fg); }
 .status-missing, .status-failed, .status-stopped-mid-turn { background: var(--tone-danger-bg); color: var(--tone-danger-fg); }
-.status-no_commits::before, .status-closed::before { background: none; box-shadow: inset 0 0 0 1.5px currentColor; }
+.status-no_commits::before, .status-closed::before, .status-not-reviewed::before, .status-ready-with-assumptions::before { background: none; box-shadow: inset 0 0 0 1.5px currentColor; }
 @media (prefers-reduced-motion: no-preference) {
   .status-running::before, .status-working::before { animation: pulse 1.6s ease-in-out infinite; }
 }
@@ -660,6 +660,7 @@ a.card-name { text-decoration: none; }
 a.card-name:hover { text-decoration: underline; }
 .card-repository { color: var(--muted); font-size: var(--text-xs); }
 .card-detail { margin: 0; color: var(--muted); }
+.review-text pre { max-height: 32rem; overflow: auto; }
 .card-branches { margin: 0; padding: 0; color: var(--muted); list-style: none; overflow-wrap: anywhere; }
 .card-branches code { color: var(--fg); }
 

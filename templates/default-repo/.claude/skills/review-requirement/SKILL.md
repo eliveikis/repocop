@@ -2,7 +2,7 @@
 name: review-requirement
 description: Critically review a requirement/spec Markdown file for ambiguity, gaps, contradictions, testability and scope before implementation starts. Use when asked to review, critique or sanity-check a requirement in specs/changes/.
 argument-hint: "[path-to-requirement.md]  (defaults to the branch's requirement)"
-allowed-tools: Read, Grep, Glob, Bash(git log:*), Bash(git ls-files:*), Bash(git branch --show-current), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git diff:*)
+allowed-tools: Read, Grep, Glob, Bash(git log:*), Bash(git ls-files:*), Bash(git branch --show-current), Bash(git rev-parse:*), Bash(git merge-base:*), Bash(git diff:*), Bash(.claude/skills/review-requirement/save-review.sh:*)
 ---
 <!-- managed by template -->
 
@@ -10,13 +10,23 @@ allowed-tools: Read, Grep, Glob, Bash(git log:*), Bash(git ls-files:*), Bash(git
 
 Review the requirement at `$ARGUMENTS`. With no path, review the branch's requirement: the change in `specs/changes/todo/` the branch belongs to (`.claude/rules/specs.md` › A branch's requirement). If it belongs to none, say so and ask for the path. Name the requirement you picked before you start.
 
-This review is **read-only**. Do not edit the requirement or any code. Produce findings and let the human decide.
+This review is **read-only**. Do not edit the requirement or any code. Produce findings and let the human decide. Its one write is saving the review (step 4), outside every commit.
 
 ## Steps
 
 1. Read the requirement in full, then read `CLAUDE.md`, `specs/index.md` and the authoritative specs it lists (`specs/*.md`), and any spec the requirement references. Skim the parts of the repo it touches so your findings are grounded in what's really there, not a hypothetical version.
 2. Evaluate it against the checklist below.
 3. Report back in the output format.
+4. Save the review: pass it, exactly as you reported it, on standard input to `.claude/skills/review-requirement/save-review.sh`, with the requirement's path from the checkout's top, the summary's verdict (`yes`, `yes-with-assumptions` or `no`) and how many blocking questions it asks:
+
+   ```sh
+   .claude/skills/review-requirement/save-review.sh specs/changes/todo/bulk-import.md no 2 <<'END_OF_REVIEW'
+   ## Summary
+   ...
+   END_OF_REVIEW
+   ```
+
+   Saving it records that the review finished, and with what verdict. If the script refuses, say why.
 
 ## Checklist
 

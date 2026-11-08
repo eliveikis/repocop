@@ -158,6 +158,18 @@ def change_files(
     return texts, archived
 
 
+def bytes_of(settings: Settings, repository: Repository, file_name: str) -> bytes | None:
+    """The bytes of the file `file_name` in the repository's requirements folder, as on disk.
+    None when it isn't a file there, links outside the checkout, or can't be read."""
+    if PurePosixPath(file_name).name != file_name or file_name in ("", ".", ".."):
+        return None
+    try:
+        file = _inside(_checkout(repository, settings), f"{todo_dir(repository)}/{file_name}")
+        return file.read_bytes() if file.is_file() else None
+    except (RequirementError, OSError):
+        return None
+
+
 def files_on_disk(repository: Repository) -> tuple[list[str], list[str]]:
     """The Markdown file names in the repository's requirements folder, and in the archive beside
     it, read from disk alone, without git: none for a folder that isn't there or that leads

@@ -37,6 +37,23 @@
 <p class="error" role="alert">The file is missing from <code>{{ requirement.path }}</code> and from the archive folder beside it.</p>
 {% endif %}
 
+{% if readiness %}
+<section id="review" aria-labelledby="review-heading">
+<h2 id="review-heading">Review</h2>
+{% set review = readiness.review %}
+<p>{% include "partials/readiness.html" %}{% if review %} · its latest review, saved {{ review.at | ago }}, says <code>{{ review.verdict }}</code>{% if review.blocking %} with {{ review.blocking }} blocking question{{ "" if review.blocking == 1 else "s" }}{% endif %}{% if readiness.standing.slug == "changed-since-review" %}, of an earlier text of the file{% endif %}{% endif %}</p>
+{% if readiness.standing.slug == "review-unfinished" %}<p class="hint">A review started {{ readiness.started | ago }} has saved no result: it still runs, was stopped, or ran before reviews saved their result.</p>{% endif %}
+{% if review %}
+<details class="review-text"><summary>The review</summary><pre class="requirement-text">{{ review.text }}</pre></details>
+{% elif readiness.standing.slug == "not-reviewed" %}
+<p class="hint">No review has saved its result yet. Run <code>{{ review_workflow }}</code> on {{ requirement.name }}: ask one of its sessions below, or run it in your own agent.</p>
+{% endif %}
+<details class="help"><summary>How this works</summary>
+  <p>A <code>{{ review_workflow }}</code> run ends by saving its review in the repository's git folder, on this machine, out of every commit, replacing the last one. {{ requirement.name }} is ready when its latest review says so of the text its file has now. Once the file is edited, as when a review's questions are answered, it has changed since review until it is reviewed again.</p>
+</details>
+</section>
+{% endif %}
+
 <section id="sessions" aria-labelledby="sessions-heading">
 <h2 id="sessions-heading">Sessions</h2>
 <p class="hint">The agent sessions working on {{ requirement.name }} with an event in the past day, as they report it.</p>
