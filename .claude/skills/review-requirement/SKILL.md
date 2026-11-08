@@ -21,7 +21,7 @@ This review is **read-only**. Do not edit the requirement or any code. Produce f
 ## Checklist
 
 - **Product fit:** does the change serve the vision and pillars in `specs/product.md`? Does it conflict with a higher-ranked pillar or a stated non-goal? If `specs/product.md` or `specs/architecture.md` is missing or still mostly `_TBD_`, say so as a low-severity finding. It isn't blocking.
-- **Format:** does it follow the change format in `.claude/rules/specs.md`? Flag a missing required section, a title heading, a task list instead of a product story, criteria that aren't outcomes its party can observe, implementation detail outside Implementation Notes, and notes missing where the existing specs, rules and code don't settle the approach.
+- **Format:** does it follow the change format in `.claude/rules/specs.md`? Flag a missing required section, a title heading, a task list instead of a product story, criteria that aren't outcomes its beneficiary can observe, implementation detail outside Implementation Notes, and notes missing where the existing specs, rules and code don't settle the approach.
 - **Ambiguity:** terms or behaviours that two competent contributors would deliver differently.
 - **Gaps:** what the work will need that the requirement doesn't say. In code: error cases, empty states, limits, concurrency, restart/recovery, security, or migration. In writing or other media: audience, length, sources, and rights to images or quotes.
 - **Contradictions:** with itself, with the authoritative specs, with what's already in the repo, or with repository rules in `.claude/rules/`.
