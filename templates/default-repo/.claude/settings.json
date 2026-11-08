@@ -22,6 +22,7 @@
       "Bash(make test:*)",
       "Bash(.claude/skills/address-pr-comments/fetch-threads.sh:*)",
       "Bash(.claude/skills/complete-change/archive.sh:*)",
+      "Bash(.claude/skills/review-requirement/save-review.sh:*)",
       "Bash(.reviews/review.sh:*)",
       "Bash(gh auth status:*)",
       "Bash(gh pr list:*)",
