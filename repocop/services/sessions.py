@@ -196,6 +196,27 @@ def runs(repository: Repository, settings: Settings, name: str) -> list[Run]:
     history did, each once. A run is on the requirement its argument's path names, or else on the
     requirement of the first branch its session was on from its start that belongs to one, as
     far as its session's log, while it is there, or else the history tells."""
+    picked = [run for run, was_for in _every_run(repository, settings) if was_for == name]
+    return sorted(picked, key=lambda run: run.at, reverse=True)
+
+
+def last_started(repository: Repository, settings: Settings, workflow: str) -> dict[str, datetime]:
+    """When `workflow` was last started on each requirement it ran on, by the requirement's
+    name, a run on a requirement as `runs` tells it."""
+    found: dict[str, datetime] = {}
+    for run, was_for in _every_run(repository, settings):
+        if (
+            was_for
+            and run.workflow == workflow
+            and (was_for not in found or found[was_for] < run.at)
+        ):
+            found[was_for] = run.at
+    return found
+
+
+def _every_run(repository: Repository, settings: Settings) -> list[tuple[Run, str | None]]:
+    """Every run the repository's history and its sessions' logs keep, each once, with the name
+    of the requirement it was for, if that can be told."""
     common = common_dir(repository, settings)
     if common is None:
         return []
@@ -210,8 +231,7 @@ def runs(repository: Repository, settings: Settings, name: str) -> list[Run]:
             for ran in _runs_in(log, log.name.removesuffix(".jsonl")):
                 found[ran.run.session, ran.run.at] = ran  # its log tells more of what it was for
     pages = _requirement_pages(repository)
-    picked = [ran.run for ran in found.values() if _run_was_for(repository, ran, pages) == name]
-    return sorted(picked, key=lambda run: run.at, reverse=True)
+    return [(ran.run, _run_was_for(repository, ran, pages)) for ran in found.values()]
 
 
 def history_kept_on_origin(repository: Repository, settings: Settings) -> bool | None:

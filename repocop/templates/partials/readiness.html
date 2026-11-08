@@ -1,0 +1,1 @@
+<span class="status readiness status-{{ readiness.standing.slug }}">{{ readiness.standing }}{% if readiness.standing.slug == "not-ready" and readiness.review.blocking %} · {{ readiness.review.blocking }} question{{ "" if readiness.review.blocking == 1 else "s" }}{% endif %}</span>
