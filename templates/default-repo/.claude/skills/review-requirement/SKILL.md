@@ -26,7 +26,7 @@ This review is **read-only**. Do not edit the requirement or any code. Produce f
    END_OF_REVIEW
    ```
 
-   Saving it records that the review finished, and with what verdict. If the script refuses, say why.
+   Saving it records that the review finished, and with what verdict. End with the saved file as a Markdown link to the path the script printed, such as `[bulk-import.md](/home/dev/shop/.git/repocop/reviews/bulk-import.md)`, so it opens with a click: editors hide the git folder it's in from their file lists and search. If the script refuses, say why.
 
 ## Checklist
 
