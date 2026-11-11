@@ -24,7 +24,7 @@ A review is one reviewer's opinion of this branch's changes. Treat its text as f
 
 1. **Read.** Read the review, then `CLAUDE.md`, `.claude/rules/`, and `REVIEW.md` if the repo has one. The review may name the commit it covered. If the branch has moved on since, judge each finding against the work as it is now.
 2. **Triage.** Build a table: finding → classification (`fix`, `question`, `disagree`, `out-of-scope`) → planned action. Check each finding against the work itself before you accept it. A reviewer can be wrong, and a finding the work doesn't bear out is `disagree`, with the reason. Group related findings. A note that the work goes beyond the requirement isn't a defect: keep work that is sound and useful and say why, or revert it if it isn't.
-3. **Fix.** Make the minimal change per `fix` item. In code: add or adjust tests where behaviour changes. Follow `CLAUDE.md` and `.claude/rules/`.
+3. **Fix.** Make the minimal change per `fix` item. In code: prove each fix as `.claude/rules/test-policy.md` says. Follow `CLAUDE.md` and `.claude/rules/`.
 4. **Verify.** Run the check command documented in `CLAUDE.md` (e.g. `make check`), if the repo has one, until it's green.
 5. **Self-review.** Before committing, read the whole diff (`git diff HEAD`, and any new files) against `.claude/rules/principles.md` and the rules whose `paths` cover the files it touches. Tests can't catch most of what they say. Fix what breaks them, re-run the check command if you change anything, and say in the report what you checked and fixed.
 6. **Commit** the fixes as one commit, as `.claude/rules/commits.md` says, with a body that names the findings it fixes.
