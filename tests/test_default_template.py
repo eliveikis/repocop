@@ -356,6 +356,7 @@ def test_default_template_leaves_its_stubs_to_the_repository_and_merges_its_sett
     kinds = bootstrap.kinds(TEMPLATE)
     starters = {path for path, kind in kinds.items() if kind is Kind.STARTER}
     assert starters == {
+        ".claude/rules/testing.md",
         "AGENTS.md",
         "CLAUDE.md",
         "REVIEW.md",

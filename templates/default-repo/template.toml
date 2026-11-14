@@ -3,6 +3,7 @@
 
 # Created when missing, then the repository's own: sync never offers to replace them.
 starter = [
+    ".claude/rules/testing.md",
     "AGENTS.md",
     "CLAUDE.md",
     "REVIEW.md",

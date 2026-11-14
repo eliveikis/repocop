@@ -16,8 +16,8 @@ run: ## Run RepoCop (the single documented start command)
 dev: ## Run with auto-reload for development
 	$(UV) run uvicorn repocop.main:create_app --factory --reload --host 127.0.0.1 --port 8765
 
-test: ## Run the test suite
-	$(UV) run pytest
+test: ## Run the test suite on every core (pass pytest args as ARGS=...)
+	$(UV) run pytest -n auto $(ARGS)
 
 test-cov: ## Run tests with coverage report
 	$(UV) run pytest --cov --cov-report=term-missing

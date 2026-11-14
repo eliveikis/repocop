@@ -34,6 +34,15 @@ from tests.fakes.fake_gh import FakeGh
 FAKE_BIN = Path(__file__).parent / "fakes" / "bin"
 # The awks the template's scripts must work with: Debian's default, and GNU awk held to POSIX.
 AWKS = {"mawk": ["mawk"], "posix-awk": ["gawk", "--posix"]}
+# Git with no user or system config, and a fixed identity, so commits work on any host.
+ISOLATED_GIT = {
+    "GIT_CONFIG_GLOBAL": os.devnull,
+    "GIT_CONFIG_NOSYSTEM": "1",
+    "GIT_AUTHOR_NAME": "Test",
+    "GIT_AUTHOR_EMAIL": "test@example.invalid",
+    "GIT_COMMITTER_NAME": "Test",
+    "GIT_COMMITTER_EMAIL": "test@example.invalid",
+}
 
 
 def run_git(*args: str, cwd: Path) -> str:
@@ -179,12 +188,8 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("XDG_CONFIG_HOME", str(home / ".config"))
     monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
-    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
-    monkeypatch.setenv("GIT_AUTHOR_NAME", "Test")
-    monkeypatch.setenv("GIT_AUTHOR_EMAIL", "test@example.invalid")
-    monkeypatch.setenv("GIT_COMMITTER_NAME", "Test")
-    monkeypatch.setenv("GIT_COMMITTER_EMAIL", "test@example.invalid")
+    for key, value in ISOLATED_GIT.items():
+        monkeypatch.setenv(key, value)
     for key in list(os.environ):
         if key.startswith(("REPOCOP_", f"{FORMER_NAME.upper()}_", "CLAUDE_")):
             monkeypatch.delenv(key)
@@ -314,20 +319,32 @@ def conn(settings: Settings) -> Iterator[sqlite3.Connection]:
     connection.close()
 
 
-@pytest.fixture
-def remote_repo(tmp_path: Path) -> Path:
-    """A bare repo with one commit on `main` — usable as a clone URL (file path)."""
-    seed = tmp_path / "seed"
-    seed.mkdir()
-    run_git("init", "-q", "-b", "main", cwd=seed)
-    (seed / "README.md").write_text("# sample\n")
-    run_git("add", ".", cwd=seed)
-    run_git("commit", "-q", "-m", "initial", cwd=seed)
+@pytest.fixture(scope="session")
+def seed_remote(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """A bare repo with one commit on `main`, built once per session to be copied, never used
+    in place. Session fixtures run outside `_isolated_env`, so git gets its isolation here."""
+    root = tmp_path_factory.mktemp("seed-remote")
+    env = {**os.environ, **ISOLATED_GIT, "HOME": str(root)}
 
+    def git(*args: str, cwd: Path) -> None:
+        subprocess.run(["git", *args], cwd=cwd, env=env, check=True, capture_output=True)
+
+    work = root / "work"
+    work.mkdir()
+    git("init", "-q", "-b", "main", cwd=work)
+    (work / "README.md").write_text("# sample\n")
+    git("add", ".", cwd=work)
+    git("commit", "-q", "-m", "initial", cwd=work)
+    bare = root / "sample.git"
+    git("clone", "-q", "--bare", str(work), str(bare), cwd=root)
+    return bare
+
+
+@pytest.fixture
+def remote_repo(tmp_path: Path, seed_remote: Path) -> Path:
+    """A bare repo with one commit on `main`, this test's own: usable as a clone URL (a path)."""
     bare = tmp_path / "remotes" / "sample.git"
-    bare.parent.mkdir()
-    run_git("clone", "-q", "--bare", str(seed), str(bare), cwd=tmp_path)
-    shutil.rmtree(seed)
+    shutil.copytree(seed_remote, bare, symlinks=True)
     return bare
 
 
