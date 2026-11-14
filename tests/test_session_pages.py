@@ -141,7 +141,7 @@ def test_every_page_keeps_its_sessions_current_and_the_refresh_runs_no_git(
 ) -> None:
     html = client.get("/").text  # each repository's log folder is known from here on
     poll = re.search(
-        r'<div hidden hx-post="([^"]+)" hx-trigger="every 2s" hx-swap="none" '
+        r'<div hidden hx-post="([^"]+)" hx-trigger="every 2s [^"]*" hx-swap="none" '
         r"hx-include=\"\[name='shown'\]\"></div>",
         html,
     )
