@@ -184,14 +184,15 @@ def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None
         assert rule in permissions["allow"], rule
 
 
-def test_default_template_states_which_requirement_a_branch_belongs_to_once() -> None:
+def test_default_template_states_which_changes_a_branch_belongs_to_and_delivers_once() -> None:
     claude = TEMPLATE / ".claude"
-    stating = sorted(
-        path.relative_to(claude).as_posix()
-        for path in claude.rglob("*.md")
-        if "belongs to a requirement when" in path.read_text(encoding="utf-8")
-    )
-    assert stating == ["rules/specs.md"]
+    for definition in ("belongs to a requirement when", "delivers each change archived on it"):
+        stating = sorted(
+            path.relative_to(claude).as_posix()
+            for path in claude.rglob("*.md")
+            if definition in path.read_text(encoding="utf-8")
+        )
+        assert stating == ["rules/specs.md"], definition
     pointer = "`.claude/rules/specs.md` \u203a A branch's requirement"
     for path in (
         "rules/reviews.md",
@@ -199,6 +200,7 @@ def test_default_template_states_which_requirement_a_branch_belongs_to_once() ->
         "skills/implement/SKILL.md",
         "skills/address-review/SKILL.md",
         "skills/complete-change/SKILL.md",
+        "skills/open-pull-request/SKILL.md",
     ):
         assert pointer in (claude / path).read_text(encoding="utf-8"), path
 
