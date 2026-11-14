@@ -7,4 +7,4 @@ What every review of a branch checks. A repository's own points are in its `REVI
 - Report where the work contradicts it. Don't check its acceptance criteria one by one: running the product (its tests and the requirement's own checks) does that.
 - Note work beyond the requirement in the review's summary, not as a defect. Sound, useful work can stay: whoever addresses the review judges.
 - Report agent attribution in the branch's commits or its pull request, which `.claude/rules/commits.md` rules out.
-- Report a bug fix in a tested layer that comes without a test that would have caught it. Don't ask for tests `.claude/rules/test-policy.md` doesn't call for.
+- Report a bug fix that comes without the test `.claude/rules/test-policy.md` says it keeps, and a new test that policy says belongs in an existing one or shouldn't be written. Don't ask for tests it doesn't call for.
