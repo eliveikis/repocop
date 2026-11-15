@@ -54,9 +54,16 @@ def requirement_page(
 def requirement_asks(
     request: Request, conn: ConnectionDep, settings: SettingsDep, requirement: RequirementDep
 ) -> HTMLResponse:
-    """What asking the requirement's live sessions shows, as its page shows it now."""
+    """What asking the requirement's live sessions shows, as its page shows it now, and only
+    that: its page fetches it again whenever it changes."""
     templates: Jinja2Templates = request.app.state.templates
-    context = _context(conn, settings, requirement)
+    repository = _repository_of(conn, requirement)
+    try:
+        active = requirements.location(settings, repository, requirement) is Location.ACTIVE
+        workflows = tasks.workflows(settings, repository) if active else []
+    except RepoCopError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    context = _asking(settings, repository, requirement, workflows, active=active)
     return templates.TemplateResponse(request, "requirements/asks.html", context)
 
 
@@ -154,6 +161,44 @@ def _render(
     )
 
 
+def _asking(
+    settings: Settings,
+    repository: Repository,
+    requirement: Requirement,
+    workflows: list[str],
+    *,
+    active: bool,
+) -> dict[str, Any]:
+    """The requirement's sessions, where their requests stand, and what asking them shows: the
+    live ones of an active requirement, each offered `workflows`, or None for another."""
+    working = sessions.for_requirement(
+        sessions.of(repository, settings), backlog.name_of(requirement.file_name)
+    )
+    standings = {s.id: session_requests.standing(repository, settings, s) for s in working}
+    asks = [
+        (
+            session,
+            session_requests.unreachable(session),
+            standings[session.id],
+            session_requests.asking_shows(session, standings[session.id]),
+        )
+        for session in working
+        if session.live
+    ]
+    return {
+        "repository": repository,
+        "requirement": requirement,
+        "workflows": workflows,
+        "workflow_lines": [
+            tasks.workflow_line(workflow, requirement.path) for workflow in workflows
+        ],
+        "sessions": working,
+        "standings": standings,
+        "asks": asks if active else None,
+        "asking_shows": session_requests.asking_all_shows(working, standings),
+    }
+
+
 def _context(
     conn: sqlite3.Connection,
     settings: Settings,
@@ -179,8 +224,6 @@ def _context(
         error = error or str(exc)
     shown = detail.content if detail else None
     name = backlog.name_of(requirement.file_name)
-    working = sessions.for_requirement(sessions.of(repository, settings), name)
-    standings = {s.id: session_requests.standing(repository, settings, s) for s in working}
     active = detail is not None and detail.location is Location.ACTIVE
     runs = sessions.runs(repository, settings, name)
     reviewed = [run.at for run in runs if run.workflow == requirement_reviews.WORKFLOW]
@@ -192,35 +235,17 @@ def _context(
         else None
     )
     return {
-        "repository": repository,
-        "requirement": requirement,
+        **_asking(settings, repository, requirement, workflows, active=active),
         "detail": detail,
         "editor_link": (
             settings.editor_link(repository.primary_path / shown.path, file=True) if shown else None
         ),
-        "workflows": workflows,
-        "workflow_lines": [
-            tasks.workflow_line(workflow, requirement.path) for workflow in workflows
-        ],
         "error": error,
         "card_name": name,
-        "sessions": working,
         "runs": runs,
         "readiness": readiness,
         "review_workflow": requirement_reviews.WORKFLOW,
         "history_kept": sessions.history_kept_on_origin(repository, settings),
-        "standings": standings,
-        "asks": [
-            (
-                session,
-                session_requests.unreachable(session),
-                standings[session.id],
-                session_requests.asking_shows(session, standings[session.id]),
-            )
-            for session in working
-            if session.live and active
-        ],
-        "asking_shows": session_requests.asking_all_shows(working, standings),
         "change": change,
         "blocks": ordered.blocks(change) if ordered and change else (),
         "change_problems": ordered.problems_of(change) if ordered and change else (),

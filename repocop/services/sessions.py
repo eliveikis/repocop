@@ -21,7 +21,8 @@ import json
 import os
 import re
 import threading
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -55,7 +56,7 @@ _COMMON_DIRS_GUARD = threading.Lock()
 READINGS_KEPT = 5000  # the most logs whose reading is kept, so only what's appended is read
 _READINGS: dict[Path, _Reading] = {}
 _READINGS_GUARD = threading.Lock()
-_RUNS: dict[Path, tuple[tuple[int, int, int, int], list[_Ran]]] = {}  # each file's, as last read
+_RUNS: dict[Path, _Logged] = {}  # what each file says of runs, as far as it was read
 _RUNS_GUARD = threading.Lock()
 
 
@@ -128,6 +129,31 @@ class _Ran:
     branches: tuple[str | None, ...]
 
 
+# Each branch a session was on since a workflow started: the branch, and when it was first and
+# last seen there, the first seen first. The workflow's own branch comes first.
+_Seen = tuple[tuple[str | None, datetime, datetime], ...]
+
+
+@dataclass(frozen=True)
+class _Mark:
+    """What an event tells of runs: when it happened, its branch, and the run it started."""
+
+    at: datetime
+    branch: str | None
+    run: Run | None
+
+
+@dataclass(frozen=True)
+class _Logged:
+    """What a file says of runs as far as it has been read."""
+
+    file: tuple[int, int, bytes]  # its device, inode and first bytes: another file differs
+    end: int  # where reading stopped: just past a line's end
+    written: int  # when it was last written, as of that read
+    marks: tuple[_Mark, ...]  # by their time
+    runs: list[_Ran]
+
+
 @dataclass(frozen=True)
 class _Event:
     at: datetime
@@ -158,7 +184,7 @@ class _Reading:
     workflow: str | None
     argument: str | None  # the latest workflow's, "" when it had none; None with no workflow
     workflow_at: datetime | None
-    workflow_branches: tuple[str | None, ...]  # each branch it was on since, the first first
+    workflow_seen: _Seen  # where the session has been since its latest workflow, or since read
     waiting_for: str | None
     tool: str | None
     closed: str | None
@@ -236,27 +262,34 @@ def _every_run(repository: Repository, settings: Settings) -> list[tuple[Run, st
 
 def history_kept_on_origin(repository: Repository, settings: Settings) -> bool | None:
     """Whether the hook on the default branch on `origin`, as last fetched, keeps the history of
-    workflow runs. None when it can't be read."""
-    try:
-        checkout = repositories.require_checkout(repository, settings)
-        hook = git.read_files(checkout, repositories.origin_default(repository), [RECORDER])
-    except RepoCopError:
-        return None
-    return HISTORY.name.encode() in (hook[RECORDER] or b"")
+    workflow runs. None when it can't be read, or there is no hook there."""
+    files = _recorder_on_origin(repository, settings)
+    hook = files[RECORDER] if files else None
+    return None if hook is None else HISTORY.name.encode() in hook
 
 
 def recorder_on_origin(repository: Repository, settings: Settings) -> bool | None:
     """Whether the default branch on `origin`, as last fetched, has the hook that records
     sessions and the settings that run it. None when it can't be read."""
+    files = _recorder_on_origin(repository, settings)
+    if files is None:
+        return None
+    runs = files[RECORDER_SETTINGS] or b""
+    return files[RECORDER] is not None and PurePosixPath(RECORDER).name.encode() in runs
+
+
+def _recorder_on_origin(
+    repository: Repository, settings: Settings
+) -> dict[str, bytes | None] | None:
+    """The hook that records sessions, and the settings that run it, on the default branch on
+    `origin` as last fetched, each None where it isn't there. None when they can't be read."""
     try:
         checkout = repositories.require_checkout(repository, settings)
-        files = git.read_files(
+        return git.read_files(
             checkout, repositories.origin_default(repository), [RECORDER, RECORDER_SETTINGS]
         )
     except RepoCopError:
         return None
-    runs = files[RECORDER_SETTINGS] or b""
-    return files[RECORDER] is not None and PurePosixPath(RECORDER).name.encode() in runs
 
 
 def get(repository: Repository, settings: Settings, session: str) -> Session | None:
@@ -307,15 +340,10 @@ def _reading(log: Path, listed: os.stat_result) -> _Reading | None:
     seen = (listed.st_size, listed.st_mtime_ns, listed.st_dev, listed.st_ino)
     if known and seen == (known.end, known.written, *known.file[:2]):
         return known
-    try:
-        flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(log, flags)
-    except OSError:
-        return None
-    with os.fdopen(descriptor, "rb") as file:
-        stat = os.fstat(file.fileno())
-        if not S_ISREG(stat.st_mode):
+    with _opened(log) as opened:
+        if opened is None:
             return None
+        file, stat = opened
         unchanged = (stat.st_size, stat.st_mtime_ns, stat.st_dev, stat.st_ino)
         if known and unchanged == (known.end, known.written, *known.file[:2]):
             return known
@@ -361,7 +389,7 @@ def _read_anew(file: BinaryIO, stat: os.stat_result, session: str) -> _Reading:
         workflow=None,
         argument=None,
         workflow_at=None,
-        workflow_branches=(),
+        workflow_seen=(),
         waiting_for=None,
         tool=None,
         closed=None,
@@ -369,9 +397,23 @@ def _read_anew(file: BinaryIO, stat: os.stat_result, session: str) -> _Reading:
     return _fold(empty, found, end, stat.st_mtime_ns)
 
 
+@contextmanager
+def _opened(path: Path) -> Iterator[tuple[BinaryIO, os.stat_result] | None]:
+    """`path`, open to read, with what it is, while it is a regular file: never opened through a
+    link, and without waiting on a pipe. None when it can't be opened as one."""
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        yield None
+        return
+    with os.fdopen(descriptor, "rb") as file:
+        stat = os.fstat(file.fileno())
+        yield (file, stat) if S_ISREG(stat.st_mode) else None
+
+
 def _identity(file: BinaryIO, stat: os.stat_result) -> tuple[int, int, bytes]:
-    """What tells a log from another file at its path: its device and inode, which a new file can
-    be given again, and its first bytes, which appending leaves as they are."""
+    """What tells a file from another at its path: its device and inode, which a new file can be
+    given again, and its first bytes, which appending leaves as they are."""
     file.seek(0)
     return stat.st_dev, stat.st_ino, file.read(IDENTITY_BYTES)
 
@@ -390,16 +432,16 @@ def _fold(reading: _Reading, events: list[_Event], end: int, written: int) -> _R
     event older than the one that last set a field leaves that field as it is."""
     latest, state, since, state_at = reading.latest, reading.state, reading.since, reading.state_at
     workflow, argument, workflow_at = reading.workflow, reading.argument, reading.workflow_at
-    branches = reading.workflow_branches
+    seen = reading.workflow_seen
     waiting_for, tool, closed = reading.waiting_for, reading.tool, reading.closed
     for event in sorted(events, key=lambda event: event.at):
         if latest is None or event.at >= latest.at:
             latest = event
         if event.event == "workflow" and (workflow_at is None or event.at >= workflow_at):
             workflow, argument = event.text("workflow"), event.text("argument") or ""
-            workflow_at, branches = event.at, ()
-        if workflow_at is not None and event.at >= workflow_at and event.branch not in branches:
-            branches = (*branches, event.branch)
+            workflow_at, seen = event.at, _seen_from(seen, event.at, event.branch)
+        elif workflow_at is None or event.at >= workflow_at:  # a workflow may yet land before it
+            seen = _seen_with(seen, event.branch, event.at, event.at)
         if event.event == "moved" or (state_at is not None and event.at < state_at):
             continue
         new = _STATE_OF[event.event]
@@ -424,7 +466,7 @@ def _fold(reading: _Reading, events: list[_Event], end: int, written: int) -> _R
         workflow,
         argument,
         workflow_at,
-        branches,
+        seen,
         waiting_for,
         tool,
         closed,
@@ -433,54 +475,100 @@ def _fold(reading: _Reading, events: list[_Event], end: int, written: int) -> _R
 
 def _runs_in(file: Path, session: str | None) -> list[_Ran]:
     """The runs `file` records: a log of the session `session`, each run with the branches its
-    session went on to, or, with None, the history, each run with the branch it started on. Read
-    again only once the file has changed, only as a regular file and never through a link."""
-    try:
-        flags = os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0)
-        descriptor = os.open(file, flags)
-    except OSError:
-        return []
-    with os.fdopen(descriptor, "rb") as opened:
-        stat = os.fstat(opened.fileno())
-        if not S_ISREG(stat.st_mode):
+    session went on to, or, with None, the history, each run with the branch it started on. Only
+    what was appended since it was last read is read, or all of it when it is another file, or
+    shorter, than then: only as a regular file, never through a link."""
+    with _RUNS_GUARD:
+        known = _RUNS.get(file)
+    with _opened(file) as opened:
+        if opened is None:
             return []
-        seen = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
-        with _RUNS_GUARD:
-            known = _RUNS.get(file)
-        if known and known[0] == seen:
-            return known[1]
-        lines = opened.read(stat.st_size).split(b"\n")
-    events = sorted(
-        (event for line in lines if (event := _event(line, session))), key=lambda e: e.at
-    )
-    found: list[_Ran] = []
-    for event in events:
-        if event.event == "workflow" and (workflow := event.text("workflow")):
-            run = Run(
-                event.fields["session"],
-                event.at,
-                workflow,
-                event.text("argument") or "",
-                event.branch,
-            )
-            found.append(_Ran(run, (event.branch,)))
-        elif session is not None and found and event.branch not in found[-1].branches:
-            found[-1] = _Ran(found[-1].run, (*found[-1].branches, event.branch))
+        handle, stat = opened
+        if known and (stat.st_size, stat.st_mtime_ns) == (known.end, known.written):
+            return known.runs
+        identity = _identity(handle, stat)
+        on = known is not None and known.file == identity and known.end <= stat.st_size
+        start = known.end if known and on else 0
+        handle.seek(start)
+        data = handle.read(stat.st_size - start)
+    complete = data[: data.rfind(b"\n") + 1]
+    events = (event for line in complete.split(b"\n") if (event := _event(line, session)))
+    new = [mark for event in events if (mark := _mark(event)).run or session is not None]
+    marks = tuple(sorted((*(known.marks if known and on else ()), *new), key=lambda m: m.at))
+    found = _runs_from(marks, follow=session is not None)
+    logged = _Logged(identity, start + len(complete), stat.st_mtime_ns, marks, found)
     with _RUNS_GUARD:
         if len(_RUNS) >= READINGS_KEPT:
             _RUNS.clear()
-        _RUNS[file] = (seen, found)
-    return found
+        _RUNS[file] = logged
+    return logged.runs
+
+
+def _mark(event: _Event) -> _Mark:
+    workflow = event.text("workflow") if event.event == "workflow" else None
+    run = None
+    if workflow:
+        argument = event.text("argument") or ""
+        run = Run(event.fields["session"], event.at, workflow, argument, event.branch)
+    return _Mark(event.at, event.branch, run)
+
+
+def _runs_from(marks: Iterable[_Mark], *, follow: bool) -> list[_Ran]:
+    """The runs `marks` start, by their time, each with the branches its session went on to
+    until its next run when `follow`, else with the branch it started on."""
+    found: list[tuple[Run, _Seen]] = []
+    for mark in marks:
+        if mark.run:
+            found.append((mark.run, ((mark.branch, mark.at, mark.at),)))
+        elif follow and found:
+            run, seen = found[-1]
+            found[-1] = (run, _seen_with(seen, mark.branch, mark.at, mark.at))
+    return [_Ran(run, _branches(seen)) for run, seen in found]
+
+
+def _seen_with(seen: _Seen, branch: str | None, first: datetime, last: datetime) -> _Seen:
+    """`seen`, with `branch` seen from `first` to `last`."""
+    for index, (known, was_first, was_last) in enumerate(seen):
+        if known == branch:
+            widened = (branch, min(first, was_first), max(last, was_last))
+            changed = (*seen[:index], widened, *seen[index + 1 :])
+            return tuple(sorted(changed, key=lambda each: each[1]))
+    return tuple(sorted((*seen, (branch, first, last)), key=lambda each: each[1]))
+
+
+def _seen_from(seen: _Seen, at: datetime, branch: str | None) -> _Seen:
+    """Where the session has been since a workflow started at `at` on `branch`, from `seen`: its
+    own branch first, then each seen since, one also seen before it as if first seen at `at`.
+    Hooks finish in any order, so a workflow may come to be read after what followed it."""
+    since: _Seen = ((branch, at, at),)
+    for other, first, last in seen:
+        if last >= at:
+            since = _seen_with(since, other, max(first, at), last)
+    return since
+
+
+def _branches(seen: _Seen) -> tuple[str | None, ...]:
+    return tuple(branch for branch, _, _ in seen)
+
+
+def _first_belonging(
+    branches: Iterable[str | None], pages: dict[str, tuple[str, str]]
+) -> tuple[str, str] | None:
+    """(name, page file) of the requirement of the first of `branches` that belongs to one: what
+    a workflow that named none was for, as `/implement` starts on the default branch and then
+    makes its own."""
+    found = (_belongs(branch, pages) for branch in branches)
+    return next((named for named in found if named), None)
 
 
 def _run_was_for(
     repository: Repository, ran: _Ran, pages: dict[str, tuple[str, str]]
 ) -> str | None:
     """The name of the requirement `ran` was for, if it can be told."""
-    if ran.run.argument and (named := _named(repository, ran.run.argument, pages)):
-        return named[0]
-    found = (_belongs(branch, pages) for branch in ran.branches)
-    return next((named[0] for named in found if named), None)
+    argument = ran.run.argument
+    named = _named(repository, argument, pages) if argument else None
+    named = named or _first_belonging(ran.branches, pages)
+    return named[0] if named else None
 
 
 def _event(line: bytes, session: str | None) -> _Event | None:
@@ -542,7 +630,7 @@ def _session(
     belongs = _belongs(latest.branch, pages)
     requirement, page = named or belongs or (None, None)
     workflow, workflow_at = reading.workflow, reading.workflow_at
-    if not named and _workflow_was_for(reading, pages) != belongs:
+    if not named and _first_belonging(_branches(reading.workflow_seen), pages) != belongs:
         workflow = workflow_at = None  # it was for other work, before the session moved on
     return Session(
         id=session,
@@ -568,16 +656,6 @@ def _session(
 def _belongs(branch: str | None, pages: dict[str, tuple[str, str]]) -> tuple[str, str] | None:
     """(name, page file) of the requirement `branch` belongs to, if it belongs to one."""
     return pages.get(branch.rpartition("/")[2]) if branch else None
-
-
-def _workflow_was_for(
-    reading: _Reading, pages: dict[str, tuple[str, str]]
-) -> tuple[str, str] | None:
-    """(name, page file) of the requirement a workflow that named none was for: that of the first
-    branch the session was on from its start that belongs to one, as `/implement` starts on the
-    default branch and then makes its own."""
-    found = (_belongs(branch, pages) for branch in reading.workflow_branches)
-    return next((named for named in found if named), None)
 
 
 def _named(

@@ -385,3 +385,37 @@ def test_a_history_that_leads_outside_the_git_folder_is_never_read(
     ).rename(tmp_path / "elsewhere.jsonl")
     (repo.primary_path / ".git" / "repocop" / "history.jsonl").symlink_to(elsewhere)
     assert sessions.runs(repo, settings, "bulk-import") == []
+
+
+def test_a_workflow_that_lands_after_a_later_move_keeps_where_its_session_went(
+    settings: Settings, repo: Repository
+) -> None:
+    add_requirement(repo.primary_path, "plants.md")
+    write(repo, {"event": "moved", "ago": 3, "branch": "plants"})
+    write(repo, {"event": "turn-finished", "ago": 1, "branch": "plants"})
+    assert only(settings, repo).requirement == "plants"  # read up to here
+    write(repo, {"event": "workflow", "ago": 4, "workflow": "implement", "argument": "plants"})
+    found = only(settings, repo)
+    assert (found.requirement, found.workflow) == ("plants", "implement")
+    assert [run.workflow for run in sessions.runs(repo, settings, "plants")] == ["implement"]
+
+
+def test_a_requirements_runs_follow_their_logs_as_they_grow_whatever_order_lines_land_in(
+    settings: Settings, repo: Repository
+) -> None:
+    add_requirement(repo.primary_path, "plants.md")
+    add_requirement(repo.primary_path, "search.md")
+    write(repo, {"event": "workflow", "ago": 9, "workflow": "review-branch", "branch": "search"})
+    assert [run.workflow for run in sessions.runs(repo, settings, "search")] == ["review-branch"]
+    write(
+        repo,
+        {"event": "moved", "ago": 3, "branch": "plants"},
+        {"event": "workflow", "ago": 5, "workflow": "implement", "argument": "plants"},
+    )
+    assert [run.workflow for run in sessions.runs(repo, settings, "plants")] == ["implement"]
+    assert [run.workflow for run in sessions.runs(repo, settings, "search")] == ["review-branch"]
+    log = write(repo)
+    log.write_text("")  # written anew
+    write(repo, {"event": "workflow", "ago": 1, "workflow": "implement", "branch": "search"})
+    assert [run.workflow for run in sessions.runs(repo, settings, "search")] == ["implement"]
+    assert sessions.runs(repo, settings, "plants") == []

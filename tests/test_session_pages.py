@@ -368,7 +368,20 @@ def test_a_history_says_when_the_default_branchs_hook_doesnt_keep_it_yet(
     client: TestClient, registered: Path
 ) -> None:
     lasts = "only as long as their session's log"
+    assert lasts not in history_section(client.get(PAGE).text)  # no hook there at all
     put_the_recorder_on_origin(registered)
     assert lasts in history_section(client.get(PAGE).text)
     put_the_recorder_on_origin(registered, hook_says='history="$common/repocop/history.jsonl"')
     assert lasts not in history_section(client.get(PAGE).text)
+
+
+def test_asking_a_session_fetched_again_makes_only_the_git_call_its_workflows_need(
+    client: TestClient, skilled: Path, git_calls: Callable[[], list[list[str]]]
+) -> None:
+    record(skilled, {"event": "turn-finished", "branch": "bulk-import"})
+    client.get(PAGE)
+    before = len(git_calls())
+    assert ask_section(client.get(f"{PAGE}/asks").text)
+    checks = (["rev-parse", "--show-toplevel"], ["remote", "get-url"])  # that it's the checkout
+    beyond = [call for call in git_calls()[before:] if call[:2] not in checks]
+    assert len(beyond) == 1  # the committed workflows, read once
