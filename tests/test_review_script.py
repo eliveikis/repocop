@@ -76,9 +76,9 @@ def test_review_runs_codex_read_only_with_no_approvals(
 ) -> None:
     review(checkout)
     (call,) = fake_codex.reviews
-    assert call["args"] == [
+    *options, instructions = call["args"]
+    assert options == [
         "review",
-        "--base=origin/main",
         "-c",
         'sandbox_mode="read-only"',
         "-c",
@@ -86,14 +86,27 @@ def test_review_runs_codex_read_only_with_no_approvals(
         "-c",
         'model_reasoning_effort="high"',
     ]
+    merge_base = run_git("rev-parse", "origin/main", cwd=checkout)
+    assert "base branch 'origin/main'" in instructions
+    assert f"`git diff {merge_base}`" in instructions and "requirement" not in instructions
     assert call["cwd"] == str(checkout) and call["input_closed"] is True
 
 
-def test_review_takes_another_base_effort_and_model(checkout: Path, fake_codex: FakeCodex) -> None:
-    review(checkout, "main", env={"REVIEW_EFFORT": "xhigh", "REVIEW_MODEL": "gpt-6-sol"})
-    review(checkout, env={"REVIEW_EFFORT": ""})
+def test_review_takes_a_requirement_another_base_effort_and_model(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
+    requirement = "specs/changes/todo/bulk-import.md"
+    (checkout / requirement).parent.mkdir(parents=True)
+    (checkout / requirement).write_text("## Requirement\n")
+    run_git("add", requirement, cwd=checkout)
+    run_git("commit", "-qm", "Add the requirement", cwd=checkout)
+    env = {"REVIEW_EFFORT": "xhigh", "REVIEW_MODEL": "gpt-6-sol"}
+    review(checkout, requirement, "main", env=env)
+    review(checkout, "main", requirement, env={"REVIEW_EFFORT": ""})
     named, blank = (call["args"] for call in fake_codex.reviews)
-    assert "--base=main" in named
+    for args in (named, blank):
+        assert "base branch 'main'" in args[-1]
+        assert args[-1].endswith(f"The changes deliver the requirement in {requirement}.")
     assert 'model_reasoning_effort="xhigh"' in named and 'review_model="gpt-6-sol"' in named
     assert not any("model_reasoning_effort" in arg for arg in blank)
 
@@ -105,10 +118,22 @@ def test_review_runs_from_anywhere_in_the_checkout(checkout: Path, fake_codex: F
     assert fake_codex.reviews[0]["cwd"] == str(checkout)
 
 
-def test_review_refuses_a_base_that_is_not_there(checkout: Path, fake_codex: FakeCodex) -> None:
-    result = review(checkout, "origin/nope")
-    assert result.returncode != 0
-    assert "origin/nope isn't here" in result.stderr
+def test_review_refuses_a_base_or_requirement_that_is_not_there(
+    checkout: Path, fake_codex: FakeCodex
+) -> None:
+    (checkout / "draft.md").write_text("never committed\n")
+    (checkout / ".git" / "info" / "exclude").write_text("draft.md\n")
+    (checkout.parent / "outside.md").write_text("not in the checkout\n")
+    refusals = {
+        ("origin/nope",): "origin/nope isn't here",
+        ("specs/changes/todo/nope.md",): "nope.md isn't a file committed here",
+        ("draft.md",): "draft.md isn't a file committed here",
+        ("../outside.md",): "../outside.md isn't a file committed here",
+        ("main", "origin/main"): "Name one base and one requirement at most",
+    }
+    for args, reason in refusals.items():
+        result = review(checkout, *args)
+        assert result.returncode != 0 and reason in result.stderr, (args, result.stderr)
     assert fake_codex.reviews == [] and saved(checkout) == []
 
 
