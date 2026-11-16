@@ -1,0 +1,105 @@
+#!/usr/bin/env python3
+"""Stands in for the Claude Code CLI in tests, as the facts in `specs/evals.md` describe it.
+
+A run's environment keeps only HOME of what a test sets, so the fake keeps its state in
+$HOME/.fake-claude, and fails without it, so a test that didn't ask for the fake can't reach
+Claude Code. `calls.jsonl` gets each call's arguments, working directory, environment and
+input. `--version` answers as 2.1.282 does, and `--help` lists the options a run uses, but any
+named in `lacks`;
+`auth status --json` says the user is signed in with a subscription, unless `auth.json` holds
+another answer.
+
+A session (`-p`) takes the next plan in `plans.jsonl`, or the last again once they run out: it
+reports the hooks the plan names, then its `system`/`init` event, with the repository's own
+skills and the plan's, runs each of the plan's shell commands in its working directory as the
+agent's Bash tool calls, and ends with the plan's reply and a `result` event. A plan's `model`,
+`skills`, `mcp_servers`, `hooks`, `commands`, `reply`, `error`, `api_error_status` and `exit`
+change what it reports.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+VERSION = "2.1.282"
+OPTIONS = (
+    "--effort", "--include-hook-events", "--model", "--no-session-persistence",
+    "--output-format", "--permission-mode", "--permission-prompts", "--setting-sources",
+    "--settings", "--strict-mcp-config", "--verbose",
+)
+BUILT_IN_SKILLS = ["simplify", "code-review"]
+BUILT_IN_AGENTS = ["claude", "Explore", "general-purpose", "Plan"]
+
+state = Path(os.environ.get("HOME", "/nonexistent")) / ".fake-claude"
+if not state.is_dir():
+    sys.exit("the default test suite never calls Claude Code; use the fake_claude fixture")
+args = sys.argv[1:]
+prompt = sys.stdin.read() if "-p" in args else None
+call = {"args": args, "cwd": str(Path.cwd()), "env": dict(os.environ), "input": prompt}
+with (state / "calls.jsonl").open("a") as log:
+    log.write(json.dumps(call) + "\n")
+
+
+def emit(event: dict) -> None:
+    print(json.dumps(event), flush=True)
+
+
+if args == ["--version"]:
+    print(f"{VERSION} (Claude Code)")
+elif args == ["--help"]:
+    lacking = (state / "lacks").read_text().split() if (state / "lacks").exists() else []
+    print("Usage: claude [options] [command] [prompt]\n\nOptions:")
+    print("\n".join(f"  {option}" for option in OPTIONS if option not in lacking))
+elif args[:2] == ["auth", "status"]:
+    answer = state / "auth.json"
+    if answer.exists():
+        print(answer.read_text())
+    else:
+        home = os.environ["HOME"]
+        print(json.dumps({"loggedIn": True, "authMethod": "claude.ai", "configDirectory": f"{home}/.claude"}))
+elif "-p" in args:
+    plans = [json.loads(line) for line in (state / "plans.jsonl").read_text().splitlines()]
+    taken = int((state / "taken").read_text()) if (state / "taken").exists() else 0
+    (state / "taken").write_text(str(taken + 1))
+    plan = plans[min(taken, len(plans) - 1)]
+    if "exit" in plan:
+        sys.exit(plan["exit"])
+    for hook in plan.get("hooks", ["SessionStart"]):
+        emit({"type": "system", "subtype": "hook_started", "hook_name": hook, "hook_event": hook})
+    skills = Path(".claude/skills")
+    own = sorted(p.name for p in skills.iterdir()) if skills.is_dir() else []
+    emit({
+        "type": "system", "subtype": "init", "cwd": str(Path.cwd()),
+        "model": plan.get("model", "claude-opus-5-5"), "claude_code_version": VERSION,
+        "skills": own + BUILT_IN_SKILLS + plan.get("skills", []),
+        "slash_commands": own + BUILT_IN_SKILLS + ["clear", "compact"],
+        "agents": BUILT_IN_AGENTS,
+        "plugins": [{"name": "agents-md", "path": "builtin", "source": "agents-md@builtin"}],
+        "mcp_servers": [{"name": name, "status": "connected"} for name in plan.get("mcp_servers", [])],
+        "output_style": "default",
+    })
+    for n, command in enumerate(plan.get("commands", [])):
+        emit({"type": "assistant", "parent_tool_use_id": None, "message": {"content": [
+            {"type": "tool_use", "id": f"tool-{n}", "name": "Bash", "input": {"command": command}},
+        ]}})
+        done = subprocess.run(["sh", "-c", command], capture_output=True, text=True, check=False)
+        emit({"type": "user", "parent_tool_use_id": None, "message": {"content": [
+            {"type": "tool_result", "tool_use_id": f"tool-{n}", "is_error": done.returncode != 0,
+             "content": done.stdout + done.stderr},
+        ]}})
+    reply = plan.get("reply", "Done.")
+    emit({"type": "assistant", "parent_tool_use_id": None, "message": {"content": [{"type": "text", "text": reply}]}})
+    steps = len(plan.get("commands", [])) + 1
+    emit({
+        "type": "result", "subtype": plan.get("error", "success"),
+        "is_error": "error" in plan or "api_error_status" in plan,
+        "api_error_status": plan.get("api_error_status"), "result": reply,
+        "num_turns": steps, "duration_ms": 1000 * steps, "total_cost_usd": 0.01 * steps,
+        "usage": {"input_tokens": 10 * steps, "output_tokens": 20 * steps,
+                  "cache_creation_input_tokens": 30 * steps, "cache_read_input_tokens": 40 * steps},
+        "permission_denials": [],
+    })
+else:
+    sys.exit(f"fake claude: unsupported command: {' '.join(args)}")

@@ -15,7 +15,9 @@ Read these first. Every change is judged against them.
 
 Optional. Add a `specs/<area>.md` when a feature earns its own design page, and link it here.
 
-_None yet._
+| File | Answers |
+|------|---------|
+| [evals.md](evals.md) | **Agent evals:** how a change to the repo template is shown to make agents do the work better or worse, and the facts about Claude Code they rely on |
 
 ## Decision records
 

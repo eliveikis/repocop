@@ -1,11 +1,10 @@
-"""Claude Code, the agent a run uses: whether it's ready, how a run's session is started and
-driven, and what its transcript says. The facts about the CLI this relies on are in
-`specs/evals.md`, under Claude Code, which `tests/fakes/bin/claude` keeps in step with.
+"""Claude Code, the agent a run uses: whether it's ready, how a run's session is started, and
+what its transcript says. The facts about the CLI this relies on are in `specs/evals.md`, under
+Claude Code, which `tests/fakes/bin/claude` keeps in step with.
 
-A run is one headless session that takes all of its turns, each sent once the previous turn's
-`result` event arrives. It loads only its repository's own settings and instructions, and the
-skills, tools and agents Anthropic ships with Claude Code; whatever would prompt for permission
-is denied.
+A run is one headless session on one prompt. It loads only its repository's own settings and
+instructions, and the skills, tools and agents Anthropic ships with Claude Code; whatever would
+prompt for permission is denied.
 """
 
 from __future__ import annotations
@@ -13,29 +12,25 @@ from __future__ import annotations
 import contextlib
 import json
 import os
-import queue
 import shutil
 import signal
 import subprocess
 import tempfile
 import threading
-import time
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import IO, Any
+from typing import Any
 
 from evals.errors import EvalError
 
 PROGRAM = "claude"
 CHECK_TIMEOUT_S = 60.0  # how long asking Claude Code its version or sign-in may take
-CLOSE_TIMEOUT_S = 60.0  # how long a session may take to end once its last turn has
 STOP_GRACE_S = 5.0
-# How every run's session starts. Each option is one Claude Code must offer.
+# How every run's session starts, with its prompt on standard input. Each option is one Claude
+# Code must offer.
 SESSION = (
     "-p",
-    "--input-format",
-    "stream-json",
     "--output-format",
     "stream-json",
     "--verbose",
@@ -52,7 +47,7 @@ SESSION = (
 OPTIONS = (*(arg for arg in SESSION if arg.startswith("--")), "--settings", "--model", "--effort")
 SUBSCRIPTION = "claude.ai"  # the sign-in method of a Claude subscription
 BUILT_IN_PLUGIN = "@builtin"  # how the source of a plugin that ships with Claude Code ends
-USAGE_LIMIT = "usage limit"  # how a turn the service cut short at a usage limit reads
+USAGE_LIMIT = "usage limit"  # how a run the service cut short at a usage limit reads
 
 
 def check_ready(env: Mapping[str, str]) -> str:
@@ -119,144 +114,99 @@ def own_settings(repo: Path) -> dict[str, Any]:
 
 
 @dataclass
-class TurnEnd:
-    """How one turn went: its events, and its `result` event unless it timed out or Claude Code
-    ended first."""
+class SessionEnd:
+    """How a run's session went: its events, its `result` event unless it timed out or Claude
+    Code ended without one, and Claude Code's exit code unless it timed out."""
 
     events: list[dict[str, Any]] = field(default_factory=list)
     result: dict[str, Any] | None = None
     timed_out: bool = False
-    exit_code: int | None = None  # set when Claude Code ended before the turn did
+    exit_code: int | None = None
 
 
-class Session:
-    """One headless Claude Code session, which takes a run's turns one after another. Every line
-    it writes goes to `transcript` as it comes, beside a line marking where each turn starts."""
-
-    def __init__(
-        self, args: Sequence[str], cwd: Path, env: Mapping[str, str], transcript: Path, stderr: Path
-    ) -> None:
-        self._transcript = transcript.open("a", encoding="utf-8")
-        self._stderr = stderr.open("wb")
-        self._proc = subprocess.Popen(
+def session(
+    args: Sequence[str],
+    prompt: str,
+    *,
+    cwd: Path,
+    env: Mapping[str, str],
+    transcript: Path,
+    stderr: Path,
+    timeout: float,
+) -> SessionEnd:
+    """Run one headless session on `prompt`, given on its standard input, and wait at most
+    `timeout` seconds for it to end: one that takes longer is stopped, with everything it
+    started. Every line it writes goes to `transcript` as it comes."""
+    end = SessionEnd()
+    with transcript.open("w", encoding="utf-8") as log, stderr.open("wb") as errors:
+        proc = subprocess.Popen(
             list(args),
             cwd=cwd,
             env=dict(env),
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
-            stderr=self._stderr,
+            stderr=errors,
             text=True,
             encoding="utf-8",
             errors="replace",
             start_new_session=True,  # its own process group, so stopping it stops its tools too
         )
-        self._lines: queue.Queue[str | None] = queue.Queue()
-        self._reader = threading.Thread(target=self._read, args=(self._proc.stdout,), daemon=True)
-        self._reader.start()
-        self._turns = 0
-
-    def turn(self, prompt: str, *, timeout: float) -> TurnEnd:
-        """Send one turn and wait for its `result`, at most `timeout` seconds. A turn that times
-        out stops the session."""
-        self._turns += 1
-        self._note({"type": "eval", "turn": self._turns, "prompt": prompt})
-        end = TurnEnd()
-        message = {"type": "user", "message": {"role": "user", "content": prompt}}
+        timer = threading.Timer(timeout, _expire, (proc, end))
+        timer.start()
         try:
-            stdin = self._stdin()
-            stdin.write(json.dumps(message) + "\n")
-            stdin.flush()
-        except OSError:
-            end.exit_code = self._proc.wait()
-            return end
-        deadline = time.monotonic() + timeout
-        while (left := deadline - time.monotonic()) > 0:
-            try:
-                line = self._lines.get(timeout=left)
-            except queue.Empty:
-                break
-            if line is None:
-                end.exit_code = self._proc.wait()
-                return end
-            event = _event(line)
-            if event is None:
-                continue
-            end.events.append(event)
-            if event.get("type") == "result":
-                end.result = event
-                return end
-        end.timed_out = True
-        self.stop()
-        return end
+            if proc.stdin is not None and proc.stdout is not None:  # both pipes, so never None
+                with contextlib.suppress(OSError):  # it may end before reading its prompt
+                    proc.stdin.write(prompt + "\n")
+                    proc.stdin.close()
+                for line in proc.stdout:
+                    log.write(line)
+                    log.flush()
+                    if (event := _event(line)) is not None:
+                        end.events.append(event)
+                        if event.get("type") == "result":
+                            end.result = event
+            proc.wait()
+        finally:
+            timer.cancel()
+            if proc.poll() is None:
+                _stop(proc)
+    if not end.timed_out:
+        end.exit_code = proc.returncode
+    return end
 
-    def close(self) -> None:
-        """End the session once its last turn has, and stop it if it doesn't end soon."""
-        with contextlib.suppress(OSError):
-            self._stdin().close()
+
+def _expire(proc: subprocess.Popen[str], end: SessionEnd) -> None:
+    end.timed_out = True
+    _stop(proc)
+
+
+def _stop(proc: subprocess.Popen[str]) -> None:
+    """End Claude Code and everything it started: asked first, then forced."""
+    for sig, grace in ((signal.SIGTERM, STOP_GRACE_S), (signal.SIGKILL, None)):
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(proc.pid, sig)
         try:
-            self._proc.wait(timeout=CLOSE_TIMEOUT_S)
+            proc.wait(timeout=grace)
+            return
         except subprocess.TimeoutExpired:
-            self.stop()
-        self._finish()
-
-    def stop(self) -> None:
-        """End Claude Code and everything it started: asked first, then forced."""
-        for sig, grace in ((signal.SIGTERM, STOP_GRACE_S), (signal.SIGKILL, None)):
-            with contextlib.suppress(ProcessLookupError):
-                os.killpg(self._proc.pid, sig)
-            try:
-                self._proc.wait(timeout=grace)
-                break
-            except subprocess.TimeoutExpired:
-                continue
-        self._finish()
-
-    def __enter__(self) -> Session:
-        return self
-
-    def __exit__(self, *exc: object) -> None:
-        if self._proc.poll() is None:
-            self.stop()
-        self._finish()
-
-    def _stdin(self) -> IO[str]:
-        if self._proc.stdin is None:  # never: it is a pipe
-            raise OSError("the session has no input")
-        return self._proc.stdin
-
-    def _read(self, stdout: IO[str] | None) -> None:
-        for line in stdout or ():
-            self._transcript.write(line if line.endswith("\n") else line + "\n")
-            self._transcript.flush()
-            self._lines.put(line)
-        self._lines.put(None)
-
-    def _note(self, event: dict[str, Any]) -> None:
-        self._transcript.write(json.dumps(event) + "\n")
-        self._transcript.flush()
-
-    def _finish(self) -> None:
-        self._reader.join(timeout=STOP_GRACE_S)
-        for file in (self._transcript, self._stderr):
-            if not file.closed:
-                file.close()
+            continue
 
 
 # What a transcript says.
 
 
 def inits(events: Sequence[dict[str, Any]]) -> Iterator[dict[str, Any]]:
-    """The `system`/`init` events, one each turn, which say what the session loaded."""
+    """The `system`/`init` events, which say what the session loaded and its model."""
     return (e for e in events if e.get("type") == "system" and e.get("subtype") == "init")
 
 
 def models(events: Sequence[dict[str, Any]]) -> set[str]:
-    """The models the turns ran on."""
+    """The models the session ran on."""
     return {e["model"] for e in inits(events) if isinstance(e.get("model"), str)}
 
 
 def versions(events: Sequence[dict[str, Any]]) -> set[str]:
-    """The Claude Code versions the turns ran on."""
+    """The Claude Code versions the session ran on."""
     return {v for e in inits(events) if isinstance(v := e.get("claude_code_version"), str)}
 
 
@@ -269,8 +219,8 @@ def first_shell_command(events: Sequence[dict[str, Any]]) -> str | None:
     return None
 
 
-def reply(end: TurnEnd) -> str | None:
-    """The turn's last reply: what its `result` says, or else the agent's last text."""
+def reply(end: SessionEnd) -> str | None:
+    """The agent's last reply: what its `result` says, or else the agent's last text."""
     if end.result is not None and isinstance(text := end.result.get("result"), str):
         return text
     texts = [b["text"] for b in _blocks(end.events, "assistant") if b.get("type") == "text"]
@@ -284,18 +234,18 @@ def tool_errors(events: Sequence[dict[str, Any]]) -> int:
     )
 
 
-def cut_short_by_service(end: TurnEnd) -> str | None:
-    """Why the service, not the agent, ended the turn, as at a usage limit or in an outage, or
+def cut_short_by_service(end: SessionEnd) -> str | None:
+    """Why the service, not the agent, ended the run, as at a usage limit or in an outage, or
     None when it didn't."""
     for event in end.events:
         info = event.get("rate_limit_info") if event.get("type") == "rate_limit_event" else None
         if isinstance(info, dict) and info.get("status") == "rejected":
-            return f"the service refused the turn at a usage limit ({info.get('rateLimitType')})"
+            return f"the service refused the run at a usage limit ({info.get('rateLimitType')})"
     result = end.result or {}
     if result.get("api_error_status") is not None:
-        return f"the service failed the turn (HTTP {result['api_error_status']})"
+        return f"the service failed the run (HTTP {result['api_error_status']})"
     if result.get("is_error") and USAGE_LIMIT in str(result.get("result", "")).lower():
-        return "the service refused the turn at a usage limit"
+        return "the service refused the run at a usage limit"
     return None
 
 

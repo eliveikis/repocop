@@ -216,14 +216,6 @@ def build(folder: Path, case: Case, side: Side) -> Path:
     return repo
 
 
-def refs(repo: Path, env: Mapping[str, str]) -> str:
-    """The repository's HEAD commit and branches: `<commit> HEAD`, then `<commit> <ref>` for each
-    branch, a line each."""
-    head = git(repo, "rev-parse", "HEAD", env=env)
-    branches = git(repo, "for-each-ref", "--format=%(objectname) %(refname)", "refs/heads", env=env)
-    return f"{head} HEAD\n{branches}\n"
-
-
 def state(repo: Path, env: Mapping[str, str]) -> str:
     """A record of the repository's final state: its branches, their commits and what's
     uncommitted."""

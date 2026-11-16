@@ -61,6 +61,10 @@ make run                                       # → http://127.0.0.1:8765
 
 Every onboarded repository gets `.reviews/review.sh`, which runs Codex's own review of the current branch, read-only. Its header says how to call it and where it saves the review. In a Claude Code session there, `/address-review` then addresses the latest saved review of the branch.
 
+## Agent evals
+
+When you change the repo template's skills, rules or settings, an eval shows whether agents do the work better or worse for it. It gives Claude Code the same small tasks several times, once with the template before your change and once after it, each time in a throwaway repository, and shows how the two did side by side. It's a tool for developing the template here: RepoCop itself never runs it. [evals/README.md](evals/README.md) says how to run one and read its results.
+
 ## Development
 
 `make help` lists the commands, and `make check` is what CI runs. The repo is set up for coding agents: [CLAUDE.md](CLAUDE.md), path-scoped rules in [.claude/rules/](.claude/rules/), and workflow skills in [.claude/skills/](.claude/skills/). [REVIEW.md](REVIEW.md) says what a review checks and skips, and [AGENTS.md](AGENTS.md) points other agents, such as Codex, at all of it. This repo follows the same specs and skills convention it brings to other repositories.

@@ -5,7 +5,7 @@ again after each run, so an interrupted eval keeps what finished."""
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -75,8 +75,8 @@ def _case(
     by_side = {side.name: [r for r in runs if r.side == side.name] for side in info.sides}
     names = list(by_side)
 
-    def row(label: str, cell: object) -> str:
-        cells = [cell(by_side[name]) if callable(cell) else cell for name in names]
+    def row(label: str, cell: Callable[[Sequence[Run]], object]) -> str:
+        cells = [cell(by_side[name]) for name in names]
         return f"| {label} | " + " | ".join(str(c) for c in cells) + " |"
 
     def of(rs: Sequence[Run], value: str, unit: str = "") -> str:
@@ -95,18 +95,10 @@ def _case(
         row("Invalid", lambda rs: sum(bool(r.invalid_reasons(model)) for r in rs)),
         row("Agent steps (median)", lambda rs: of(rs, "steps")),
         row("Duration (median)", lambda rs: of(rs, "duration_ms", "ms")),
-        *(row(f"Tokens, {kind} (median)", lambda rs, k=kind: of(rs, k)) for kind in TOKENS),
+        *(row(f"Tokens, {kind} (median)", _median_of(of, kind)) for kind in TOKENS),
         row("Permission denials (median)", lambda rs: of(rs, "denials")),
         row("Errors (median)", lambda rs: of(rs, "errors")),
-        *(
-            row(
-                o.label,
-                lambda rs, label=o.label: (
-                    f"{sum(r.observed.get(label, False) for r in rs)} of {len(rs)}"
-                ),
-            )
-            for o in case.observations
-        ),
+        *(row(o.name, _showed(o.name)) for o in case.observations),
         "",
         "| Run | Outcome | Steps | Duration | Tokens: input / output / cache writes / reads "
         "| Denials | Errors | Observed | |",
@@ -116,13 +108,32 @@ def _case(
         tokens = " / ".join(f"{r.tokens.get(kind, 0):,}" for kind in TOKENS)
         observed = "; ".join(label for label, seen in r.observed.items() if seen) or "-"
         base = r.folder.relative_to(folder).as_posix()
-        links = f"[transcript]({base}/transcript.jsonl) · [final state]({base}/state.md)"
+        links = " · ".join(
+            f"[{name}]({base}/{file})"
+            for name, file in (
+                ("transcript", "transcript.jsonl"),
+                ("start", "start.md"),
+                ("end", "end.md"),
+            )
+        )
         lines.append(
             f"| {r.side} {r.number} | {_cell(_outcome(r, model))} | {r.steps} "
             f"| {_duration(r.duration_ms)} | {tokens} | {r.denials} | {r.errors} "
             f"| {_cell(observed)} | {links} |"
         )
     return lines
+
+
+def _median_of(
+    of: Callable[[Sequence[Run], str], str], value: str
+) -> Callable[[Sequence[Run]], str]:
+    """The median of one of a side's numbers, as the summary shows it."""
+    return lambda rs: of(rs, value)
+
+
+def _showed(observation: str) -> Callable[[Sequence[Run]], str]:
+    """How many of a side's runs showed an observation."""
+    return lambda rs: f"{sum(r.observed.get(observation, False) for r in rs)} of {len(rs)}"
 
 
 def _outcome(run: Run, model: str | None) -> str:

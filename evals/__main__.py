@@ -8,7 +8,7 @@ Before is the default branch on `origin` as last fetched, and after the working 
 uncommitted changes included, unless a ref is named. Each case runs `--runs` times (5) on each
 side, one run at a time, alternating sides, with the same model and effort on both: Claude
 Code's defaults unless named. It exits 0 only when every case passes on the after side, 1 when
-one doesn't, and 2 when the eval refuses to run, saying why.
+one doesn't, 2 when the eval refuses to run, saying why, and 130 when it is interrupted.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def _run(args: argparse.Namespace, root: Path, results: Path) -> int:
     version = agent.check_ready(env)
     own = agent.Own.read(agent.config_folder(env))
     for past in workspace.remove_past():
-        print(f"Removed {past}, which a past eval left")
+        _say(f"Removed {past}, which a past eval left")
     snapshots = workspace.private_folder()
     sides = (
         workspace.Side(
@@ -80,12 +80,12 @@ def _run(args: argparse.Namespace, root: Path, results: Path) -> int:
     folder = results / started
     folder.mkdir(parents=True)
     report = folder / "summary.md"
-    print(
+    _say(
         f"The eval makes {info.planned} runs: {len(selected)} case(s), {args.runs} on each side, "
         f"one at a time, before: {sides[0].label}, after: {sides[1].label}."
     )
     if info.same_templates:
-        print("Both sides' templates are the same, so what differs between them is noise.")
+        _say("Both sides' templates are the same, so what differs between them is noise.")
     done: list[runs.Run] = []
     summary.write(report, info, done)
     try:
@@ -100,13 +100,13 @@ def _run(args: argparse.Namespace, root: Path, results: Path) -> int:
                     summary.write(report, info, done)
                     model = summary.model_of(done)
                     outcome = "passed" if record.passed(model) else "didn't pass"
-                    print(
+                    _say(
                         f"[{len(done)}/{info.planned}] {case.name}, {side.name} {number}: {outcome}"
                     )
     except KeyboardInterrupt:
-        print(f"Interrupted. What finished is in {report}")
+        _say(f"Interrupted. What finished is in {report}")
         return 130
-    print(f"Summary: {report}")
+    _say(f"Summary: {report}")
     model = summary.model_of(done)
     after_runs = [r for r in done if r.side == "after"]
     passing = all(
@@ -114,6 +114,11 @@ def _run(args: argparse.Namespace, root: Path, results: Path) -> int:
         for case in selected
     )
     return 0 if passing else 1
+
+
+def _say(text: str) -> None:
+    """Tell the developer how the eval goes, a line at a time, even when its output is a file."""
+    print(text, flush=True)
 
 
 @contextlib.contextmanager
@@ -139,14 +144,33 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="make eval ARGS=...", description=__doc__.split("\n\n")[0] if __doc__ else None
     )
-    parser.add_argument("--before", metavar="REF", help="the before side (origin's default branch)")
-    parser.add_argument("--after", metavar="REF", help="the after side (the working tree)")
-    parser.add_argument("--case", metavar="NAME", action="append", default=[], help="a case to run")
     parser.add_argument(
-        "--runs", type=_positive, default=DEFAULT_RUNS, help="runs on each side (5)"
+        "--before",
+        metavar="REF",
+        help="the before side's ref (default: origin's default branch, as last fetched)",
     )
-    parser.add_argument("--model", metavar="NAME", help="the model every run uses")
-    parser.add_argument("--effort", metavar="LEVEL", help="the effort every run uses")
+    parser.add_argument(
+        "--after", metavar="REF", help="the after side's ref (default: the working tree)"
+    )
+    parser.add_argument(
+        "--case",
+        metavar="NAME",
+        action="append",
+        default=[],
+        help="a case to run, again for another (default: every case)",
+    )
+    parser.add_argument(
+        "--runs",
+        type=_positive,
+        default=DEFAULT_RUNS,
+        help="runs of each case on each side (default: 5)",
+    )
+    parser.add_argument(
+        "--model", metavar="NAME", help="the model every run uses (default: Claude Code's)"
+    )
+    parser.add_argument(
+        "--effort", metavar="LEVEL", help="the effort every run uses (default: Claude Code's)"
+    )
     return parser
 
 

@@ -70,7 +70,7 @@ python_version = "3.12"
 strict = true
 warn_unreachable = true
 plugins = ["pydantic.mypy"]
-files = ["repocop", "tests"]
+files = ["repocop", "tests", "evals"]
 
 [[tool.mypy.overrides]]
 module = "tests.*"

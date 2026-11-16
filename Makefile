@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 UV ?= uv
 
-.PHONY: help install run dev test test-cov lint format typecheck check doctor clean
+.PHONY: help install run dev test test-cov lint format typecheck check eval doctor clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -34,6 +34,9 @@ typecheck: ## Static type check
 	$(UV) run mypy
 
 check: lint typecheck test ## Everything CI runs — run before declaring work done
+
+eval: ## Compare how Claude Code does evals/cases/ with the repo template before and after a change (ARGS=--help)
+	$(UV) run python -m evals $(ARGS)
 
 doctor: ## Verify host prerequisites (python, uv, git, and the optional gh)
 	@./scripts/doctor.sh

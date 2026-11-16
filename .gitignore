@@ -39,6 +39,9 @@ data/*
 /*.yaml
 !/*.example.yaml
 
+# Agent eval results, one folder per eval.
+evals/results/
+
 # --- Claude Code ---
 # Personal overrides; the shared .claude/settings.json IS committed.
 .claude/settings.local.json

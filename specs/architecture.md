@@ -27,7 +27,7 @@ flowchart TD
         repos["repositories.py<br/>registry, onboarding, status"]
         board["board.py<br/>each requirement's stage"]
         sync["template_sync.py<br/>plan, commit on a sync branch"]
-        boot["bootstrap.py<br/>repo template: compare with a branch"]
+        boot["bootstrap.py<br/>repo template: compare with a branch, write a file"]
         reqs["requirements.py<br/>read requirement Markdown"]
         wts["worktrees.py<br/>create/remove sync worktrees + guards"]
         git["git.py<br/>ONLY place that runs git"]

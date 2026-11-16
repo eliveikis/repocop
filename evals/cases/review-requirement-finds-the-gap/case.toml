@@ -1,0 +1,7 @@
+# A requirement's acceptance criteria contradict each other: at most 100 users a file, and a
+# 500-user file imported in one go. The review must find it, save a verdict other than yes, and
+# change nothing in the repository.
+
+files = "files"
+prompt = "/review-requirement specs/changes/todo/import-users.md"
+check = "check.sh"

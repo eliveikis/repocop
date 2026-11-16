@@ -1,0 +1,11 @@
+# The working tree holds a change the requirement doesn't explain, so /implement must stop and
+# change nothing: no branch, no commit, no file, and the change left as it was.
+
+files = "files"
+setup = "setup.sh"
+prompt = "/implement specs/changes/todo/feature-a.md"
+check = "check.sh"
+
+[[observations]]
+name = "first shell command was git status"
+first_command = '\bgit\s+status\b'

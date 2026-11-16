@@ -30,7 +30,7 @@ from repocop.main import create_app
 from repocop.services import bootstrap
 from tests.fakes.fake_gh import FakeGh
 
-# First on PATH in every test: holds `gh` and `codex`.
+# First on PATH in every test: holds `gh`, `codex` and `claude`.
 FAKE_BIN = Path(__file__).parent / "fakes" / "bin"
 # The awks the template's scripts must work with: Debian's default, and GNU awk held to POSIX.
 AWKS = {"mawk": ["mawk"], "posix-awk": ["gawk", "--posix"]}
@@ -174,8 +174,8 @@ def _isolated_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
 
     The working directory moves to tmp_path too, so a real ./repocop.yaml can't leak in, and
     Claude Code's variables, such as its socket, are dropped.
-    `gh` and `codex` are the fakes, each of which fails unless the test asked for it with its
-    fixture, `fake_gh` or `fake_codex`.
+    `gh`, `codex` and `claude` are the fakes, each of which fails unless the test asked for it with
+    its fixture, `fake_gh`, `fake_codex` or `fake_claude`.
     """
     monkeypatch.setenv("PATH", f"{FAKE_BIN}{os.pathsep}{os.environ['PATH']}")
     monkeypatch.delenv("FAKE_GH_DIR", raising=False)

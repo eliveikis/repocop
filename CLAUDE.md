@@ -14,6 +14,7 @@ make test        # pytest on every core (add args: make test ARGS=... or: uv run
 make format      # ruff format + safe fixes
 make run         # start RepoCop on http://127.0.0.1:8765 (same as: uv run repocop)
 make doctor      # verify python / uv / git on this host, and the optional gh
+make eval        # run the agent evals with Claude Code, by hand: never part of make check (ARGS=--help)
 ```
 
 Always use `uv run …` (or make). Never call bare `python`, `pip`, or `pytest`.
@@ -31,7 +32,8 @@ repocop/            app package
   routes/  templates/   thin handlers + Jinja
   static/               css, the shell's script, vendored htmx
 templates/default-repo/ the repo template, synced into onboarded repos (NOT Jinja app templates)
-tests/                  hermetic; fixtures in conftest.py; fakes/ (stand-ins for the GitHub CLI, and the Codex CLI the template's review script runs)
+tests/                  hermetic; fixtures in conftest.py; fakes/ (stand-ins for the GitHub CLI, the Codex CLI the template's review script runs, and the Claude Code CLI the evals run)
+evals/                  agent evals of the repo template: the runner, cases/<case>/, and results/ (git-ignored)
 specs/                  index.md, product.md, architecture.md, [<area>.md], decisions/, changes/{todo,archive}/
 ```
 
