@@ -1,0 +1,19 @@
+# The developer prepares a branch for one requirement with the agent, then makes and switches to
+# another branch by hand, and runs /implement with no path: the agent must work from the branch
+# it is on, feature-b, not the one it remembers, feature-a. Claude Code's git status snapshot,
+# taken as the session starts, says main.
+
+files = "files"
+passes = "passes.sh"
+
+[[turns]]
+prompt = "prepare-feature-a.md"
+check = "prepared-feature-a.sh"
+
+[[turns]]
+before = [["git", "switch", "--quiet", "--create", "feature-b", "main"]]
+prompt = "implement.md"
+
+[[observations]]
+turn = 2
+observe = "shows-the-branch.toml"

@@ -54,9 +54,7 @@ def run_git(*args: str, cwd: Path) -> str:
 def write_template(template_dir: Path, checkout: Path, repo_name: str = "sample") -> None:
     """Write every file of the repo template into `checkout`, rendered as a sync writes it."""
     for path in bootstrap.kinds(template_dir):
-        target = checkout / path
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(bootstrap.rendered(template_dir, path, repo_name))
+        bootstrap.write(template_dir, checkout, path, repo_name)
 
 
 def add_requirement(

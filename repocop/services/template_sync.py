@@ -17,7 +17,6 @@ removed only when the user asks.
 
 from __future__ import annotations
 
-import shutil
 import sqlite3
 from collections.abc import Collection
 from enum import StrEnum
@@ -199,7 +198,7 @@ def apply(
             elif action == "delete":
                 (worktree.path / path).unlink()  # a symlink itself, never what it points at
             else:
-                _write(settings.template_dir, worktree.path, path, repository.name)
+                bootstrap.write(settings.template_dir, worktree.path, path, repository.name)
         message = (
             COMMIT_SUBJECT + "\n\n" + "".join(f"- {action} {path}\n" for path, action in picked)
         )
@@ -217,15 +216,6 @@ def _check_inside(worktree: Path, path: str) -> None:
         raise TemplateSyncError(
             f"{path} is outside the worktree (through a symlink), so nothing was written"
         )
-
-
-def _write(template_dir: Path, worktree: Path, path: str, repo_name: str) -> None:
-    target = worktree / path
-    target.parent.mkdir(parents=True, exist_ok=True)
-    if target.is_symlink():
-        target.unlink()  # overwrite the link itself, never whatever it points at
-    target.write_bytes(bootstrap.rendered(template_dir, path, repo_name))
-    shutil.copymode(template_dir / path, target)
 
 
 def _merge(template_dir: Path, worktree: Path, path: str, repo_name: str) -> None:

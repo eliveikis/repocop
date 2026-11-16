@@ -26,6 +26,7 @@ from __future__ import annotations
 import difflib
 import json
 import os
+import shutil
 import tomllib
 from dataclasses import dataclass
 from enum import StrEnum
@@ -184,6 +185,17 @@ def merge(template_dir: Path, path: str, repo_name: str, current: bytes) -> byte
 def rendered(template_dir: Path, path: str, repo_name: str) -> bytes:
     """A template file's bytes as they would be written for `repo_name`."""
     return _render((template_dir / path).read_bytes(), repo_name)
+
+
+def write(template_dir: Path, root: Path, path: str, repo_name: str) -> None:
+    """Write the template's `path`, rendered for `repo_name`, at `path` under `root`, with the
+    template file's mode, making its folders. A symlink there is replaced, never followed."""
+    target = root / path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    if target.is_symlink():
+        target.unlink()
+    target.write_bytes(rendered(template_dir, path, repo_name))
+    shutil.copymode(template_dir / path, target)
 
 
 def _template_files(template_dir: Path) -> list[tuple[str, Kind]]:
