@@ -13,7 +13,7 @@ paths:
 - Autoescaping stays on. Transcripts, diffs and command output render escaped inside `<pre>`. Never `|safe` on data from a repo, a tool or the user.
 - Every state-changing form is a `POST` (or `hx-post`); a `GET` has no side effects.
 - A view that must stay current polls a small fragment endpoint with `hx-trigger="every 2s"`, and stops once what it shows can't change. WebSockets only if demonstrably simpler.
-- What the shell shows costs each page little, whatever the number of repositories and sessions, since it is on every page and refreshes every 2 s: the database and files, never a process started per repository on each page or refresh (`specs/architecture.md` › UI approach).
+- What the shell shows costs each page little, whatever the number of repositories and sessions, since it is on every page and refreshes every 2 s: the database and files, never a process started per repository on each page or refresh (`specs/ui.md` › Staying current).
 - Fragments live in `templates/partials/`; full pages extend `base.html`, the shell: the sidebar, breadcrumbs from the page's `crumbs`, a `toasts` block, the switcher and shortcut dialogs, and the refresh of the page's session lists. Every page but the repository list sets `crumbs`; a long page has section links.
 - Show errors inline where they happened, never swallowed. A confirmation (saved, fetched, removed) is a toast in the `toasts` block, which screen readers announce.
 - Help that explains a section folds under a **How this works** disclosure. An empty state says what to do next and offers the action. Times go through the `ago` filter: relative, with the exact time on hover.

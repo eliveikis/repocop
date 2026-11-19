@@ -1,10 +1,10 @@
-"""Requirements: Markdown files in a repository's primary checkout, named by their files.
+"""Requirements: the Markdown files in a repository's changes folder, named by their files, as
+`specs/requirements.md` states. They are only read here, and the database holds nothing of them
+(invariant 4).
 
-Every Markdown file in the `todo/` folder of the repository's `changes_dir` (default
-`specs/changes`) is a requirement. Its developer writes and commits it in their own editor, and
-RepoCop only reads it. Its file name, without `.md`, is its name, and it has no id. The file is
-its text, with no title heading. The database holds nothing of it (invariant 4). Details:
-"Requirement storage" in `specs/architecture.md`.
+Every Markdown file in the `todo/` folder of the repository's `changes_dir` is a requirement, and
+the `archive/` folder beside it holds the delivered ones. Both are read from disk without git, and
+a file or folder that leads outside the checkout is never read.
 """
 
 from __future__ import annotations

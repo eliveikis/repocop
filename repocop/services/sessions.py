@@ -1,18 +1,22 @@
-"""Sessions: the developer's agent sessions in a repository, read from the logs its sessions write
-("Session events" in `specs/architecture.md`).
+"""Sessions: the developer's agent sessions in a repository, read from the logs their hook writes,
+in the format "The session log" in `specs/sessions.md` states, and what each one shows, by the
+rules there.
 
-Each session appends one JSON line per event to `<git common dir>/repocop/sessions/<id>.jsonl`.
-Hooks finish in any order, so an event's time, when its hook started, orders it, not its place in
-the log. A session shows while it has an event in the past day. Its state comes from its events
-and from whether its process still runs, and its requirement from the workflow it last started or
-else its branch. That workflow shows while the session works on what it was for. Once a
-repository's git common folder is known, reading costs no git call: a log is first read from its
-end back to its latest workflow, at most READ_BACK bytes, then only what is appended to it, and a
-line that can't be read is skipped. A requirement's runs come from the repository's history of
-workflow runs, `<git common dir>/repocop/history.jsonl`, which nothing removes, and from every
-session log, each read again only once it has changed. Any local process can write a log,
-so its path must stay in the folder, it is never read through a link, and what it says is shown
-escaped.
+Each repository's git common folder is asked of git once and kept in memory, so from then on
+reading costs no git call. Each reading lists the logs folder and skips the logs not
+written in SHOWN_FOR, however many the rest are, since a session quiet for hours may still be
+live. A log is first read from its end back to its latest workflow, at most READ_BACK bytes, then
+only what is appended to it, so an unchanged log costs only the look at its size and time that
+the listing took; one that is another file at its path, told by its first IDENTITY_BYTES, or is
+shorter, is read anew. Events are taken in by their time, not their place in the log, and one
+older than the event that last set a field leaves that field as it is. A line that can't be read
+is skipped. A session's process is looked at each time, since it can end without a word, in
+`/proc`, so elsewhere a session that stopped mid-turn can't be told.
+
+A requirement's runs come from the repository's history of workflow runs and from every session
+log, each read whole the first time and then only as far as it was appended to. Any local process
+can write a log or the history, so its path must stay in the folder, it is read only as a regular
+file, never through a link and without waiting on a pipe, and what it says is shown escaped.
 """
 
 from __future__ import annotations

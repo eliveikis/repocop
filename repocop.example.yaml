@@ -12,7 +12,7 @@
 # Where human-owned primary checkouts live / get cloned to.
 repos_root: ~/code
 
-# RepoCop-owned git worktrees live under <worktrees_root>/<repo-name>/ (see specs/architecture.md).
+# RepoCop-owned git worktrees live under <worktrees_root>/<repo-name>/ (see specs/template-sync.md).
 # MUST be outside repos_root and outside every primary checkout.
 worktrees_root: ~/agent-worktrees
 

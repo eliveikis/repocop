@@ -4,6 +4,7 @@
 # on a remote-tracking branch, so pushed history is never rewritten (.claude/rules/commits.md). It
 # checks the repository the session is in, and knows only the pushes and fetches it has seen. An
 # amend that points git elsewhere (cd, -C, a git dir or work tree) can't be checked, so it is refused.
+# It matches the command's text, so a command that only mentions an amend is checked as well.
 input=$(cat)
 
 # The command alone, decoded from the hook's JSON, so line breaks are real and no other field counts.

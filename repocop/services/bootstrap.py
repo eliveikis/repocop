@@ -1,24 +1,14 @@
 """The repo template, and how a repository's branch compares with it.
 
 A sync plan (ADR-006) compares the template's files, rendered, with what a repository has
-committed on a branch, with a diff for each difference. The one placeholder, `{{ repo_name }}`,
-is replaced in text files. A `.gitkeep` only keeps an empty folder in the template, and isn't
-part of it. How a file that exists compares depends on its kind (ADR-021), which the template's
-`template.toml` declares:
+committed on a branch, with a diff for each difference, by each file's kind (ADR-021) and the
+managed marker (ADR-032), as "File kinds" in `specs/template-sync.md` states. The placeholder
+is replaced in text files only, and a `.gitkeep` is left out. The manifest describes the
+template, so it is never copied or listed.
 
-- managed (the default): identical, or differs and can be overwritten;
-- starter: the repository's own once it exists, never offered again;
-- merged (JSON): identical when it has every template entry and value, else it is behind the
-  template, and a merge brings it up to date while keeping what only the repository has.
-
-A managed file carries a marker on its first line after any shebang or front matter, so a file
-the template no longer ships can be told from the repository's own (ADR-032). The branch's
-marked files the template doesn't ship are removed from the template, and can be deleted; a file
-without the marker never is, whatever its path.
-
-The manifest describes the template, so it is never copied or listed. A plan reads the branch
-with two git calls, however many files the template or the branch has, so it is cheap enough
-for every page load.
+A plan reads the branch with two git calls, however many files the template or the branch has:
+one search of the branch for the marker, then one read of the marked files and of every file the
+template ships. So it is cheap enough for every page load.
 """
 
 from __future__ import annotations

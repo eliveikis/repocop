@@ -32,7 +32,7 @@ The template's current wording, "read them before you start", sends an agent thr
 - The section is a new file kind in `template.toml`, beside starter and merged, which a new decision record adds to ADR-021's. A missing file is created. One that's there takes the states merged files do (identical, behind the template, or can't merge), so the plan, its `merge` pick, and a sync's waiting and landed states carry over.
 - The section's markers are HTML comments of their own, not ADR-032's managed marker, so an `AGENTS.md` that opens with the section isn't taken for a managed file. `tests/test_default_template.py` lists `AGENTS.md` under the new kind instead of starter.
 - `{{ repo_name }}` is replaced in the section as in the rest of the file. A symlinked `AGENTS.md` is refused, as a merged file is. A last line without a newline gets one before the section is appended.
-- `specs/architecture.md` (Template sync's table, and Branch reviews' Guidance) and `templates/README.md` (File kinds, Review guidance) follow.
+- `specs/template-sync.md` (File kinds' table), `specs/repo-template.md` (How it reaches a repository, and Branch reviews' Guidance) and `templates/README.md` (Mark a new file's kind) follow.
 
 ## Open questions
 

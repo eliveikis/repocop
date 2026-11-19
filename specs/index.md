@@ -15,7 +15,15 @@ Read these first. Every change is judged against them.
 
 One per broad area of the repository, never per feature: each is the one place its area's behaviour is stated, with the reasons that aren't plain from it. Link each here.
 
-_None yet._
+| File | Covers |
+|------|--------|
+| [repositories.md](repositories.md) | Registering a repository, its status and checkout state, fetching it |
+| [board.md](board.md) | Where every requirement stands, across the fleet and in each repository |
+| [requirements.md](requirements.md) | A requirement's page, storage and backlog, its history of workflow runs, and its review |
+| [sessions.md](sessions.md) | The developer's agent sessions as they work, and asking one to run a workflow |
+| [template-sync.md](template-sync.md) | Bringing a repository in step with the repo template, and the sync's pull request |
+| [repo-template.md](repo-template.md) | What the repo template gives every repository, branch reviews among it |
+| [ui.md](ui.md) | The frame every page shares, and how pages stay current |
 
 ## Decision records
 

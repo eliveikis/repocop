@@ -12,7 +12,7 @@ The developer writes requirements in their own editor and runs the repository's 
 
 These are ordered. When two pillars conflict, the higher one wins.
 
-1. **Human keeps final control.** RepoCop's only write in the human's checkout is a fetch. Nothing is pushed, merged, deleted, or overwritten without explicit human action, and the developer runs and steers every agent in their own session.
+1. **Human keeps final control.** RepoCop writes in the human's checkout only on their click: a fetch, or a request to one of their sessions. Nothing is pushed, merged, deleted, or overwritten without explicit human action, and the developer runs and steers every agent in their own session.
 2. **Repository owns knowledge.** Requirements, specs, CLAUDE.md, rules, and skills live in the repo. RepoCop stores references and the record of its own syncs, never authoritative copies.
 3. **Isolation by construction.** What RepoCop writes, a template sync, it writes on a branch in a worktree of its own, never in the human's checkout. It sets no limit on how many agents work at once, in a repository or across the fleet, and assumes none.
 4. **Agent-agnostic.** RepoCop runs no coding agent and isn't tied to one vendor's, so its user doesn't depend on one vendor's pricing and terms. The repo template ships rules and skills for Claude Code and Codex, and what in RepoCop is specific to one agent is kept to a few known places.

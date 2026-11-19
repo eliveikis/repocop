@@ -1,14 +1,15 @@
-"""Requests to sessions: from a requirement's page, the developer asks one of its live sessions
-to run one of the repository's committed workflows on it ("Session requests" in
-`specs/architecture.md`).
+"""Requests to sessions: ask one of a requirement's live sessions to run one of the repository's
+committed workflows on it, through the request file, delivered record and socket message that
+"Session requests" in `specs/sessions.md` states.
 
-A request names only the workflow and the requirement's path, and goes only on the developer's
-click. A session that is working, or needs input, gets it when its turn ends: it waits as
-`<git common dir>/repocop/inbox/<session id>.json`, where it can be cancelled, until the session's
-own hook takes it, once, and records it delivered beside it. A session that has completed its turn
-gets it at once, through the inbox socket its agent listens on, and starts its next turn with it.
-A socket is taken from the session's log only when it is a socket of this user's, named after
-the session's own process, in a folder no one else can write.
+For a session that is working, or needs input, a request is written to the repository's inbox
+whole, so no reader sees part of it, and taken from it only by renaming it, so it is handed over
+once. A session that has completed its turn is sent it at once on its inbox socket, within
+SEND_TIMEOUT_S. A socket is taken from the session's log only when it is a socket of this user's,
+named `<pid>.sock` after the session's own process, in a folder no one else can write. A request
+file is read only as a regular file, never through a link and without waiting on a pipe, at most
+REQUEST_BYTES of it. A digest of what asking a session shows changes whenever that does, so it
+can be compared rather than everything read again.
 """
 
 from __future__ import annotations
