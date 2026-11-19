@@ -1,12 +1,12 @@
 """Tasks: RepoCop's record of a template sync, in the RepoCop-owned worktree it commits in.
 
-A task records its repository, workflow, branch, worktree, base commit and status. It is queued,
-then running while its work is done, then completed or failed. Status changes, and what the work
-reported, are appended to `task_events`. A task that a stopped RepoCop left queued or running
-fails, as `app_restarted`, so it can be run again.
+A task records its repository, workflow, branch, worktree, base commit and status, which moves only
+as "Status machine" in `specs/template-sync.md` allows. Status changes, and what the work reported,
+are appended to `task_events`. A task that a stopped RepoCop left queued or running fails, as
+RESTARTED.
 
-The repository's workflows are the skills committed in it, which the developer runs in their
-own agent, and a workflow's line is what they type there to run it.
+It also lists a repository's workflows, the skills committed at HEAD, and gives the line that
+runs one in an agent session.
 """
 
 from __future__ import annotations
@@ -43,7 +43,7 @@ class Status(StrEnum):
     FAILED = "failed"
 
 
-# The status machine (specs/architecture.md): the moves allowed out of each status.
+# The status machine (specs/template-sync.md): the moves allowed out of each status.
 _ALLOWED: dict[Status, frozenset[Status]] = {
     Status.QUEUED: frozenset({Status.RUNNING, Status.FAILED}),
     Status.RUNNING: frozenset({Status.COMPLETED, Status.FAILED}),

@@ -9,6 +9,11 @@ Any key can then be overridden with REPOCOP_<KEY> (e.g. REPOCOP_PORT=9000).
 `~` and $VARS are expanded in paths. Relative paths in a config file are resolved against that
 file's directory. Relative paths from env vars are resolved against the working directory.
 
+Loading refuses an unknown key, a retired key, with what replaced it, a key only RepoCop's former
+agent runs used, overlapping `repos_root` and `worktrees_root`, a `changes_dir` outside the
+repository, and an `editor_url` without exactly one `{path}`. RepoCop's own state lives under
+$XDG_DATA_HOME/repocop by default.
+
 Nothing is read under the product's former name. A config file or default data folder that only
 exists under it, or an environment variable named with it, is refused with how to carry it over,
 so it's never left behind without a word, and nothing is moved on the developer's behalf.

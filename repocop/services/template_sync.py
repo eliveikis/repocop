@@ -1,18 +1,12 @@
-"""Template sync: bring a repository's committed files up to date with the repo template.
+"""Template sync: bring a repository's committed files up to date with the repo template, the one
+way the template reaches it (ADR-029), as `specs/template-sync.md` states.
 
-It is the one way the template reaches a repository, a new one's first files included (ADR-029).
-The plan, `repositories.template_plan`, compares the template with the repository's default
-branch on `origin`, as last fetched (ADR-006). The user picks which missing files to create,
-which differing ones to overwrite, which merged files to bring up to date with the template
-(ADR-021, ADR-027), and which marked files the template no longer ships to delete (ADR-032);
-nothing is changed unless picked, and a starter file the repository has is never offered. Picked
-files are written, or deleted, and committed on a new branch in a RepoCop-owned worktree,
-started from the commit the plan compared with and recorded as a `template-sync` task, and the
-primary checkout is never touched. With nothing picked, nothing changes and no branch exists.
-
-A completed sync waits until its files reach `origin`, and no other sync starts meanwhile, so
-the same files are never offered on two branches. A completed sync's branch and worktree are
-removed only when the user asks.
+The plan is `repositories.template_plan` (ADR-006). Applying it writes, merges (ADR-027) or
+deletes (ADR-032) only the files picked from that plan, and commits them on a new branch in a
+RepoCop-owned worktree, started from the commit the plan compared with and recorded as a
+`template-sync` task: the primary checkout is never touched. With nothing picked, nothing changes
+and no branch exists. Whether a completed sync still waits to land, and where each one stands, is
+judged by its files on the default branch on `origin`, as last fetched.
 """
 
 from __future__ import annotations

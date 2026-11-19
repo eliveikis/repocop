@@ -23,6 +23,9 @@ RECORD_NAME = re.compile(r"adr-(\d{3})-[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 ARCHIVED_CHANGE_LINK = re.compile(r"\]\([^)]*changes/archive/[^)/]+\.md[^)]*\)")
 ARCHIVED_RECORD_LINK = re.compile(r"\]\([^)]*decisions/archive/[^)/]+\.md[^)]*\)")
 FOLDER_ENTRY_LINK = re.compile(r"\]\((?:\./)?(?:changes|decisions)/[^)]*\.md[^)]*\)")
+SECTION_LINK = re.compile(r"\]\(([^()\s#:]+\.md)#([^()\s]+)\)")
+HEADING = re.compile(r"#{1,6}[ \t]+(.*?)[ \t]*#*[ \t]*")
+FENCE = re.compile(r"[ \t]*(```|~~~)")
 
 
 def text_files(root: Path) -> list[Path]:
@@ -39,6 +42,25 @@ def text_files(root: Path) -> list[Path]:
     ).stdout.split("\0")
     paths = (root / name for name in listed if Path(name).suffix in TEXT)
     return [path for path in paths if path.is_file() and ARCHIVE not in path.parents]
+
+
+def anchors(markdown: Path) -> set[str]:
+    """The anchor GitHub gives each heading of `markdown`, outside fenced code: lower case, without
+    punctuation, spaces as hyphens, and a repeated one numbered."""
+    found: set[str] = set()
+    fenced = False
+    for line in markdown.read_text(encoding="utf-8").splitlines():
+        if FENCE.match(line):
+            fenced = not fenced
+        elif not fenced and (heading := HEADING.fullmatch(line)):
+            text = re.sub(r"\[([^\]]*)\]\([^)]*\)", r"\1", heading[1]).lower()
+            slug = re.sub(r"[^\w\- ]", "", text).replace(" ", "-")
+            anchor, n = slug, 0
+            while anchor in found:
+                n += 1
+                anchor = f"{slug}-{n}"
+            found.add(anchor)
+    return found
 
 
 def records() -> list[Path]:
@@ -126,6 +148,19 @@ def test_specs_rules_and_skills_never_link_to_archived_changes() -> None:
         if ARCHIVED_CHANGE_LINK.search(path.read_text(encoding="utf-8"))
     ]
     assert linking == []
+
+
+def test_links_to_a_section_of_another_file_name_one_of_its_headings() -> None:
+    """Outside decision records and archived changes, which stay as they were written."""
+    broken = {
+        f"{path.relative_to(PROJECT_ROOT)} links to {target}#{anchor}"
+        for path in text_files(PROJECT_ROOT)
+        if path.suffix == ".md" and DECISIONS not in path.parents
+        for target, anchor in SECTION_LINK.findall(path.read_text(encoding="utf-8"))
+        for linked in [(path.parent / target).resolve()]
+        if not linked.is_file() or anchor not in anchors(linked)
+    }
+    assert broken == set()
 
 
 def test_changes_depend_only_on_changes_they_can_follow() -> None:

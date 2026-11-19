@@ -27,7 +27,7 @@ from repocop.errors import RepoCopError
 
 LOCAL_TIMEOUT_S = 60.0
 MAX_NEW_FILES_IN_DIFF = 100
-NETWORK_TIMEOUT_S = 600.0
+NETWORK_TIMEOUT_S = 600.0  # how long a clone, fetch or push may take
 ASK_TIMEOUT_S = 60.0  # how long asking a remote about its branches may take
 TERMINATE_GRACE_S = 5.0
 

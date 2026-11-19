@@ -13,7 +13,7 @@ How tests run here. Which are worth writing, and what they may cost, is `.claude
 - Use real `git` on temp repos, never a mock: worktree behaviour is what needs verifying.
 - The default suite never calls the real GitHub or Codex:
   - GitHub: `gh` on the tests' `PATH` is `tests/fakes/bin/gh`, which fails without the `fake_gh` fixture. Pushes go to a local bare repository: `github_checkout` gives a checkout whose `origin` is a github.com remote, with an ssh stand-in that runs what git asks of that host on the local repository.
-  - Codex, which only the repo template's `.reviews/review.sh` runs: `codex` on the tests' `PATH` is `tests/fakes/bin/codex`, which fails without the `fake_codex` fixture in `tests/test_review_script.py`. Keep the fake in step with the facts verified in `specs/architecture.md` › Branch reviews.
+  - Codex, which only the repo template's `.reviews/review.sh` runs: `codex` on the tests' `PATH` is `tests/fakes/bin/codex`, which fails without the `fake_codex` fixture in `tests/test_review_script.py`. Keep the fake in step with the facts verified in `specs/repo-template.md` › Branch reviews.
 - Every invariant in `.claude/rules/safety.md` has a test proving the *refusal*: a process launched outside the wrappers, a worktree placed in a primary checkout, path escape, overwriting an existing file, a malicious remote URL, a push that would need forcing, and a state-changing request from another site.
 - Test routes with FastAPI `TestClient`, asserting on HTML fragments. No browser automation in v0.1.
 - Name tests `test_<unit>_<behaviour>`.

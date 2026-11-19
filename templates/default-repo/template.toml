@@ -1,4 +1,4 @@
-# How template sync treats these files (see templates/README.md). Files not listed are
+# How template sync treats these files (see specs/template-sync.md). Files not listed are
 # managed: they follow the template, and sync offers to overwrite them when they differ.
 
 # Created when missing, then the repository's own: sync never offers to replace them.

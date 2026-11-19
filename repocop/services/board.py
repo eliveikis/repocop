@@ -1,20 +1,12 @@
 """The fleet's board: every requirement in each registered repository by its stage, read from the
-repository itself and from GitHub, however and by whomever the work was done (ADR-038).
+repository itself and from GitHub (ADR-038), by the rules `specs/board.md` states.
 
-A requirement is in the first stage that applies:
-
-- Delivered: archived within the past week by its archive stamp, in the checkout or on the
-  default branch on `origin` as last fetched.
-- In review: a branch that belongs to it has an open pull request.
-- In progress: a branch that belongs to it has commits that default branch lacks, or a session
-  working on it is working, needs input or has completed its turn.
-- To do: anything else in the requirements folder.
-
-A branch belongs to a requirement by its name (the branch rule in `.claude/rules/specs.md`),
-whoever made it, local or on `origin`. Branches are read with a fixed number of git calls,
-whatever their number. A card shows the sessions that work on its requirement, and a repository's
-other sessions show apart, so none goes unseen. Nothing here fetches, or writes on disk or on
-GitHub.
+Branches are read with a fixed number of git calls, whatever their number: one listing of every
+branch's tip, local and on `origin` as last fetched, one walk of the commits the default branch
+lacks, and one of those `origin` lacks. Open pull requests are read apart from the rest of the
+board, one read per repository, side by side and each within PULL_REQUEST_TIMEOUT_S, so the rest
+never waits for GitHub. A card's readiness costs no git call. Nothing here fetches, or
+writes on disk or on GitHub.
 """
 
 from __future__ import annotations

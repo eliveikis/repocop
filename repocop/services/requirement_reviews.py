@@ -1,12 +1,10 @@
-"""Requirement reviews: the review a requirement's review workflow saved, and whether the
-requirement is ready to implement ("A requirement's review" in `specs/architecture.md`).
+"""Requirement reviews: the review a requirement's review workflow saved, in the form "A
+requirement's review" in `specs/requirements.md` states, and where the requirement stands by it.
 
-The workflow ends by saving its review as `<git common dir>/repocop/reviews/<file name>`,
-replacing the requirement's last one: a header with its verdict, how many blocking questions it
-asks, the SHA-256 of the requirement's file as reviewed and when it was saved, then the review.
-A requirement is ready when its latest review says so of the text its file has now. Any local
-process can write a review, so one is read only as a regular file inside the folder, never
-through a link, at most MAX_BYTES of it, and shown escaped.
+A saved review is read without git, from the repository's git common folder. Any local process
+can write one, so it is read only as a regular file inside the folder, never through a link, at
+most MAX_BYTES of it, and shown escaped. Whether the requirement has changed since is told by the
+SHA-256 of its file's bytes on disk.
 """
 
 from __future__ import annotations

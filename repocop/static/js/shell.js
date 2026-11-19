@@ -1,7 +1,9 @@
 // The shell's behaviour on every page: the quick switcher (Ctrl+K, or ⌘K on macOS), the single-key
 // shortcuts, marking the section on screen in a page's section links, having screen readers
 // announce a toast, and copy buttons. Every page reads and works without it, but for the switcher,
-// shortcuts and copy buttons.
+// shortcuts and copy buttons. The switcher is a native <dialog> holding a WAI-ARIA combobox, whose
+// options are a fragment the server renders and HTMX fetches as you type: this only moves the
+// selection and opens the pick.
 (() => {
   "use strict";
 

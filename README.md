@@ -7,7 +7,7 @@ Write a requirement in your own editor and commit it, then run the repository's 
 ## How it works
 
 ```text
-~/code/crm-api/                              # your checkout: RepoCop's only write here is a fetch
+~/code/crm-api/                              # your checkout: RepoCop writes here only on your click: a fetch, or a request to a session
 ~/agent-worktrees/crm-api/template-sync-12/  # RepoCop's worktree for a sync, on agent/template-sync-12
 ```
 
@@ -15,7 +15,7 @@ Write a requirement in your own editor and commit it, then run the repository's 
 - The repo template's files reach a repository through **Sync with template**, committed on a branch in a worktree of RepoCop's own, which you push, review and merge as a pull request.
 - Your agent works wherever you run it, in your checkout or a worktree of its own, as many at once as you like. Name its branch after the requirement, as its page says, and the board follows the work.
 
-The design, and the reasons for it, are in [specs/](specs/index.md): the product and its non-goals, the architecture, the decision records, and the changes still to come.
+The design, and the reasons for it, are in [specs/](specs/index.md): the product and its non-goals, the architecture, a spec for each of its areas, the decision records, and the changes still to come.
 
 ## Prerequisites
 

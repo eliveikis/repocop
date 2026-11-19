@@ -27,7 +27,7 @@ A branch is **merged** here when GitHub reports a pull request from it, in the r
 
 ## Implementation Notes
 
-- This reverses `specs/architecture.md`'s "RepoCop doesn't delete a merged branch or its worktree", and adds a write to the developer's repository beside the fetch and a request to a session: CLAUDE.md's invariant 1, `.claude/rules/safety.md` (Human-owned checkout, and Never delete worktrees or branches automatically) and `specs/product.md`'s pillars 1 and 3. Record it in a decision record, and update those in the same change.
+- This reverses `specs/template-sync.md`'s "RepoCop doesn't delete a merged branch or its worktree", and adds a write to the developer's repository beside the fetch and a request to a session: CLAUDE.md's invariant 1, `.claude/rules/safety.md` (Human-owned checkout, and Never delete worktrees or branches automatically) and `specs/product.md`'s pillars 1 and 3. Record it in a decision record, and update those in the same change.
 - Remove a worktree as `git worktree remove` does without `--force`, which refuses modified and untracked files and a lock but deletes ignored files, hence the listing in 3. Delete the branch only after its worktree is gone. Since a squash-merged branch isn't contained in the default branch, `git branch -d` refuses it, so it takes `-D`, right after checking its tip again (5).
 - Some agent tools keep their worktrees inside the primary checkout's folder. The decision record says whether removing one there counts as a write to the primary checkout, which RepoCop never makes.
 - Read merged pull requests as the board reads open ones: one `gh pr list` per repository with the board's timeout, after the page renders, so the page never waits for GitHub.
