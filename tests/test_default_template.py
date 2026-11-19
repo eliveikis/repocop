@@ -212,9 +212,10 @@ def test_default_template_settings_deny_windows_programs() -> None:
     assert "Bash(/mnt/*)" in deny
 
 
-def test_default_template_settings_deny_reading_env_files() -> None:
-    deny = json.loads((TEMPLATE / ".claude" / "settings.json").read_text())["permissions"]["deny"]
-    assert {"Read(./.env)", "Read(./.env.*)"} <= set(deny)
+@pytest.mark.parametrize("root", [TEMPLATE, PROJECT_ROOT], ids=["template", "this repo"])
+def test_settings_deny_reading_env_files_and_archived_records(root: Path) -> None:
+    deny = json.loads((root / ".claude" / "settings.json").read_text())["permissions"]["deny"]
+    assert {"Read(./.env)", "Read(./.env.*)", "Read(./specs/decisions/archive/**)"} <= set(deny)
 
 
 def test_default_template_settings_disable_bypass_permissions_mode() -> None:

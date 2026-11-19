@@ -22,14 +22,14 @@ Run this on the change's own branch once its work is done, so the fold-in and th
 ## Process
 
 1. **Read.** Read the change in full, then `specs/index.md` and the root design files and area specs it lists. See what was already folded in while the change was being built: `git diff $(git merge-base main HEAD) -- specs/` (use the repo's default branch if it isn't `main`).
-2. **Find the remainder.** List what the change establishes that the specs don't say yet, and what the specs say that the change made wrong. This list is usually short, because decisions should have been recorded as they were made.
-3. **Fold in sparingly.** For each candidate, ask: *would someone changing this system a year from now need this, and would they be misled without it?* Only a yes goes into the specs.
-   - **Promote:** the design that decisions produced, invariants and safety rules, the data or content model, state machines, structure and boundaries, key flows, external contracts, and non-goals that still hold.
-   - **Leave in the archive:** implementation plans, acceptance-criteria checklists, test plans, the debate behind resolved questions (the outcome goes in the specs, and a significant choice's reasons in its decision record), file and function inventories (the repo itself is the truth for those), and anything the specs already cover.
+2. **Find the remainder.** List what the change's Requirement and acceptance criteria establish that the specs don't say yet, and what the specs say that the change made wrong. This list is usually short, because decisions should have been recorded as they were made.
+3. **Fold in sparingly.** Only what the Requirement and its criteria establish goes into the specs, at the level `.claude/rules/specs.md` › What a spec says sets, and nothing from the change's Implementation Notes: the mechanism they settle is the work's own, stated in its docs and checks.
+   - **Where it goes.** A feature's behaviour goes in the area spec it belongs to, never in `specs/architecture.md`. When it fits none, step 4 comes first.
+   - **Leave in the archive:** implementation plans, acceptance-criteria checklists, test plans, the debate behind resolved questions (the outcome goes in the specs), file and function inventories (the repo itself is the truth for those), and anything the specs already cover.
    - **Edit in place.** Rewrite the section so it describes the system as it now is, and delete text the change made obsolete. Never append history such as "req-N added…".
-   - **Decision records.** For each significant, hard-to-reverse choice the change made that has no record in `specs/decisions/` yet, write one (`.claude/rules/specs.md`).
+   - **Decision records.** For each architecturally significant choice the change made that has no record yet, write one (`.claude/rules/specs.md` › Decision records).
    - **Product file.** Touch `specs/product.md` only for its roadmap row, or when the change genuinely shifted the vision, pillars, audience, or non-goals.
-4. **Add an area spec only when it's earned.** Create `specs/<area>.md` when the change introduced a part with its own model or flows, or when folding it into `specs/architecture.md` would add more than about a screen. Leave a two- or three-line summary and a link in `specs/architecture.md`, and add a row to the Area specs table in `specs/index.md`. Follow `.claude/rules/specs.md` (Mermaid diagrams, `_TBD: …_` markers).
+4. **Ask where behaviour goes when no area fits.** When the change brings behaviour that fits none of the area specs and doesn't say where it goes, ask the developer whether it goes in an existing area spec or a new `specs/<area>.md`, for a broad area the repository lacks (`.claude/rules/specs.md` › Area specs). Link a new one from `specs/index.md`, and from `specs/architecture.md` as `.claude/rules/specs.md` › Root design files says. Follow `.claude/rules/specs.md` (Mermaid diagrams, `_TBD: …_` markers).
 5. **Archive.**
    - Run `.claude/skills/complete-change/archive.sh <path of the change>`. It moves the change into the `archive/` folder beside its folder, its name stamped with the UTC date and time (`specs/changes/todo/<file>` → `specs/changes/archive/<stamp>-<file>`), and prints the new path, then every line that still mentions the old one.
    - Fix those mentions. Remove the ones in specs, rules and skills, which must stand without archived changes, and point any others at the new path. Update status notes that still call it current (e.g. in `CLAUDE.md`).
@@ -42,6 +42,6 @@ Run this on the change's own branch once its work is done, so the fold-in and th
 
 - **Folded in:** one line per item (file › section: what changed)
 - **Left in the archive on purpose:** one line per notable item, so the human can overrule
-- New area spec, if any, and why it earned one
+- New area spec, if any, and the developer's answer that placed it
 - Self-review: what the diff was read against, and what that fixed
 - The commit, and any links you couldn't resolve
