@@ -1,6 +1,6 @@
 # Architecture — RepoCop
 
-Root design file. It covers *how* the system works; *why* is in [product.md](product.md), and why a significant choice was made is in [decisions/](decisions/). It describes the design, not each module: a module's detailed behaviour is in its docstring. Diagrams are Mermaid, so they stay text, diffable, and mergeable. Changes in flight: [changes/todo/](changes/todo/) · index: [index.md](index.md)
+Root design file. It says *how* RepoCop is built: its goals, its main parts and what each may depend on, the contracts between them, its key flows, and where things live. *Why* is in [product.md](product.md), how a part behaves is in its area spec, and why an architecturally significant choice was made is in [decisions/](decisions/). It describes the design, not each module: how a module does its work is in its own docs. Diagrams are Mermaid, so they stay text, diffable, and mergeable. Changes in flight: [changes/todo/](changes/todo/) · index: [index.md](index.md)
 
 ## Principle
 

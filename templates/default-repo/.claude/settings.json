@@ -39,6 +39,7 @@
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)",
+      "Read(./specs/decisions/archive/**)",
       "Bash(cmd.exe *)",
       "Bash(powershell.exe *)",
       "Bash(pwsh.exe *)",

@@ -53,6 +53,7 @@
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)",
+      "Read(./specs/decisions/archive/**)",
       "Read(./repocop.yaml)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",

@@ -2,7 +2,7 @@
 
 **RepoCop** is a local FastAPI app, a fleet manager for agentic repositories: it keeps many unrelated Git repos in step with one repo template (the same rules, skills and spec layout), and shows where each one's work stands. The developer runs coding agents in their own agent tool, many at once; RepoCop runs none.
 
-- **Root design files:** [specs/product.md](specs/product.md) (why and for whom) and [specs/architecture.md](specs/architecture.md) (how, with Mermaid diagrams). They are the current truth: when you make or change a design decision, update them in the same change, and record a significant one in [specs/decisions/](specs/decisions/). Optional area specs (`specs/<area>.md`) are added only when a feature earns one.
+- **Design files:** [specs/product.md](specs/product.md) (why and for whom), [specs/architecture.md](specs/architecture.md) (how it's built, with Mermaid diagrams), and one area spec per broad area, listed in [specs/index.md](specs/index.md). They are the current truth: when you make or change a design decision, update them in the same change, at the level [.claude/rules/specs.md](.claude/rules/specs.md) sets, and record an architecturally significant one in [specs/decisions/](specs/decisions/).
 - **Changes** (`specs/changes/todo/`) are requirements being delivered. Don't contradict a change; raise conflicts instead.
 
 ## Commands
