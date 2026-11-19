@@ -312,7 +312,7 @@ def test_migrate_clears_what_only_agent_runs_used_and_keeps_template_syncs(
         " VALUES (?, 'template-sync', 'queued', ?, ?)",
         (repository, NOW, NOW),
     )
-    assert cursor.lastrowid == review + 1  # the counter never reuses an id (ADR-007)
+    assert cursor.lastrowid == review + 1  # the counter never reuses an id (specs/architecture.md)
 
 
 def test_migrate_refuses_database_from_newer_repocop(conn: sqlite3.Connection) -> None:

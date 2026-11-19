@@ -39,7 +39,7 @@ MIGRATIONS: tuple[str, ...] = (
         updated_at TEXT NOT NULL
     );
 
-    -- id is the global requirement id, assigned by RepoCop, not SQLite (ADR-013).
+    -- id is the global requirement id, assigned by RepoCop, not SQLite.
     CREATE TABLE requirements (
         id INTEGER PRIMARY KEY,
         repository_id INTEGER NOT NULL REFERENCES repositories (id),
@@ -50,8 +50,8 @@ MIGRATIONS: tuple[str, ...] = (
         UNIQUE (repository_id, path)
     );
 
-    -- id is a global counter that is never reused (ADR-007). branch, worktree_path and
-    -- base_commit stay NULL until the task's worktree exists.
+    -- id is a global counter that is never reused (specs/architecture.md). branch,
+    -- worktree_path and base_commit stay NULL until the task's worktree exists.
     CREATE TABLE tasks (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         repository_id INTEGER NOT NULL REFERENCES repositories (id),
@@ -146,7 +146,7 @@ MIGRATIONS: tuple[str, ...] = (
     # runs and reviews with their events, the record of requirements they worked on, their
     # sessions' columns, and their branches' pull requests. Template syncs stay. The tables are
     # rebuilt, as a column a foreign key uses can't be dropped, and the task counter carries
-    # over, so no id is used twice (ADR-007).
+    # over, so no id is used twice ("Data model" in specs/architecture.md).
     """
     DELETE FROM task_events WHERE task_id IN (
         SELECT id FROM tasks WHERE workflow != 'template-sync'

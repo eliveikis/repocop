@@ -2,7 +2,7 @@
 find their checkouts, list them.
 
 A repository named `<name>` has its human-owned primary checkout at `<repos_root>/<name>` and
-its RepoCop-owned worktrees under `<worktrees_root>/<name>/` (ADR-015).
+its RepoCop-owned worktrees under `<worktrees_root>/<name>/` (`specs/repositories.md`).
 """
 
 from __future__ import annotations
