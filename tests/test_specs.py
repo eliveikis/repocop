@@ -1,6 +1,5 @@
 """The specs conventions in `.claude/rules/specs.md` that can be checked mechanically."""
 
-import os
 import re
 import subprocess
 from pathlib import Path
@@ -11,39 +10,55 @@ from repocop.config import PROJECT_ROOT
 
 SPECS = PROJECT_ROOT / "specs"
 DECISIONS = SPECS / "decisions"
+ARCHIVED_RECORDS = DECISIONS / "archive"
 ARCHIVE = SPECS / "changes" / "archive"
 ARCHITECTURE = (
     SPECS / "architecture.md",
     PROJECT_ROOT / "templates/default-repo/specs/architecture.md",
 )
-SKIPPED = {
-    ".git",
-    ".venv",
-    "node_modules",
-    "__pycache__",
-    ".mypy_cache",
-    ".pytest_cache",
-    ".ruff_cache",
-}
 TEXT = {".md", ".py", ".toml", ".json", ".sh", ".html", ".css", ".yaml", ".yml"}
 INDEXES = (SPECS / "index.md", PROJECT_ROOT / "templates/default-repo/specs/index.md")
 ADR_ID = re.compile(r"\bADR-(\d{3})\b")
 RECORD_NAME = re.compile(r"adr-(\d{3})-[a-z0-9]+(?:-[a-z0-9]+)*\.md")
 ARCHIVED_CHANGE_LINK = re.compile(r"\]\([^)]*changes/archive/[^)/]+\.md[^)]*\)")
+ARCHIVED_RECORD_LINK = re.compile(r"\]\([^)]*decisions/archive/[^)/]+\.md[^)]*\)")
 FOLDER_ENTRY_LINK = re.compile(r"\]\((?:\./)?(?:changes|decisions)/[^)]*\.md[^)]*\)")
 
 
 def text_files(root: Path) -> list[Path]:
-    """Every text file under `root`, apart from tool caches and archived changes."""
-    found = []
-    for folder, dirs, files in os.walk(root):
-        dirs[:] = [d for d in dirs if d not in SKIPPED and Path(folder, d) != ARCHIVE]
-        found += [Path(folder, name) for name in files if Path(name).suffix in TEXT]
-    return found
+    """Every text file under `root` that git tracks or would, apart from archived changes.
+
+    What git ignores, such as saved reviews and Claude Code's worktrees, is a host's own."""
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+        timeout=10,
+    ).stdout.split("\0")
+    paths = (root / name for name in listed if Path(name).suffix in TEXT)
+    return [path for path in paths if path.is_file() and ARCHIVE not in path.parents]
 
 
 def records() -> list[Path]:
-    return sorted(path for path in DECISIONS.iterdir() if path.name != ".gitkeep")
+    """The decision records, kept and archived."""
+    return sorted(
+        path
+        for folder in (DECISIONS, ARCHIVED_RECORDS)
+        if folder.is_dir()
+        for path in folder.iterdir()
+        if path.is_file() and path.name != ".gitkeep"
+    )
+
+
+def recorded(folder: Path) -> set[str]:
+    """The ids of the well-named records in `folder`."""
+    return {
+        name[1]
+        for path in records()
+        if path.parent == folder and (name := RECORD_NAME.fullmatch(path.name))
+    }
 
 
 @pytest.mark.parametrize(
@@ -64,18 +79,33 @@ def test_decision_records_are_named_and_titled_by_their_id() -> None:
         assert lines[0].startswith(f"# ADR-{name[1]}: "), path.name
         assert any(line.startswith("**Status:**") for line in lines), path.name
         numbers.append(name[1])
-    assert len(numbers) == len(set(numbers))
+    assert sorted({n for n in numbers if numbers.count(n) > 1}) == []
 
 
 def test_decision_records_exist_for_every_cited_id() -> None:
-    recorded = {RECORD_NAME.fullmatch(path.name)[1] for path in records()}  # type: ignore[index]
+    known = recorded(DECISIONS) | recorded(ARCHIVED_RECORDS)
     cited = {
         f"ADR-{number} in {path.relative_to(PROJECT_ROOT)}"
         for path in text_files(PROJECT_ROOT)
         for number in ADR_ID.findall(path.read_text(encoding="utf-8"))
-        if number not in recorded
+        if number not in known
     }
     assert cited == set()
+
+
+def test_only_records_and_changes_cite_archived_records() -> None:
+    archived = recorded(ARCHIVED_RECORDS)
+    citing = {
+        f"{citation} in {path.relative_to(PROJECT_ROOT)}"
+        for path in text_files(PROJECT_ROOT)
+        if DECISIONS not in path.parents and SPECS / "changes" not in path.parents
+        for text in [path.read_text(encoding="utf-8")]
+        for citation in [
+            *(f"ADR-{number}" for number in ADR_ID.findall(text) if number in archived),
+            *ARCHIVED_RECORD_LINK.findall(text),
+        ]
+    }
+    assert citing == set()
 
 
 @pytest.mark.parametrize("index", INDEXES, ids=lambda path: str(path.parent.parent.name))

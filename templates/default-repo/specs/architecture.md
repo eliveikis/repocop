@@ -1,10 +1,14 @@
 # Architecture — {{ repo_name }}
 
-Root design file. It covers *how* the work is put together; *why* is in [product.md](product.md), and why a significant choice was made is in [decisions/](decisions/). Keep it describing what's built (or decided). Diagrams are Mermaid, so they stay text, diffable, and mergeable.
+Root design file. It says *how* the work is built; *why* is in [product.md](product.md), how a part behaves is in its area spec, listed in [index.md](index.md), and why an architecturally significant choice was made is in [decisions/](decisions/). Keep it describing what's built (or decided). Diagrams are Mermaid, so they stay text, diffable, and mergeable.
 
-## Structure
+## Goals
 
-_TBD: the main parts and how they relate: components and their interfaces for software, or sections, series and assets for writing and media._
+_TBD: what the way the work is built must achieve, such as running offline or staying deterministic for software, or publishing to print and the web from one source for writing and media._
+
+## Parts
+
+_TBD: the main parts, each with its role in a few lines and a link to the area spec for how it behaves, and what each may depend on: components for software, or sections, series and assets for writing and media._
 
 ```mermaid
 flowchart LR
@@ -12,10 +16,14 @@ flowchart LR
     build --> published["Published output"]
 ```
 
-## Data model
+## Contracts
 
-_TBD: the data the parts share: records and schemas for software, or content types and their metadata for writing and media._
+_TBD: what the parts agree on between them: interfaces, protocols and stored formats for software, or the structure, style and metadata every section or asset follows for writing and media._
 
 ## Key flows
 
 _TBD: the sequences that matter, such as a request through the system or a post from draft to published._
+
+## Where things live
+
+_TBD: where each part's files are, such as source folders and config for software, or drafts, assets and published output for writing and media._
