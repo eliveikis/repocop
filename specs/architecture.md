@@ -9,7 +9,7 @@ repository owns knowledge         → CLAUDE.md, .claude/, specs/ live in each r
 the developer's agent does work   → in their own agent tool; RepoCop runs no coding agent
 sessions report themselves        → each repo's hook logs events in <git common dir>/repocop/sessions/
 a requirement's history lasts     → the same hook keeps every workflow run in <git common dir>/repocop/history.jsonl
-a review saves its verdict        → the review workflow saves its review in <git common dir>/repocop/reviews/
+a review saves its verdict        → a review, or its completion, is saved in <git common dir>/repocop/reviews/
 a click asks a session            → a workflow and a requirement, handed over by its own hook or socket
 RepoCop shows and syncs           → the board from each repo and GitHub; SQLite: registry, template syncs
 worktree owns isolated changes    → 1 template sync ↔ 1 branch ↔ 1 worktree under <worktrees_root>/<repo>/
@@ -45,7 +45,7 @@ flowchart TD
     worktree[/"Sync worktree<br/>RepoCop-owned"/]
     hub["GitHub<br/>pull requests"]
     logs[/"Session logs and history<br/>written by the repo's hook"/]
-    reviews[/"Saved reviews<br/>written by the review workflow"/]
+    reviews[/"Saved reviews<br/>written by the agent's workflows"/]
     agent["Developer's agent session"]
 
     browser -->|"HTTP; session lists every 2 s"| routes
@@ -53,7 +53,7 @@ flowchart TD
     board --> repos & reqs & git & github & sess & revs
     revs --> sess & reqs
     revs -->|"read, no git"| reviews
-    agent -->|"its review workflow saves one"| reviews
+    agent -->|"a review, or its completion, saves one"| reviews
     nav --> sess & asks
     sess --> reqs
     asks --> sess & tasksvc

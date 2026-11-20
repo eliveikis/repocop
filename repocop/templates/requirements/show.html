@@ -49,7 +49,7 @@
 <p class="hint">No review has saved its result yet. Run <code>{{ review_workflow }}</code> on {{ requirement.name }}: ask one of its sessions below, or run it in your own agent.</p>
 {% endif %}
 <details class="help"><summary>How this works</summary>
-  <p>A <code>{{ review_workflow }}</code> run ends by saving its review in the repository's git folder, on this machine, out of every commit, replacing the last one. {{ requirement.name }} is ready when its latest review says so of the text its file has now. Once the file is edited, as when a review's questions are answered, it has changed since review until it is reviewed again.</p>
+  <p>A <code>{{ review_workflow }}</code> run ends by saving its review in the repository's git folder, on this machine, out of every commit, replacing the last one. {{ requirement.name }} is ready when its latest review says so of the text its file has now. Once the file is edited, as when a review's questions are answered, it has changed since review until it is reviewed again, or the developer completes its review over the text it then has.</p>
 </details>
 </section>
 {% endif %}
