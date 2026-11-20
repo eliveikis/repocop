@@ -39,7 +39,7 @@ Don't mix up `repocop/templates/` (UI pages) with `templates/default-repo/` (fil
 
 ## Invariants (details in `.claude/rules/safety.md`)
 
-1. RepoCop never modifies a repo's **human-owned primary checkout**: its only writes there are a fetch, and a request to one of its sessions in its git folder's `repocop/inbox/`, each on the developer's click (ADR-041), and requirements are read-only in RepoCop (ADR-037). What it writes, a template sync, it commits in a RepoCop worktree under `<worktrees_root>/<repo>/`, on a branch of its own (`agent/template-sync-<id>`).
+1. RepoCop never modifies a repo's **human-owned primary checkout**: its only writes there are a fetch, and a request to one of its sessions in its git folder's `repocop/inbox/`, each on the developer's click (ADR-041), and requirements are read-only in RepoCop ([specs/requirements.md](specs/requirements.md)). What it writes, a template sync, it commits in a RepoCop worktree under `<worktrees_root>/<repo>/`, on a branch of its own (`agent/template-sync-<id>`).
 2. RepoCop launches no coding agent (ADR-039). Only `services/git.py` runs git and only `services/github.py` runs the GitHub CLI, always with argv lists and never `shell=True`.
 3. Never overwrite existing repo files silently, never auto-delete worktrees or branches, and never push without an explicit click or by force.
 4. RepoCop's database stores execution state and references only, never copies of requirements or repo config.

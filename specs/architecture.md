@@ -158,6 +158,7 @@ erDiagram
 
 - A task records one template sync. Task ids are a global counter, never reused. The database holds nothing of a requirement: its name is its file name, read from the repository with its text.
 - `tasks.status` ∈ `queued | running | completed | failed`, moving as [template-sync.md › Status machine](template-sync.md#status-machine) says.
+- Stored values never name the product, so a rename leaves stored data alone: a sync that a restart cut off fails as `app_restarted`.
 - `task_events` is an append-only log, `kind` ∈ `status_change | error | raw`: the sync's status changes, its error, and what it committed.
 - `pull_requests` holds the address of the pull request a sync's branch last had open, one per branch. The pull request itself is on GitHub.
 
@@ -169,7 +170,7 @@ RepoCop runs none, and isn't tied to one vendor's. What in it is specific to one
 
 ## Configuration
 
-`repocop/config.py` is the only module that reads config files or the environment: every other module takes its immutable settings from it. What each key means, and its default, is in `repocop.example.yaml`; where the file is found, how the environment overrides it and what loading refuses, in `config.py`. A configuration that is refused stops RepoCop before it serves anything, saying why. The default host is `127.0.0.1`, and binding anywhere else logs a warning, because v0.1 has no authentication.
+`repocop/config.py` is the only module that reads config files or the environment: every other module takes its settings from it, an immutable pydantic model that its own small loader fills, without `pydantic-settings`. What each key means, and its default, is in `repocop.example.yaml`; where the file is found, how the environment overrides it and what loading refuses, in `config.py`. A configuration that is refused stops RepoCop before it serves anything, saying why. Nothing is read under the product's former name, and nothing is moved for the developer: a config file, data folder or environment variable found only under that name is refused, with how to carry it over. The default host is `127.0.0.1`, and binding anywhere else logs a warning, because v0.1 has no authentication.
 
 ## Deployment portability
 

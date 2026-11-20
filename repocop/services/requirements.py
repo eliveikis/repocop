@@ -21,7 +21,7 @@ from repocop.services.repositories import Repository, RepositoryError
 
 TODO_FOLDER = "todo"  # in a repository's changes folder: the requirements still to deliver
 ARCHIVE_FOLDER = "archive"  # beside it: the delivered ones
-# Before an archived change's name: the UTC date and time it was archived (ADR-028).
+# Before an archived change's name: the UTC date and time it was archived (`specs/requirements.md`).
 ARCHIVE_STAMP = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z-")
 
 

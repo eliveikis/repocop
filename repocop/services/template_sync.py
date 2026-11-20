@@ -1,12 +1,12 @@
 """Template sync: bring a repository's committed files up to date with the repo template, the one
 way the template reaches it (ADR-029), as `specs/template-sync.md` states.
 
-The plan is `repositories.template_plan` (ADR-006). Applying it writes, merges (ADR-027) or
-deletes (ADR-032) only the files picked from that plan, and commits them on a new branch in a
-RepoCop-owned worktree, started from the commit the plan compared with and recorded as a
-`template-sync` task: the primary checkout is never touched. With nothing picked, nothing changes
-and no branch exists. Whether a completed sync still waits to land, and where each one stands, is
-judged by its files on the default branch on `origin`, as last fetched.
+The plan is `repositories.template_plan` (ADR-006). Applying it writes or merges the files
+picked from that plan, deletes the picked ones the template retired (ADR-032), and commits them
+on a new branch in a RepoCop-owned worktree, started from the commit the plan compared with and
+recorded as a `template-sync` task: the primary checkout is never touched. With nothing picked,
+nothing changes and no branch exists. Whether a completed sync still waits to land, and where
+each one stands, is judged by its files on the default branch on `origin`, as last fetched.
 """
 
 from __future__ import annotations

@@ -151,7 +151,8 @@ def sync_plan(template_dir: Path, checkout: Path, ref: str, repo_name: str) -> S
 
 
 def merge(template_dir: Path, path: str, repo_name: str, current: bytes) -> bytes:
-    """`current`, a JSON object, brought up to date with the template, which wins (ADR-027).
+    """`current`, a JSON object, brought up to date with the template, which wins ("The plan"
+    in `specs/template-sync.md`).
 
     Keys only the template has are added after the repository's, and array items it lacks are
     appended, both in template order. Keys and array items only the repository has stay where

@@ -49,7 +49,7 @@ A requirement's page lists the workflows run on it, newest first, so the develop
 
 ## A requirement's review
 
-The developer needs to know which requirements are ready to implement: reviewed to the end, with a verdict that clears them, on the text they have now. Only the review knows it finished and what it concluded, so the repo template's `review-requirement` ends by saving its review with `save-review.sh`, beside it in its skill folder, which refuses a requirement path that leads outside the checkout and an empty review.
+The developer needs to know which requirements are ready to implement: reviewed to the end, with a verdict that clears them, on the text they have now. Only the review knows it finished and what it concluded, so the repo template's `review-requirement` ends by saving its review with `save-review.sh`, beside it in its skill folder, which refuses a requirement path that leads outside the checkout and an empty review. Saving it is the review's one write: it changes nothing in the repository.
 
 **A saved review** is `<git common dir>/repocop/reviews/<requirement's file name>`: on the developer's machine, out of every commit, shared by every worktree, replacing the requirement's last one. Its header, between `---` lines, holds:
 
@@ -72,5 +72,7 @@ A requirement stands in the first of these that applies:
 | Not reviewed | no review is saved |
 | Changed since review | its file in the checkout differs from the one reviewed, as when the review's questions were answered: it is reviewed again |
 | Not ready, Ready with assumptions, Ready | the saved review's verdict: `no`, with its blocking questions counted, `yes-with-assumptions`, `yes` |
+
+Ready is the review's verdict, not the developer's say. There is no override: a developer who settles a blocking question edits the requirement, which the next review sees.
 
 Its card shows the standing, and its page, while it is in the folder, the standing, the verdict and when it was saved, and the review itself.
