@@ -70,9 +70,9 @@ A requirement stands in the first of these that applies:
 |----------|------|
 | Review unfinished | a review was started on it, by the history's rule for a run's requirement, after its last saved review, or with none saved: it still runs, was stopped, or ran before reviews were saved |
 | Not reviewed | no review is saved |
-| Changed since review | its file in the checkout differs from the one reviewed, as when the review's questions were answered: it is reviewed again |
+| Changed since review | its file in the checkout differs from the one reviewed, as when the review's questions were answered: it is reviewed again, or its review completed |
 | Not ready, Ready with assumptions, Ready | the saved review's verdict: `no`, with its blocking questions counted, `yes-with-assumptions`, `yes` |
 
-Ready is the review's verdict, not the developer's say. There is no override: a developer who settles a blocking question edits the requirement, which the next review sees.
+**A review the developer completes** makes the requirement Ready on its text as it then is. Once the changes a review discussed are applied, reviewing again would find nothing left and cost the developer time and tokens on every requirement, so the template's `complete-requirement-review` saves the requirement's last review again, with `save-review.sh`, over its file as it is now, with the verdict `yes`, no blocking questions, and a note of what was applied or that the developer marked it complete. It refuses a requirement with no saved review. The developer's word settles it, as the human keeps final control ([product.md › Design pillars](product.md#design-pillars)): completing reviews nothing, and changes nothing in the repository.
 
 Its card shows the standing, and its page, while it is in the folder, the standing, the verdict and when it was saved, and the review itself.

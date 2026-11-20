@@ -182,6 +182,10 @@ def test_default_template_allowlist_covers_what_the_shipped_skills_run() -> None
     for script in sorted((TEMPLATE / ".claude" / "skills").glob("*/*.sh")):
         rule = f"Bash({script.relative_to(TEMPLATE).as_posix()}:*)"
         assert rule in permissions["allow"], rule
+    for skill in sorted((TEMPLATE / ".claude" / "skills").glob("*/SKILL.md")):
+        tools = re.search(r"(?m)^allowed-tools: (.*)$", skill.read_text(encoding="utf-8"))
+        for rule in re.findall(r"Bash\([^)]*\)", tools[1] if tools else ""):
+            assert rule in permissions["allow"], f"{skill.parent.name}: {rule}"
 
 
 def test_default_template_states_which_changes_a_branch_belongs_to_and_delivers_once() -> None:
@@ -197,6 +201,7 @@ def test_default_template_states_which_changes_a_branch_belongs_to_and_delivers_
     for path in (
         "rules/reviews.md",
         "skills/review-requirement/SKILL.md",
+        "skills/complete-requirement-review/SKILL.md",
         "skills/implement/SKILL.md",
         "skills/address-review/SKILL.md",
         "skills/complete-change/SKILL.md",
