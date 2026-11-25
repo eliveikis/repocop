@@ -35,7 +35,7 @@ Run this on the change's own branch once its work is done, so the fold-in and th
    - Fix those mentions. Remove the ones in specs, rules and skills, which must stand without archived changes, and point any others at the new path. Update status notes that still call it current (e.g. in `CLAUDE.md`).
    - Don't edit the archived file itself.
 6. **Self-review.** Before committing, read the whole diff (`git diff HEAD`, and any new files) against `.claude/rules/principles.md` and the rules whose `paths` cover the files it touches. Tests can't catch most of what they say. Fix what breaks them, re-run the check command if you change anything, and say in the report what you checked and fixed.
-7. **Commit** the fold-in and the archive together, as `.claude/rules/commits.md` says, naming the change by its file name, e.g. `Complete bulk-import`.
+7. **Commit** the fold-in and the archive together, as `.claude/rules/commits.md` says, naming the change by its file name, e.g. `Complete bulk-import`. Its body is the change's summary for its pull request: one or two sentences saying why the change was made and what it does, from its Requirement, then one line per place the work landed (a spec's section, a skill, a module), pointers rather than explanations. Nothing on how it was checked or reviewed.
 8. **Do not** push or open a PR unless the human asked.
 
 ## Final report
