@@ -33,7 +33,7 @@
 {% set removable = removals | rejectattr("refused") | list %}
 {% if removable %}
 <form method="post" action="{{ url_for('remove_merged_branches', repository_id=repository.id) }}">
-  {% for removal in removable %}<input type="hidden" name="branch" value="{{ removal.branch }}">
+  {% for removal in removable %}<input type="hidden" name="branch" value="{{ removal.branch }}"><input type="hidden" name="confirmed" value="{{ removal.digest }}">
   {% endfor %}
   <div class="actions"><button type="submit" class="danger">Remove {{ removable | length }} branch{{ "" if removable | length == 1 else "es" }}</button> <a href="{{ back }}">Cancel</a></div>
 </form>

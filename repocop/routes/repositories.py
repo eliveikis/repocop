@@ -218,9 +218,11 @@ def remove_merged_branches(
     settings: SettingsDep,
     repository: RepositoryDep,
     branch: Annotated[list[str] | None, Form()] = None,
+    confirmed: Annotated[list[str] | None, Form()] = None,
 ) -> HTMLResponse:
-    """Remove the confirmed merged branches, each with its worktree, and report each."""
-    outcomes = merged_branches.remove(conn, settings, repository, branch or [])
+    """Remove the confirmed merged branches, each with its worktree, where what goes is still
+    what the developer was shown, and report each."""
+    outcomes = merged_branches.remove(conn, settings, repository, branch or [], confirmed or [])
     return _render_removal(request, repository, outcomes=outcomes)
 
 

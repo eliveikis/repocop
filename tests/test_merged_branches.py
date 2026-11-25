@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from repocop.services import git
 from tests.conftest import add_requirement, record_session, run_git
 from tests.fakes.fake_gh import FakeGh
 from tests.test_board import card, stamp
@@ -109,6 +110,16 @@ def outcomes(html: str) -> dict[str, str]:
     }
 
 
+def confirmation(html: str) -> dict[str, list[str]]:
+    """What a preview's form confirms: each branch it removes, and what it showed would go."""
+    form: dict[str, list[str]] = {"branch": [], "confirmed": []}
+    for name, value in re.findall(
+        r'<input type="hidden" name="(branch|confirmed)" value="([^"]+)"', html
+    ):
+        form[name].append(value)
+    return form
+
+
 def branches(repo: Path) -> set[str]:
     listed = run_git("for-each-ref", "--format=%(refname:short)", "refs/heads", cwd=repo)
     return set(listed.split())
@@ -173,7 +184,7 @@ def test_removing_merged_branches_shows_what_goes_and_removes_only_what_is_confi
 ) -> None:
     repo, wt = registered, tmp_path / "wt"
     merged(repo, fake_gh, "feature", 1, worktree=wt / "feature")
-    (wt / "feature" / ".gitignore").write_text(".env\n.venv/\n")
+    (wt / "feature" / ".gitignore").write_text(".env\n.venv/\n*.log\n")
     run_git("add", ".gitignore", cwd=wt / "feature")
     run_git("commit", "-qm", "Ignore local files", cwd=wt / "feature")
     fake_gh.add_merged_pull_request("feature", pull(1), run_git("rev-parse", "feature", cwd=repo))
@@ -197,19 +208,28 @@ def test_removing_merged_branches_shows_what_goes_and_removes_only_what_is_confi
     assert "folder is gone" in shown and "no worktree" in shown
     assert "<code>kept</code>" not in shown
     assert f'action="http://testserver{REMOVE}"' in shown
-    hidden = re.findall(r'<input type="hidden" name="branch" value="([^"]+)"', shown)
-    assert hidden == ["feature", "gone", "plain"]
+    form = confirmation(shown)
+    assert form["branch"] == ["feature", "gone", "plain"] and len(set(form["confirmed"])) == 3
     assert branches(repo) >= {"feature", "gone", "plain", "kept"}  # nothing went yet
     assert (wt / "feature" / ".env").exists()
 
-    result = client.post(REMOVE, data=picks)
+    (wt / "feature" / "server.log").write_text("")  # would go too, but wasn't shown
+    result = client.post(REMOVE, data=form)
     assert result.status_code == 200, result.text
     said = outcomes(result.text)
     assert set(said) == {"feature", "gone", "plain"}
-    assert said["feature"].startswith("removed") and str(wt / "feature") in said["feature"]
+    assert said["feature"].startswith("refused") and "changed since it was shown" in said["feature"]
+    assert (wt / "feature" / ".env").exists() and "feature" in branches(repo)
     assert said["gone"].startswith("removed") and "was already gone" in said["gone"]
     assert said["plain"].startswith("removed") and "no worktree" in said["plain"]
-    assert "Removed 3 branches" in result.text
+    assert "Removed 2 branches, 1 refused" in result.text
+    unshown = outcomes(client.post(REMOVE, data={"branch": ["feature"]}).text)
+    assert unshown["feature"].startswith("refused")  # a name alone removes nothing
+
+    again = client.post(PREVIEW, data={"branch": ["feature"]}).text
+    assert "<code>server.log</code>" in again
+    said = outcomes(client.post(REMOVE, data=confirmation(again)).text)
+    assert said["feature"].startswith("removed") and str(wt / "feature") in said["feature"]
     assert branches(repo) == {"main", "kept"}
     assert not (wt / "feature").exists() and (wt / "kept").exists()
     assert worktree_paths(repo) == {str(repo), str(wt / "kept")}
@@ -222,29 +242,55 @@ def test_removing_merged_branches_shows_what_goes_and_removes_only_what_is_confi
 
 
 def test_removing_refuses_each_branch_whose_work_would_be_lost_and_removes_the_rest(
-    registered: Path, client: TestClient, fake_gh: FakeGh, tmp_path: Path
+    registered: Path,
+    client: TestClient,
+    fake_gh: FakeGh,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     repo, wt = registered, tmp_path / "wt"
-    merged(repo, fake_gh, "dirty", 1, worktree=wt / "dirty")
+    names = ["fine", "dirty", "untracked", "locked", "busy", "waiting", "moved", "broken", "raced"]
+    for number, name in enumerate(names, start=1):
+        merged(repo, fake_gh, name, number, worktree=wt / name)
+    merged(repo, fake_gh, "primary-work", 10)
+    merged(repo, fake_gh, "nesting", 11, worktree=wt / "nesting")
+    with (repo / ".git" / "info" / "exclude").open("a") as exclude:
+        exclude.write(".wt/\n")
+    inner = wt / "nesting" / ".wt" / "inner"  # another worktree, in a folder git ignores there
+    run_git("worktree", "add", "-q", "-b", "inner", "--", str(inner), "main", cwd=repo)
+    (inner / "draft.md").write_text("unsaved\n")
+    shown = client.post(PREVIEW, data={"branch": [*names, "primary-work", "nesting"]}).text
+    form = confirmation(shown)
+    assert form["branch"] == [*names, "primary-work"]  # each clean when shown
+
+    # Between the preview and the click:
     (wt / "dirty" / "dirty.txt").write_text("changed\n")
-    merged(repo, fake_gh, "untracked", 2, worktree=wt / "untracked")
     (wt / "untracked" / "notes.md").write_text("draft\n")
-    merged(repo, fake_gh, "locked", 3, worktree=wt / "locked")
     run_git("worktree", "lock", "--reason", "in use", str(wt / "locked"), cwd=repo)
-    merged(repo, fake_gh, "busy", 4, worktree=wt / "busy")
     record_session(repo, {"event": "turn-finished", "cwd": str(wt / "busy" / "src")}, session="s1")
-    merged(repo, fake_gh, "moved", 6, worktree=wt / "moved")
+    days = 3 * 24 * 60  # quiet for days: s3's process still runs, s4's is gone
+    waiting = {"event": "turn-finished", "ago": days, "cwd": str(wt / "waiting")}
+    record_session(repo, waiting, session="s3")
     commit_on(wt / "moved", "late.txt")
-    merged(repo, fake_gh, "fine", 7, worktree=wt / "fine")
-    record_session(
-        repo, {"event": "closed", "reason": "exit", "cwd": str(wt / "fine")}, session="s2"
-    )
-    merged(repo, fake_gh, "primary-work", 5)
+    (wt / "broken" / ".git").write_text(f"gitdir: {tmp_path / 'nowhere'}\n")  # git can't read it
+    closed = {"event": "closed", "reason": "exit", "cwd": str(wt / "fine")}
+    record_session(repo, closed, session="s2")
+    ended = {"event": "working", "ago": days, "cwd": str(wt / "fine"), "pid_start": "0"}
+    record_session(repo, ended, session="s4")
     run_git("switch", "-q", "primary-work", cwd=repo)
     before = branches(repo), worktree_paths(repo)
+    removing = git.remove_worktree
 
-    names = ["dirty", "untracked", "locked", "busy", "primary-work", "moved", "fine", "never"]
-    result = client.post(REMOVE, data={"branch": names}).text
+    def committing_meanwhile(path: Path, worktree: Path) -> None:
+        """Commits on raced while fine goes, after both were checked."""
+        removing(path, worktree)
+        if worktree.name == "fine":
+            commit_on(wt / "raced", "racing.txt")
+
+    monkeypatch.setattr(git, "remove_worktree", committing_meanwhile)
+
+    form["branch"] += ["nesting", "never"]
+    result = client.post(REMOVE, data=form).text
     said = outcomes(result)
     assert said["dirty"].startswith("refused") and "modified or untracked" in said["dirty"]
     assert "dirty.txt" in said["dirty"]
@@ -252,15 +298,20 @@ def test_removing_refuses_each_branch_whose_work_would_be_lost_and_removes_the_r
     assert said["locked"].startswith("refused") and "locked" in said["locked"]
     assert "in use" in said["locked"]
     assert said["busy"].startswith("refused") and "session" in said["busy"] and "s1" in said["busy"]
+    assert said["waiting"].startswith("refused") and "session s3" in said["waiting"]
     assert said["primary-work"].startswith("refused") and "primary checkout" in said["primary-work"]
     assert said["moved"].startswith("refused") and "isn&#39;t merged now" in said["moved"]
+    assert said["broken"].startswith("refused") and "not a git repository" in said["broken"]
+    assert said["raced"].startswith("refused") and "committed to" in said["raced"]
+    assert said["nesting"].startswith("refused") and f"another worktree, {inner}" in said["nesting"]
     assert said["never"].startswith("refused") and "isn&#39;t merged now" in said["never"]
     assert said["fine"].startswith("removed")
-    assert "Removed 1 branch" in result and "7 refused" in result
+    assert "Removed 1 branch" in result and "11 refused" in result
     kept = before[0] - {"fine"}, before[1] - {str(wt / "fine")}
     assert (branches(repo), worktree_paths(repo)) == kept
     assert (wt / "dirty" / "dirty.txt").read_text() == "changed\n"
     assert (wt / "untracked" / "notes.md").exists() and (wt / "locked").exists()
+    assert (wt / "raced" / "racing.txt").exists() and (inner / "draft.md").exists()
     assert run_git("symbolic-ref", "--short", "HEAD", cwd=repo) == "primary-work"
 
 
@@ -290,6 +341,8 @@ def test_merged_branches_say_when_only_the_newest_pull_requests_were_read(
     tip = run_git("rev-parse", "HEAD", cwd=registered)
     for number in range(1, 501):
         fake_gh.add_merged_pull_request(f"old-{number}", pull(number), tip)
+    empty = listing(client.get(READ).text)
+    assert "No local branch" in empty and "only the newest 500 merged pull requests" in empty
     merged(registered, fake_gh, "feature", 501)  # the newest, so within what is read
     section = listing(client.get(READ).text)
     assert picked(section) == ["feature"]

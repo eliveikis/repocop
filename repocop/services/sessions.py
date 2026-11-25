@@ -3,15 +3,16 @@ in the format "The session log" in `specs/sessions.md` states, and what each one
 rules there.
 
 Each repository's git common folder is asked of git once and kept in memory, so from then on
-reading costs no git call. Each reading lists the logs folder and skips the logs not
-written in SHOWN_FOR, however many the rest are, since a session quiet for hours may still be
-live. A log is first read from its end back to its latest workflow, at most READ_BACK bytes, then
-only what is appended to it, so an unchanged log costs only the look at its size and time that
-the listing took; one that is another file at its path, told by its first IDENTITY_BYTES, or is
-shorter, is read anew. Events are taken in by their time, not their place in the log, and one
-older than the event that last set a field leaves that field as it is. A line that can't be read
-is skipped. A session's process is looked at each time, since it can end without a word, in
-`/proc`, so elsewhere a session that stopped mid-turn can't be told.
+reading costs no git call. Reading what shows lists the logs folder and skips the logs not written
+in SHOWN_FOR, however many the rest are, since a session quiet for hours may still be live; reading
+the sessions that haven't closed takes every log. A log is first read from its end back to its
+latest workflow, at most READ_BACK bytes, then only what is appended to it, so an unchanged log
+costs only the look at its size and time that the listing took; one that is another file at its
+path, told by its first IDENTITY_BYTES, or is shorter, is read anew. Events are taken in by their
+time, not their place in the log, and one older than the event that last set a field leaves that
+field as it is. A line that can't be read is skipped. A session's process is looked at each time,
+since it can end without a word, in `/proc`, so elsewhere a session that stopped mid-turn can't be
+told.
 
 A requirement's runs come from the repository's history of workflow runs and from every session
 log, each read whole the first time and then only as far as it was appended to. Any local process
@@ -197,22 +198,45 @@ class _Reading:
 def of(repository: Repository, settings: Settings, *, now: datetime | None = None) -> list[Session]:
     """The repository's sessions with an event in the past day, the latest first. None while its
     checkout isn't there."""
+    now = now or datetime.now(UTC)
+    found = _sessions(repository, settings, written_since=(now - SHOWN_FOR).timestamp())
+    shown = [session for session in found if now - session.last_at <= SHOWN_FOR]
+    return sorted(shown, key=lambda session: session.last_at, reverse=True)
+
+
+def unclosed(
+    repository: Repository, settings: Settings, *, now: datetime | None = None
+) -> list[Session]:
+    """The repository's sessions that haven't closed: each that `of` shows and isn't Closed, and
+    each quiet for longer whose process still runs, since a session can wait for days. One quiet
+    for longer whose process has ended, or can't be told, is left out: nothing tells it from one
+    long gone. Reads every log the repository has, in no order."""
+    now = now or datetime.now(UTC)
+    return [
+        session
+        for session in _sessions(repository, settings, written_since=0.0)
+        if session.state is not State.CLOSED
+        and (now - session.last_at <= SHOWN_FOR or session.running is True)
+    ]
+
+
+def _sessions(repository: Repository, settings: Settings, *, written_since: float) -> list[Session]:
+    """The repository's sessions whose log was written since `written_since`, a POSIX time. None
+    while its checkout isn't there."""
     common = common_dir(repository, settings)
     if common is None:
         return []
     folder = common / LOGS
     if not folder.is_dir() or not folder.resolve().is_relative_to(common):
         return []
-    now = now or datetime.now(UTC)
     pages = _requirement_pages(repository)
     found = []
-    for log, listed in _logs(folder, written_since=(now - SHOWN_FOR).timestamp()):
+    for log, listed in _logs(folder, written_since=written_since):
         reading = _reading(log, listed)
-        latest = reading.latest if reading else None
-        if reading and latest and now - latest.at <= SHOWN_FOR:
+        if reading and reading.latest:
             session = log.name.removesuffix(".jsonl")
-            found.append(_session(repository, session, reading, latest, pages))
-    return sorted(found, key=lambda session: session.last_at, reverse=True)
+            found.append(_session(repository, session, reading, reading.latest, pages))
+    return found
 
 
 def for_requirement(found: Iterable[Session], name: str) -> tuple[Session, ...]:

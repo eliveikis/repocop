@@ -17,6 +17,6 @@
 </table>
 <p class="actions"><button type="submit" class="danger">Remove…</button> <span class="hint">Shows what will go first. Nothing is removed until you confirm there.</span></p>
 </form>
-{% if merged.limit_reached %}<p class="hint">Not every merged branch may be listed: only the newest {{ merged.limit_reached }} merged pull requests were read.</p>{% endif %}
 {% endif %}
+{% if merged is not none and merged.limit_reached %}<p class="hint">Not every merged branch may be listed: only the newest {{ merged.limit_reached }} merged pull requests were read.</p>{% endif %}
 </div>

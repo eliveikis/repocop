@@ -8,13 +8,17 @@ branch committed to since doesn't. GitHub is asked once, for the newest merged p
 to `github.MERGED_PULL_REQUESTS_READ`, within the board's timeout; branches and worktrees are
 read from the primary checkout with two git calls whatever their number. A removal is a
 worktree's removal as `git worktree remove` does it without forcing, then the branch's deletion,
-each checked again at the click and refused where work would be lost. A worktree's path comes
-from git's own list, never from the request. Nothing else is touched: no remote-tracking branch,
-no branch on GitHub, nothing in the repository's git folder.
+each checked again at the click and refused where work would be lost, or where what goes isn't
+what the developer was shown, as a digest of it that the confirmation carries back tells. The
+branch's tip is read again before each step, so one committed to meanwhile stays. A worktree's
+path comes from git's own list, never from the request. Nothing else is touched: no
+remote-tracking branch, no branch on GitHub, nothing in the repository's git folder.
 """
 
 from __future__ import annotations
 
+import hashlib
+import json
 import sqlite3
 from collections.abc import Iterable
 from dataclasses import dataclass
@@ -25,7 +29,6 @@ from repocop.errors import RepoCopError
 from repocop.services import git, github, repositories, sessions, tasks, template_sync
 from repocop.services.board import PULL_REQUEST_TIMEOUT_S
 from repocop.services.repositories import Repository
-from repocop.services.sessions import State
 
 LOCAL_PREFIX = "refs/heads/"
 CHANGED_SHOWN = 5  # how many of a worktree's changed files a refusal names
@@ -64,9 +67,24 @@ class Removal:
     """What removing a branch would do now, or why it is refused."""
 
     branch: str
+    tip: str | None  # the commit the branch goes at; None when it isn't merged now
     worktree: Worktree | None
     deletes: tuple[str, ...]  # the ignored files its worktree's removal deletes too
     refused: str | None
+
+    @property
+    def digest(self) -> str:
+        """A digest of all that removing it deletes: the branch at its tip, its worktree and the
+        ignored files in it. Equal digests mean the same goes."""
+        worktree = self.worktree
+        goes = [
+            self.branch,
+            self.tip,
+            str(worktree.path) if worktree else None,
+            worktree.present if worktree else None,
+            list(self.deletes),
+        ]
+        return hashlib.sha256(json.dumps(goes).encode()).hexdigest()
 
 
 @dataclass(frozen=True)
@@ -116,23 +134,39 @@ def plan(
     """What removing each of the branches `names` would do now, each once, in their order: its
     worktree and the ignored files that go with it, or why it is refused. Everything is read
     again: a branch is merged only as GitHub and the checkout report it at this moment."""
+    names = dict.fromkeys(names)
     listing = read(conn, settings, repository)
+    if listing.error:
+        refused = f"merged branches can't be read: {listing.error}"
+        return [Removal(name, None, None, (), refused) for name in names]
     by_name = {branch.name: branch for branch in listing.branches}
-    busy = [s for s in sessions.of(repository, settings) if s.state is not State.CLOSED]
-    checkout = repository.primary_path
-    return [_removal(name, listing, by_name, busy, checkout) for name in dict.fromkeys(names)]
+    checkout = repositories.require_checkout(repository, settings)
+    others = [entry.path for entry in git.worktrees(checkout) if not entry.prunable]
+    unclosed = sessions.unclosed(repository, settings)
+    return [_removal(name, by_name, unclosed, others) for name in names]
 
 
 def remove(
-    conn: sqlite3.Connection, settings: Settings, repository: Repository, names: Iterable[str]
+    conn: sqlite3.Connection,
+    settings: Settings,
+    repository: Repository,
+    names: Iterable[str],
+    confirmed: Iterable[str],
 ) -> list[Outcome]:
-    """Remove each of the branches `names` that `plan` allows: its worktree first, as
-    `git worktree remove` does without forcing, then the branch. One refusal stops nothing else,
-    and nothing but the worktree and the branch goes. Only on the developer's confirmation."""
+    """Remove each of the branches `names` that `plan` allows and whose `Removal.digest` is among
+    `confirmed`, so nothing goes that the developer wasn't shown: its worktree first, as
+    `git worktree remove` does without forcing, then the branch, each while the branch is still at
+    the tip it was checked at. One refusal stops nothing else, and nothing but the worktree and
+    the branch goes. Only on the developer's confirmation."""
+    shown = set(confirmed)
     outcomes = []
     for removal in plan(conn, settings, repository, names):
         if removal.refused:
             outcomes.append(Outcome(removal.branch, False, removal.refused))
+            continue
+        if removal.digest not in shown:
+            changed = "what goes with it has changed since it was shown: show what goes again"
+            outcomes.append(Outcome(removal.branch, False, changed))
             continue
         try:
             checkout = repositories.require_checkout(repository, settings)
@@ -144,8 +178,12 @@ def remove(
 
 def _remove_one(checkout: Path, removal: Removal) -> Outcome:
     worktree = removal.worktree
+    if moved := _moved(checkout, removal):
+        return Outcome(removal.branch, False, moved)
     if worktree is not None:
         git.remove_worktree(checkout, worktree.path)
+        if moved := _moved(checkout, removal):
+            return Outcome(removal.branch, False, f"{moved}, though its worktree has gone")
     git.delete_branch(checkout, removal.branch)
     if worktree is None:
         detail = "it had no worktree"
@@ -159,19 +197,25 @@ def _remove_one(checkout: Path, removal: Removal) -> Outcome:
     return Outcome(removal.branch, True, detail)
 
 
+def _moved(checkout: Path, removal: Removal) -> str | None:
+    """Why the branch must stay: it was committed to since it was checked. None while it is at
+    the tip it was checked at."""
+    if git.resolve(checkout, LOCAL_PREFIX + removal.branch) == removal.tip:
+        return None
+    return "it was committed to since it was checked, so it is no longer merged"
+
+
 def _removal(
     name: str,
-    listing: Listing,
     by_name: dict[str, MergedBranch],
-    busy: list[sessions.Session],
-    checkout: Path,
+    unclosed: list[sessions.Session],
+    others: list[Path],
 ) -> Removal:
-    if listing.error:
-        return Removal(name, None, (), f"merged branches can't be read: {listing.error}")
     branch = by_name.get(name)
     if branch is None:
         return Removal(
             name,
+            None,
             None,
             (),
             "it isn't merged now: no local branch of that name ends at the last commit of a "
@@ -179,26 +223,35 @@ def _removal(
         )
     worktree = branch.worktree
     if worktree is None:
-        return Removal(name, None, (), None)
-    refused = _refusal(worktree, busy, checkout)
-    deletes = (
-        tuple(git.ignored_files(worktree.path)) if refused is None and worktree.present else ()
-    )
-    return Removal(name, worktree, deletes, refused)
+        return Removal(name, branch.tip, None, (), None)
+    try:
+        refused = _refusal(worktree, unclosed, others)
+        deletes = (
+            tuple(git.ignored_files(worktree.path)) if refused is None and worktree.present else ()
+        )
+    except RepoCopError as exc:
+        return Removal(name, branch.tip, worktree, (), f"its worktree can't be read: {exc}")
+    return Removal(name, branch.tip, worktree, deletes, refused)
 
 
-def _refusal(worktree: Worktree, busy: list[sessions.Session], checkout: Path) -> str | None:
-    """Why removing `worktree` would lose work or write where RepoCop never does, else None."""
+def _refusal(
+    worktree: Worktree, unclosed: list[sessions.Session], others: list[Path]
+) -> str | None:
+    """Why removing `worktree` would lose work or write where RepoCop never does, else None.
+    `others` are where the repository's worktrees are, the primary checkout among them."""
     path = worktree.path
     if worktree.primary:
         return "it is checked out in the primary checkout"
     if worktree.locked is not None:
         reason = f": {worktree.locked}" if worktree.locked else ""
         return f"its worktree {path} is locked{reason}"
-    if inside := [s for s in busy if _within(s.cwd, path)]:
+    if inside := [s for s in unclosed if _within(s.cwd, path)]:
         return f"session {inside[0].id} ({inside[0].state}) is in its worktree {path}"
-    if path.is_symlink() or checkout.resolve().is_relative_to(path.resolve()):
+    if path.is_symlink():
         return f"its worktree {path} isn't a folder of its own"
+    held = [other for other in others if other != path and _within(other, path)]
+    if held:
+        return f"its worktree {path} holds another worktree, {held[0]}, which would go with it"
     if worktree.present and (changed := git.changed_files(path)):
         more = f" and {len(changed) - CHANGED_SHOWN} more" if len(changed) > CHANGED_SHOWN else ""
         return (
@@ -208,9 +261,9 @@ def _refusal(worktree: Worktree, busy: list[sessions.Session], checkout: Path) -
     return None
 
 
-def _within(cwd: str, worktree: Path) -> bool:
-    """Whether the folder `cwd` is `worktree` or inside it."""
-    return Path(cwd).resolve().is_relative_to(worktree.resolve())
+def _within(folder: str | Path, worktree: Path) -> bool:
+    """Whether `folder` is `worktree` or inside it."""
+    return Path(folder).resolve().is_relative_to(worktree.resolve())
 
 
 def _worktrees(checkout: Path) -> dict[str, Worktree]:
