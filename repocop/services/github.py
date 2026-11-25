@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import dataclass
 from pathlib import Path
 
 from repocop.errors import RepoCopError
@@ -22,6 +23,7 @@ GH = "gh"
 HOST = "github.com"
 TIMEOUT_S = 60.0
 PULL_REQUESTS_READ = 200  # the open pull requests read from a repository at once
+MERGED_PULL_REQUESTS_READ = 500  # the newest merged pull requests read from a repository at once
 
 
 class GitHubError(RepoCopError):
@@ -71,6 +73,44 @@ def open_pull_requests(cwd: Path, repository: str, *, timeout: float = TIMEOUT_S
         for pull in found
         if not pull["isCrossRepository"]
     }
+
+
+@dataclass(frozen=True)
+class MergedPullRequest:
+    branch: str  # the branch it was merged from
+    last_commit: str  # the commit of that branch it was merged at
+    url: str
+
+
+@dataclass(frozen=True)
+class MergedPullRequests:
+    """A repository's merged pull requests, as far as they were read."""
+
+    found: tuple[MergedPullRequest, ...]  # the newest first
+    at_limit: bool  # as many were read as are read at once, so older ones may be left out
+
+
+def merged_pull_requests(
+    cwd: Path, repository: str, *, timeout: float = TIMEOUT_S
+) -> MergedPullRequests:
+    """The newest MERGED_PULL_REQUESTS_READ merged pull requests whose branch is in `repository`
+    itself, each with the commit it was merged at: one read, which changes nothing on GitHub.
+    Pull requests from forks are left out."""
+    fields = "url,headRefName,headRefOid,isCrossRepository"
+    listing = ["pr", "list", "--repo", repository, "--state", "merged", "--json", fields]
+    found = json.loads(
+        _run([*listing, "--limit", str(MERGED_PULL_REQUESTS_READ)], cwd=cwd, timeout=timeout)
+    )
+    return MergedPullRequests(
+        tuple(
+            MergedPullRequest(
+                pull["headRefName"], pull["headRefOid"], _pull_request_url(pull["url"])
+            )
+            for pull in found
+            if not pull["isCrossRepository"]
+        ),
+        len(found) >= MERGED_PULL_REQUESTS_READ,
+    )
 
 
 def create_pull_request(

@@ -39,6 +39,16 @@ class FakeGh:
         pulls[branch] = {"url": url, "fork": fork}
         pulls_file.write_text(json.dumps(pulls))
 
+    def add_merged_pull_request(
+        self, branch: str, url: str, head: str, *, fork: bool = False
+    ) -> None:
+        """A pull request from `branch`, merged on GitHub from its last commit `head`, newer than
+        those added before: from this repository or, with `fork`, from a fork's."""
+        merged_file = self.directory / "merged.json"
+        merged = json.loads(merged_file.read_text()) if merged_file.exists() else []
+        merged.insert(0, {"branch": branch, "url": url, "head": head, "fork": fork})
+        merged_file.write_text(json.dumps(merged))
+
     def close_pull_requests(self) -> None:
         """Every pull request has been merged or closed on GitHub."""
         (self.directory / "pulls.json").write_text("{}")

@@ -12,9 +12,9 @@ The developer writes requirements in their own editor and runs the repository's 
 
 These are ordered. When two pillars conflict, the higher one wins.
 
-1. **Human keeps final control.** RepoCop writes in the human's checkout only on their click: a fetch, or a request to one of their sessions. Nothing is pushed, merged, deleted, or overwritten without explicit human action, and the developer runs and steers every agent in their own session.
+1. **Human keeps final control.** RepoCop writes in the human's checkout only on their click: a fetch, a request to one of their sessions, or the removal of a branch whose work GitHub merged, with its worktree, which they confirm after seeing what goes. Nothing is pushed, merged, deleted, or overwritten without explicit human action, and the developer runs and steers every agent in their own session.
 2. **Repository owns knowledge.** Requirements, specs, CLAUDE.md, rules, and skills live in the repo. RepoCop stores references and the record of its own syncs, never authoritative copies.
-3. **Isolation by construction.** What RepoCop writes, a template sync, it writes on a branch in a worktree of its own, never in the human's checkout. It sets no limit on how many agents work at once, in a repository or across the fleet, and assumes none.
+3. **Isolation by construction.** What RepoCop writes, a template sync, it writes on a branch in a worktree of its own, never in the human's checkout. What it removes, a merged branch and its worktree, it removes only where no work is lost: never a worktree with changes in it, and never the checkout the human works in. It sets no limit on how many agents work at once, in a repository or across the fleet, and assumes none.
 4. **Agent-agnostic.** RepoCop runs no coding agent and isn't tied to one vendor's, so its user doesn't depend on one vendor's pricing and terms. The repo template ships rules and skills for Claude Code and Codex, and what in RepoCop is specific to one agent is kept to a few known places.
 5. **Thin orchestration.** RepoCop shows where work stands and keeps repositories in step, and adds no reasoning of its own. Repo-specific behaviour belongs to that repo's skills and rules, run by the developer's own agent.
 6. **Simple and inspectable.** Server-rendered HTML, SQLite, plain files, and the Git CLI. No frontend build step, no job infrastructure.

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% set back = url_for('repository_page', repository_id=repository.id) ~ '#merged-branches' %}
+{% set crumbs = [
+  ("Repositories", url_for('list_repositories')),
+  (repository.name, url_for('repository_page', repository_id=repository.id)),
+  ("Merged branches", back),
+] %}
+
+{% block title %}Remove merged branches · {{ repository.name }} · RepoCop{% endblock %}
+
+{% block toasts %}
+{% if outcomes and removed_count %}<p class="toast">Removed {{ removed_count }} branch{{ "" if removed_count == 1 else "es" }}.</p>{% endif %}
+{% endblock %}
+
+{% block content %}
+<h1>Remove merged branches</h1>
+{% if outcomes is not none %}
+<p>Removed {{ removed_count }} branch{{ "" if removed_count == 1 else "es" }}{% if refused_count %}, {{ refused_count }} refused{% endif %}.</p>
+<ul class="outcomes">
+  {% for outcome in outcomes %}<li class="outcome {{ 'removed' if outcome.removed else 'refused' }}"><code>{{ outcome.branch }}</code>{% if outcome.removed %} removed, {{ outcome.detail }}.{% else %} refused: {{ outcome.detail }}.{% endif %}</li>
+  {% endfor %}
+</ul>
+<p><a href="{{ back }}">Back to {{ repository.name }}</a></p>
+{% elif not removals %}
+<p class="notice">No branch was picked.</p>
+<p><a href="{{ back }}">Back to {{ repository.name }}</a></p>
+{% else %}
+<p>Each branch goes with its worktree on this machine, and with the ignored files in that worktree, which git keeps nothing of. Nothing goes on GitHub, and no remote-tracking branch. Nothing has been removed yet.</p>
+<ul class="removals">
+  {% for removal in removals %}<li class="removal{% if removal.refused %} refused{% endif %}"><code>{{ removal.branch }}</code>{% if removal.refused %}: will be refused, {{ removal.refused }}.{% elif removal.worktree is none %}: no worktree, so only the branch goes.{% elif not removal.worktree.present %}: the folder is gone from its worktree <code>{{ removal.worktree.path }}</code>, so only git's record of it goes, with the branch.{% else %}: its worktree <code>{{ removal.worktree.path }}</code> and the branch go{% if removal.deletes %}, and with them the ignored files {% for file in removal.deletes %}{% if not loop.first %}, {% endif %}<code>{{ file }}</code>{% endfor %}{% endif %}.{% endif %}</li>
+  {% endfor %}
+</ul>
+{% set removable = removals | rejectattr("refused") | list %}
+{% if removable %}
+<form method="post" action="{{ url_for('remove_merged_branches', repository_id=repository.id) }}">
+  {% for removal in removable %}<input type="hidden" name="branch" value="{{ removal.branch }}">
+  {% endfor %}
+  <div class="actions"><button type="submit" class="danger">Remove {{ removable | length }} branch{{ "" if removable | length == 1 else "es" }}</button> <a href="{{ back }}">Cancel</a></div>
+</form>
+{% else %}
+<p>Nothing can be removed. <a href="{{ back }}">Back to {{ repository.name }}</a></p>
+{% endif %}
+{% endif %}
+{% endblock %}

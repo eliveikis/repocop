@@ -13,7 +13,7 @@ a review saves its verdict        → a review, or its completion, is saved in <
 a click asks a session            → a workflow and a requirement, handed over by its own hook or socket
 RepoCop shows and syncs           → the board from each repo and GitHub; SQLite: registry, template syncs
 worktree owns isolated changes    → 1 template sync ↔ 1 branch ↔ 1 worktree under <worktrees_root>/<repo>/
-human keeps final control         → RepoCop writes in a primary checkout only on a click: a fetch or a session request; no auto-push/merge/delete
+human keeps final control         → RepoCop writes in a primary checkout only on a click: a fetch, a session request, or a merged branch's removal once confirmed; no auto-push/merge/delete
 ```
 
 ## Components
@@ -25,6 +25,7 @@ flowchart TD
 
     subgraph services["services/"]
         repos["repositories.py<br/>registry, onboarding, status"]
+        mergedb["merged_branches.py<br/>merged branches, their worktrees, removal"]
         board["board.py<br/>each requirement's stage"]
         sync["template_sync.py<br/>plan, commit on a sync branch"]
         boot["bootstrap.py<br/>repo template: compare with a branch"]
@@ -47,9 +48,11 @@ flowchart TD
     logs[/"Session logs and history<br/>written by the repo's hook"/]
     reviews[/"Saved reviews<br/>written by the agent's workflows"/]
     agent["Developer's agent session"]
+    agentwt[/"Agent's worktree<br/>of a merged branch"/]
 
     browser -->|"HTTP; session lists every 2 s"| routes
-    routes --> repos & board & reqs & tasksvc & sync & prs & sess & nav & asks & revs
+    routes --> repos & board & reqs & tasksvc & sync & prs & sess & nav & asks & revs & mergedb
+    mergedb --> repos & git & github & sess & tasksvc
     board --> repos & reqs & git & github & sess & revs
     revs --> sess & reqs
     revs -->|"read, no git"| reviews
@@ -68,7 +71,8 @@ flowchart TD
     reqs --> git
     wts --> git
     repos & tasksvc & prs --> db
-    git -->|"clone, fetch, status, read"| primary
+    git -->|"clone, fetch, status, read;<br/>branch -D once confirmed"| primary
+    git -->|"worktree remove once confirmed"| agentwt
     git -->|"worktree add, commit, status, diff, push"| worktree
     github -->|"gh pr create, edit, list"| hub
 ```
@@ -84,7 +88,7 @@ Each component serves one of RepoCop's broad areas, and each area's behaviour is
 
 | Area | Its components |
 |------|----------------|
-| [Repositories](repositories.md) | `repositories.py`, `git.py` |
+| [Repositories](repositories.md) | `repositories.py`, `merged_branches.py`, `git.py` |
 | [Board](board.md) | `board.py`, `github.py` |
 | [Requirements](requirements.md) | `requirements.py`, `backlog.py`, `requirement_reviews.py` |
 | [Sessions](sessions.md) | `sessions.py`, `session_requests.py`, and the repo template's session hook |

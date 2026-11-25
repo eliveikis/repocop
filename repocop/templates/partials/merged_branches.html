@@ -1,0 +1,22 @@
+{# The repository `scope`'s local branches whose pull request GitHub merged, from `merged`: None until GitHub is read, after the page renders. With `oob`, swapped into the page from a board fragment. #}
+<div id="merged-branches-list"{% if oob %} hx-swap-oob="true"{% endif %}>
+{% if merged is none %}
+<p class="hint">Merged branches not read yet. <a href="{{ url_for('repository_page', repository_id=scope.id).include_query_params(pull_requests='true') }}#merged-branches">Read them from GitHub</a></p>
+{% elif merged.error %}
+<p class="notice">Merged branches can't be listed: {{ merged.error }}</p>
+{% elif not merged.branches %}
+<p class="empty">No local branch has a merged pull request at its tip.</p>
+{% else %}
+<form method="post" action="{{ url_for('preview_merged_branches', repository_id=scope.id) }}">
+<table class="merged-branches">
+  <thead><tr><th><span class="visually-hidden">Pick</span></th><th>Branch</th><th>Merged by</th><th>Worktree</th></tr></thead>
+  <tbody>
+    {% for branch in merged.branches %}<tr class="merged-branch"><td><input type="checkbox" name="branch" value="{{ branch.name }}" checked aria-label="Remove {{ branch.name }}"></td><td><code>{{ branch.name }}</code></td><td><a href="{{ branch.pull_request }}" target="_blank" rel="noopener noreferrer">pull request</a></td><td>{% if branch.worktree %}<code>{{ branch.worktree.path }}</code>{% if branch.worktree.primary %} · <span class="owner owner-human">the primary checkout</span>{% elif not branch.worktree.present %} · folder gone{% endif %}{% if branch.worktree.locked is not none %} · locked{% endif %}{% else %}no worktree{% endif %}</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+<p class="actions"><button type="submit" class="danger">Remove…</button> <span class="hint">Shows what will go first. Nothing is removed until you confirm there.</span></p>
+</form>
+{% if merged.limit_reached %}<p class="hint">Not every merged branch may be listed: only the newest {{ merged.limit_reached }} merged pull requests were read.</p>{% endif %}
+{% endif %}
+</div>

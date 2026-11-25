@@ -491,8 +491,53 @@ def add_worktree(path: Path, worktree: Path, branch: str, commit: str) -> None:
 
 
 def remove_worktree(path: Path, worktree: Path) -> None:
-    """Remove `worktree`. Never forced, so git refuses one with uncommitted changes."""
+    """Remove `worktree`, or only git's record of it when its folder is already gone. Never
+    forced, so git refuses one with modified or untracked files, or a lock, and deletes the
+    ignored files in it, as `ignored_files` lists them."""
     _run(["worktree", "remove", "--", str(worktree)], cwd=path)
+
+
+@dataclass(frozen=True)
+class WorktreeEntry:
+    """A worktree as the repository records it."""
+
+    path: Path  # as recorded, absolute
+    branch: str | None  # None on a detached HEAD, or in a bare repository
+    locked: str | None  # the lock's reason, "" when none was given; None when it isn't locked
+    prunable: bool  # git would prune its record: its folder is gone
+
+
+def worktrees(path: Path) -> list[WorktreeEntry]:
+    """Every worktree of the checkout's repository, the main one first, from one git call
+    whatever their number. Read-only."""
+    found: list[WorktreeEntry] = []
+    listing = _run(["worktree", "list", "--porcelain", "-z"], cwd=path, strip=False)
+    for block in listing.split("\0\0"):
+        fields: dict[str, str] = {}
+        for line in block.split("\0"):
+            key, _, value = line.partition(" ")
+            if key:
+                fields[key] = value
+        if "worktree" not in fields:
+            continue
+        branch = fields.get("branch")
+        found.append(
+            WorktreeEntry(
+                Path(fields["worktree"]),
+                branch.removeprefix("refs/heads/") if branch is not None else None,
+                fields.get("locked"),
+                "prunable" in fields,
+            )
+        )
+    return found
+
+
+def ignored_files(path: Path) -> list[str]:
+    """The files git ignores in the checkout, sorted: an ignored folder as one entry, with a
+    trailing `/`. What `remove_worktree` deletes along with the worktree, since git keeps nothing
+    of them."""
+    listing = ["ls-files", "--others", "--ignored", "--exclude-standard", "--directory", "-z"]
+    return sorted(file for file in _run(listing, cwd=path, strip=False).split("\0") if file)
 
 
 def delete_branch(path: Path, branch: str) -> None:

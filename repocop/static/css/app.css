@@ -662,6 +662,11 @@ a.card-name:hover { text-decoration: underline; }
 .card-detail { margin: 0; color: var(--muted); }
 .review-text pre { max-height: 32rem; overflow: auto; }
 .card-branches { margin: 0; padding: 0; color: var(--muted); list-style: none; overflow-wrap: anywhere; }
+.merged-branches td:first-child { width: 1.5rem; }
+.merged-branches input[type="checkbox"] { margin: 0; }
+.removals, .outcomes { margin: var(--space-3) 0; padding-left: var(--space-5); overflow-wrap: anywhere; }
+.removals li + li, .outcomes li + li { margin-top: var(--space-2); }
+.removal.refused, .outcome.refused { color: var(--muted); }
 .card-branches code { color: var(--fg); }
 
 .session-list { display: flex; flex-direction: column; gap: var(--space-1); margin: var(--space-1) 0 0; padding: 0; list-style: none; }

@@ -1,4 +1,4 @@
-{# Requirements by stage: the `stages` of `board`, as the repository `scope`'s own or, without one, every repository's, with pull requests read after the page renders. #}
+{# Requirements by stage: the `stages` of `board`, as the repository `scope`'s own or, without one, every repository's, with pull requests read after the page renders. On a repository's page, `still_here` names each delivered requirement's merged branches that are still here, and with `merged_oob` the repository's merged branches come along, to swap into their own place. #}
 {% set here = url_for('repository_page', repository_id=scope.id) if scope else url_for('list_repositories') %}
 {% set refresh = url_for('board_panel').include_query_params(repository=scope.id) if scope else url_for('board_panel') %}
 <div id="board" class="board"{% if not board.with_pull_requests %} hx-get="{{ refresh }}" hx-trigger="load" hx-swap="outerHTML"{% endif %}>
@@ -37,3 +37,4 @@
   </details>
 </div>
 {% if counts_oob %}{% set oob = true %}{% for repo in registered %}{% include "partials/work_counts.html" %}{% endfor %}{% endif %}
+{% if merged_oob %}{% set oob = true %}{% include "partials/merged_branches.html" %}{% endif %}

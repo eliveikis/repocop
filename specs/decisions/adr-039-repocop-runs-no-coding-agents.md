@@ -1,6 +1,6 @@
 # ADR-039: RepoCop runs no coding agents
 
-**Status:** accepted · **Date:** 2026-10-29
+**Status:** accepted, its untouched worktrees and branches of past runs superseded by ADR-044 · **Date:** 2026-10-29
 
 ## Context
 

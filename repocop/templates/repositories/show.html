@@ -24,7 +24,7 @@
   <a href="#overview">Overview</a>
   <a href="#requirements">Requirements</a>
   <a href="#sessions">Sessions</a>
-  {% if status != "missing" %}<a href="#checkout">Checkout</a>{% endif %}
+  {% if status != "missing" %}<a href="#checkout">Checkout</a><a href="#merged-branches">Merged branches</a>{% endif %}
   {% if syncs %}<a href="#syncs">Template syncs</a>{% endif %}
 </nav>
 
@@ -98,6 +98,15 @@
   </div>
   <details class="help"><summary>How this works</summary>
     <p>Ahead and behind compare the branch with its upstream{% if checkout.state and checkout.state.upstream %}, <code>{{ checkout.state.upstream }}</code>,{% endif %} as of the last fetch. Fetch updates only <code>origin</code>'s remote-tracking branches, so it doesn't refresh an upstream that is on another remote or is a local branch. The checkout's files, index and local branches stay as they are.</p>
+  </details>
+</section>
+
+<section id="merged-branches" aria-labelledby="merged-branches-heading">
+  <h2 id="merged-branches-heading">Merged branches</h2>
+  <p class="hint">The local branches whose pull request GitHub merged at their tip, each with the worktree it is checked out in. Remove deletes the ones you pick, on this machine only, once you have confirmed what goes.</p>
+  {% set scope = repository %}{% include "partials/merged_branches.html" %}
+  <details class="help"><summary>How this works</summary>
+    <p>A branch is merged when GitHub reports a pull request from it as merged and the branch's tip is that pull request's last commit, so a squash merge counts and a branch committed to since doesn't. Removing one removes its worktree as <code>git worktree remove</code> does, which deletes the ignored files in it, then deletes the branch. It is refused while the worktree has modified or untracked files, is locked, has a session in it that isn't closed, or is the primary checkout, and once the branch is committed to again. Remote-tracking branches stay, since a fetch never prunes, and the branch on GitHub is GitHub's to delete. A template sync's branch is removed from its row under Template syncs instead.</p>
   </details>
 </section>
 {% endif %}

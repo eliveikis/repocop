@@ -14,4 +14,5 @@
   {% endif %}
   {% set key, shown = "r:%d:%s" % (card.repository.id, card.name), card.sessions %}{% include "partials/sessions.html" %}
   {% if card.delivered_at %}<p class="card-detail">Delivered {{ card.delivered_at | ago }}</p>{% endif %}
+  {% if still_here and card.name in still_here %}{% set here = still_here[card.name] %}<p class="card-detail">{% for name in here %}{% if not loop.first %}, {% endif %}<code>{{ name }}</code>{% endfor %} {{ "is" if here | length == 1 else "are" }} still here: <a href="#merged-branches">remove {{ "it" if here | length == 1 else "them" }}</a></p>{% endif %}
 </article>

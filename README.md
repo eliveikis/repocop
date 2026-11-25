@@ -7,13 +7,13 @@ Write a requirement in your own editor and commit it, then run the repository's 
 ## How it works
 
 ```text
-~/code/crm-api/                              # your checkout: RepoCop writes here only on your click: a fetch, or a request to a session
+~/code/crm-api/                              # your checkout: RepoCop writes here only on your click: a fetch, a request to a session, or removing a merged branch you confirm
 ~/agent-worktrees/crm-api/template-sync-12/  # RepoCop's worktree for a sync, on agent/template-sync-12
 ```
 
 - Requirements, specs, `CLAUDE.md` and `.claude/` live in each repository. RepoCop only reads them, and keeps only references and the record of its syncs.
 - The repo template's files reach a repository through **Sync with template**, committed on a branch in a worktree of RepoCop's own, which you push, review and merge as a pull request.
-- Your agent works wherever you run it, in your checkout or a worktree of its own, as many at once as you like. Name its branch after the requirement, as its page says, and the board follows the work.
+- Your agent works wherever you run it, in your checkout or a worktree of its own, as many at once as you like. Name its branch after the requirement, as its page says, and the board follows the work. Once its pull request is merged, the repository's page offers to remove the branch and worktree it left behind, showing what goes first.
 
 The design, and the reasons for it, are in [specs/](specs/index.md): the product and its non-goals, the architecture, a spec for each of its areas, the decision records, and the changes still to come.
 

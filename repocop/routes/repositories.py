@@ -1,10 +1,11 @@
 """Repository pages: the main page with the fleet's active work and each repository's standing,
 adding a repository and choosing its default branch, fetching one repository or all of them, each
-repository's page with its board, changing its default branch, and removing a completed template
-sync's branch."""
+repository's page with its board and its merged branches, changing its default branch, removing
+merged branches once confirmed, and removing a completed template sync's branch."""
 
 import contextlib
 import sqlite3
+from pathlib import PurePosixPath
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Form, HTTPException, Request
@@ -16,6 +17,7 @@ from repocop.errors import RepoCopError
 from repocop.routes.dependencies import ConnectionDep, RepositoryDep, SettingsDep
 from repocop.services import (
     board,
+    merged_branches,
     pull_requests,
     repositories,
     requirements,
@@ -68,7 +70,9 @@ def board_panel(
         found = repositories.get(conn, repository)
         if found is None:
             raise HTTPException(status_code=404, detail="repository not found")
-        context = _own_board(found, board.read(settings, [found], with_pull_requests=True))
+        read = board.read(settings, [found], with_pull_requests=True)
+        context = _own_board(found, read, merged_branches.read(conn, settings, found))
+        context["merged_oob"] = True
     templates: Jinja2Templates = request.app.state.templates
     return templates.TemplateResponse(request, "partials/board.html", context)
 
@@ -193,6 +197,33 @@ def change_default_branch(
     return RedirectResponse(target.include_query_params(default_branch_set="true"), 303)
 
 
+@router.post("/repositories/{repository_id}/merged-branches/preview", response_class=HTMLResponse)
+def preview_merged_branches(
+    request: Request,
+    conn: ConnectionDep,
+    settings: SettingsDep,
+    repository: RepositoryDep,
+    branch: Annotated[list[str] | None, Form()] = None,
+) -> HTMLResponse:
+    """What removing the picked merged branches would do, for the developer to confirm. Nothing
+    is removed here."""
+    removals = merged_branches.plan(conn, settings, repository, branch or [])
+    return _render_removal(request, repository, removals=removals)
+
+
+@router.post("/repositories/{repository_id}/merged-branches/remove", response_class=HTMLResponse)
+def remove_merged_branches(
+    request: Request,
+    conn: ConnectionDep,
+    settings: SettingsDep,
+    repository: RepositoryDep,
+    branch: Annotated[list[str] | None, Form()] = None,
+) -> HTMLResponse:
+    """Remove the confirmed merged branches, each with its worktree, and report each."""
+    outcomes = merged_branches.remove(conn, settings, repository, branch or [])
+    return _render_removal(request, repository, outcomes=outcomes)
+
+
 @router.post("/repositories/{repository_id}/syncs/{task_id}/remove", response_class=HTMLResponse)
 def remove_sync(
     request: Request,
@@ -264,7 +295,9 @@ def _render_repository(
         "fetched": fetched,
         "fetch_error": fetch_error,
         **_own_board(
-            repository, board.read(settings, [repository], with_pull_requests=with_pull_requests)
+            repository,
+            board.read(settings, [repository], with_pull_requests=with_pull_requests),
+            merged_branches.read(conn, settings, repository) if with_pull_requests else None,
         ),
         "sessions": sessions.of(repository, settings),
         "recorded": (
@@ -304,9 +337,45 @@ def _checkout(repository: Repository, settings: Settings, status: Status) -> dic
     return shown
 
 
-def _own_board(repository: Repository, read: board.Board) -> dict[str, Any]:
-    """What a repository's page shows of its board: every stage, as only its own."""
-    return {"board": read, "stages": tuple(Stage), "scope": repository}
+def _render_removal(
+    request: Request,
+    repository: Repository,
+    *,
+    removals: list[merged_branches.Removal] | None = None,
+    outcomes: list[merged_branches.Outcome] | None = None,
+) -> HTMLResponse:
+    """The page that confirms removing merged branches, with `removals`, or reports their
+    `outcomes`."""
+    templates: Jinja2Templates = request.app.state.templates
+    removed = sum(1 for outcome in outcomes or [] if outcome.removed)
+    context = {
+        "repository": repository,
+        "removals": removals,
+        "outcomes": outcomes,
+        "removed_count": removed,
+        "refused_count": len(outcomes or []) - removed,
+    }
+    return templates.TemplateResponse(request, "repositories/remove_branches.html", context)
+
+
+def _own_board(
+    repository: Repository, read: board.Board, merged: merged_branches.Listing | None
+) -> dict[str, Any]:
+    """What a repository's page shows of its board: every stage, as only its own, and its merged
+    branches, with those each delivered requirement's branch is among, by the requirement."""
+    still_here: dict[str, tuple[str, ...]] = {}
+    listed = merged.branches if merged is not None else ()
+    for card in read.stage(Stage.DELIVERED) if listed else ():
+        names = {card.name, PurePosixPath(card.page).stem} if card.page else {card.name}
+        if here := tuple(b.name for b in listed if board.belongs(b.name, names)):
+            still_here[card.name] = here
+    return {
+        "board": read,
+        "stages": tuple(Stage),
+        "scope": repository,
+        "merged": merged,
+        "still_here": still_here,
+    }
 
 
 def _fleet_board(listed: list[Repository], read: board.Board) -> dict[str, Any]:
