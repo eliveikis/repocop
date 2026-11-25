@@ -17,7 +17,6 @@ Run this on the change's own branch once its work is done, so the fold-in and th
 
 - You are **not** on `main`/`master`.
 - `git status` is clean.
-- The check command documented in `CLAUDE.md` (e.g. `make check`) is green, if the repo has one.
 
 ## Process
 
