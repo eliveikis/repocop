@@ -17,7 +17,7 @@ One per broad area of the repository, never per feature: each is the one place i
 
 | File | Covers |
 |------|--------|
-| [repositories.md](repositories.md) | Registering a repository, its status and checkout state, fetching it |
+| [repositories.md](repositories.md) | Registering a repository, its status and checkout state, fetching it, and removing its merged branches |
 | [board.md](board.md) | Where every requirement stands, across the fleet and in each repository |
 | [requirements.md](requirements.md) | A requirement's page, storage and backlog, its history of workflow runs, and its review |
 | [sessions.md](sessions.md) | The developer's agent sessions as they work, and asking one to run a workflow |
