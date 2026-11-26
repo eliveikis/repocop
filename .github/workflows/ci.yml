@@ -31,5 +31,7 @@ jobs:
           uv run ruff format --check .
       - name: Typecheck
         run: uv run mypy
+      - name: Changes' depends-on
+        run: specs/changes/backlog.sh --check
       - name: Test
         run: uv run pytest -n auto  # one worker per core; coverage is `make test-cov`

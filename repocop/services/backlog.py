@@ -158,6 +158,8 @@ def depends_on(text: str) -> tuple[str, ...]:
             raise Unreadable(
                 'lists its depends-on on one line; put each name on a line of its own, after "- "'
             )
+        elif line.lstrip(" \t").startswith("depends-on:"):
+            raise Unreadable("indents its depends-on; start it at the beginning of its line")
     raise Unreadable("its front matter has no closing ---")
 
 

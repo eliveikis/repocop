@@ -21,6 +21,7 @@ MIRRORED = (
     ".claude/skills",
     ".claude/rules/principles.md",
     ".claude/rules/specs.md",
+    ".claude/rules/decisions.md",
     ".claude/rules/skills.md",
     ".claude/rules/commits.md",
     ".claude/rules/reviews.md",

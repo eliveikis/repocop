@@ -2,7 +2,7 @@
 .DEFAULT_GOAL := help
 UV ?= uv
 
-.PHONY: help install run dev test test-cov lint format typecheck check doctor clean
+.PHONY: help install run dev test test-cov lint format typecheck depends-on check doctor clean
 
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-10s\033[0m %s\n", $$1, $$2}'
@@ -33,7 +33,10 @@ format: ## Auto-format and apply safe lint fixes
 typecheck: ## Static type check
 	$(UV) run mypy
 
-check: lint typecheck test ## Everything CI runs — run before declaring work done
+depends-on: ## Check what each change in specs/changes/ needs delivered first
+	./specs/changes/backlog.sh --check
+
+check: lint typecheck depends-on test ## Everything CI runs — run before declaring work done
 
 doctor: ## Verify host prerequisites (python, uv, git, and the optional gh)
 	@./scripts/doctor.sh

@@ -170,6 +170,8 @@ FNR == 1 {
     }
   } else if (line ~ /^depends-on:/) {
     unreadable("lists its depends-on on one line; put each name on a line of its own, after \"- \"")
+  } else if (line ~ /^[ \t]+depends-on:/) {
+    unreadable("indents its depends-on; start it at the beginning of its line")
   }
 }
 

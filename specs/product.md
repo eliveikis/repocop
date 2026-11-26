@@ -46,6 +46,7 @@ High-level themes. Each is delivered through one or more changes under `changes/
 |-----------|-------|--------|
 | v0.1 | RepoCop proven end-to-end on one machine: onboard → requirement → review → implement in a worktree → observe and steer → inspect diff | delivered |
 | Next | The fleet view: the developer's own agent does the work, and RepoCop shows where each repository and requirement stands, however the work was done | `no-requirement-editor`, `fleet-dashboard`, `no-agent-runs`, `session-events`, `queue-next-step`, `pull-request-and-review-skills`, `workflow-history` |
+| Next | Codex and Claude Code alike: developers of RepoCop and of every repository it keeps in step use the same workflows and context management in either agent, so they aren't limited to a single service | `template-section-in-agents-md`, `codex-workflows`, `codex-sessions` |
 | Later | Run on an always-on Linux host; authentication | _not yet specified_ |
 
 ## Non-goals (for now)

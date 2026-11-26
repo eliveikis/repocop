@@ -9,7 +9,7 @@
 
 ```bash
 make install     # uv sync: create .venv with runtime + dev deps
-make check       # lint + typecheck + tests. MUST be green before you say "done"
+make check       # lint + typecheck + changes' depends-on + tests. MUST be green before you say "done"
 make test        # pytest on every core (add args: make test ARGS=... or: uv run pytest tests/x.py -k name)
 make format      # ruff format + safe fixes
 make run         # start RepoCop on http://127.0.0.1:8765 (same as: uv run repocop)

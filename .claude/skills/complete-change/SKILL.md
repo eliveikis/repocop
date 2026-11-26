@@ -34,6 +34,7 @@ Run this on the change's own branch once its work is done, so the fold-in and th
 5. **Archive.**
    - Run `.claude/skills/complete-change/archive.sh <path of the change>`. It moves the change into the `archive/` folder beside its folder, its name stamped with the UTC date and time (`specs/changes/todo/<file>` → `specs/changes/archive/<stamp>-<file>`), and prints the new path, then every line that still mentions the old one.
    - Fix those mentions. Remove the ones in specs, rules and skills, which must stand without archived changes, and point any others at the new path. Update status notes that still call it current (e.g. in `CLAUDE.md`).
+   - Leave `depends-on` entries as they are (`.claude/rules/specs.md` › Dependencies).
    - Don't edit the archived file itself.
 6. **Self-review.** Before committing, read the whole diff (`git diff HEAD`, and any new files) against `.claude/rules/principles.md` and the rules whose `paths` cover the files it touches. Tests can't catch most of what they say. Fix what breaks them, and say in the report what you checked and fixed.
 7. **Commit** the fold-in and the archive together, as `.claude/rules/commits.md` says, naming the change by its file name, e.g. `Complete bulk-import`. Its body is the change's summary for its pull request: one or two sentences saying why the change was made and what it does, from its Requirement, then one line per place the work landed (a spec's section, a skill, a module), pointers rather than explanations. Nothing on how it was checked or reviewed.

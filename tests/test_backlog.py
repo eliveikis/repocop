@@ -83,6 +83,11 @@ REFUSED: dict[str, tuple[Changes, list[str], list[str]]] = {
         [],
         ['a: lists its depends-on on one line; put each name on a line of its own, after "- "'],
     ),
+    "an indented depends-on": (
+        {"a.md": "---\nmeta:\n  depends-on:\n    - b\n---\n", "b.md": ""},
+        [],
+        ["a: indents its depends-on; start it at the beginning of its line"],
+    ),
     "front matter that never closes": (
         {"a.md": "---\ndepends-on:\n  - b\n", "b.md": ""},
         [],
